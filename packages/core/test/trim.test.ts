@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SessionEngine, TrackModel, lineAlong, perpendicularLine, trimSprint, type Circuit, type XY } from '../src';
+import { SessionEngine, TrackModel, distanceMeters, lineAlong, perpendicularLine, sprintPair, trimSprint, type Circuit, type XY } from '../src';
 import { toCoords } from './fixtures';
 
 /** A winding 3 km sprint: east, a bend north, then west. Start line 120 m in. */
@@ -48,5 +48,24 @@ describe('trimSprint', () => {
   it('refuses routes too short for the length, and closed circuits', () => {
     expect(() => trimSprint(sprint(), 5000)).toThrow(/only runs/);
     expect(() => trimSprint({ ...sprint(), kind: 'closed' }, 2000)).toThrow(/sprint/);
+  });
+});
+
+describe('sprintPair', () => {
+  it('builds a hill climb and the downhill over the same exact stretch', () => {
+    const c = sprint();
+    const { up, down } = sprintPair(c.geometry, 300, 2000);
+    const def = (s: typeof up) => ({ kind: 'sprint' as const, geometry: s.geometry, startLine: s.startLine, finishLine: s.finishLine, sectors: [] });
+    expect(new SessionEngine(def(up)).lapLengthM).toBeCloseTo(2000, 0);
+    expect(new SessionEngine(def(down)).lapLengthM).toBeCloseTo(2000, 0);
+    // the up finish is where the down run starts, and vice versa
+    const mid = (l: typeof up.startLine) => ({ lat: (l.a.lat + l.b.lat) / 2, lon: (l.a.lon + l.b.lon) / 2 });
+    expect(distanceMeters(mid(up.finishLine), mid(down.startLine))).toBeLessThan(0.5);
+    expect(distanceMeters(mid(up.startLine), mid(down.finishLine))).toBeLessThan(0.5);
+    expect(down.geometry[0]).toEqual(up.geometry.at(-1));
+  });
+
+  it('says how much road is missing', () => {
+    expect(() => sprintPair(sprint().geometry, 1500, 2000)).toThrow(/more beyond the finish/);
   });
 });

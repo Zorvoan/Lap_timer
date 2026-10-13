@@ -1,4 +1,10 @@
 {
-  "command": "inspect",
-  "args": ["halenkovice"]
+  "command": "pair",
+  "spec": {
+    "up": { "match": "Halenkovice Hill Climb", "name": "Halenkovice Hill Climb" },
+    "down": { "match": "Halenkovice Downhill", "name": "Halenkovice Downhill" },
+    "lengthM": 2000,
+    "extendAt": "auto",
+    "publish": false
+  }
 }

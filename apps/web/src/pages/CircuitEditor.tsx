@@ -21,10 +21,11 @@ import { RouteLayer } from '../components/map/RouteLayer';
 import { TimingLineView } from '../components/map/TimingLines';
 import { LocateControl, SearchControl } from '../components/map/MapControls';
 import { Badge, Button, ConfirmButton, Field, Input, Notice, Spinner } from '../components/ui/primitives';
-import { IconSwap, IconTrash, IconX } from '../components/ui/icons';
+import { IconMap, IconSwap, IconTrash, IconX } from '../components/ui/icons';
 import { ElevationChart } from '../components/charts/Charts';
 import { useSettings } from '../hooks/useSettings';
 import { useAccount } from '../hooks/useData';
+import { useMediaQuery } from '../hooks/useMediaQuery';
 import { getRoutingProvider, RoutingError, type RouteResult } from '../lib/routing';
 import { getCircuit, saveCircuit } from '../lib/repo';
 import { fetchElevationProfile } from '../lib/elevation';
@@ -78,6 +79,9 @@ export function CircuitEditor() {
   };
   const [sectors, setSectors] = useState<TimingLine[]>([]);
   const [tool, setTool] = useState<Tool>(recorded ? 'start' : 'waypoints');
+  const desktop = useMediaQuery('(min-width: 768px)');
+  /** Phone: the details form is a full-screen sheet over the map; new circuits start there. */
+  const [sheetOpen, setSheetOpen] = useState(!id);
   const [elevation, setElevation] = useState<ElevationPoint[] | null>(null);
   const [elevationError, setElevationError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -273,20 +277,169 @@ export function CircuitEditor() {
     { id: 'sector', label: 'Sector', show: true },
   ];
 
+  const tap = desktop ? 'Click' : 'Tap';
   const hint =
     tool === 'waypoints'
       ? waypoints.length === 0
-        ? 'Click a road to place the start point.'
-        : 'Click along the roads you want to drive. Drag numbered markers to adjust; click one to remove it.'
+        ? `${tap} a road to place the start point.`
+        : `${tap} along the roads you want to drive. Drag numbered markers to adjust; ${tap.toLowerCase()} one to remove it.`
       : !track
         ? 'Create a route first.'
         : tool === 'sector'
-          ? 'Click on the route to add a sector line.'
-          : `Click on the route to place the ${tool === 'finish' ? 'finish' : 'start'} line. Drag its ends to adjust.`;
+          ? `${tap} on the route to add a sector line.`
+          : `${tap} on the route to place the ${tool === 'finish' ? 'finish' : 'start'} line. Drag its ends to adjust.`;
+
+  const title = existing ? 'Edit circuit' : origin === 'recorded' ? 'New circuit from GPS' : 'New circuit';
+  const form = (
+    <>
+      {!loaded ? (
+        <Spinner />
+      ) : (
+        <>
+          <Field label="Name">
+            <Input value={name} onChange={(e) => setName(e.target.value)} maxLength={80} placeholder="e.g. Hill loop" />
+          </Field>
+
+          <div>
+            <span className="label">Layout</span>
+            <div className="mt-1.5 grid grid-cols-2 gap-2">
+              {(['closed', 'sprint'] as const).map((k) => (
+                <Button key={k} variant={kind === k ? 'primary' : 'secondary'} onClick={() => setKind(k)}>
+                  {k === 'closed' ? 'Closed circuit' : 'Sprint (A→B)'}
+                </Button>
+              ))}
+            </div>
+            <p className="mt-1 text-xs text-muted">
+              {kind === 'closed' ? 'The route returns to the first waypoint; one line is start and finish.' : 'Separate start and finish lines.'}
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 rounded border border-line p-3">
+            <div>
+              <div className="label">Distance</div>
+              <div className="font-mono text-lg tabular">{track ? formatDistance(track.length, settings.distanceUnit) : '—'}</div>
+            </div>
+            <div>
+              <div className="label">{origin === 'routed' ? 'Waypoints' : 'Points'}</div>
+              <div className="font-mono text-lg tabular">{origin === 'routed' ? waypoints.length : geometry?.length ?? 0}</div>
+            </div>
+            {origin === 'routed' && geometry && (
+              <div className="col-span-2 text-xs text-muted">
+                Road geometry: {geometry.length} points from {route?.provider.toUpperCase()} — the line on the map is exactly what will be timed.
+              </div>
+            )}
+          </div>
+
+          {origin === 'routed' && routing === 'loading' && <Spinner label="Routing along roads…" />}
+          {origin === 'routed' && routeError && (
+            <Notice
+              tone="error"
+              title={routeErrorTitle(routeError.code)}
+              action={
+                routeError.code !== 'invalid_waypoints' && routeError.code !== 'no_route' ? (
+                  <Button size="sm" onClick={() => setRetry((r) => r + 1)}>
+                    Retry
+                  </Button>
+                ) : undefined
+              }
+            >
+              {routeError.message} No route is drawn until routing succeeds.
+            </Notice>
+          )}
+          {route?.warnings.map((w, i) => (
+            <Notice key={i} tone="warn" title="Check the route">
+              {w}
+            </Notice>
+          ))}
+          {issues.map((i, k) => (
+            <Notice key={k} tone={i.severity === 'error' ? 'error' : 'warn'}>
+              {i.message}
+            </Notice>
+          ))}
+
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={reverse} disabled={!geometry && waypoints.length < 2}>
+              <IconSwap width={16} height={16} /> Reverse direction
+            </Button>
+            {startLine && (
+              <Button onClick={() => setStartManual({ ...startLine, direction: startLine.direction === 1 ? -1 : 1 })} title="Flip which way the start line must be crossed">
+                Flip start line
+              </Button>
+            )}
+            {origin === 'routed' && waypoints.length > 0 && (
+              <ConfirmButton onConfirm={() => setWaypoints([])} confirmLabel="Confirm clear">
+                <IconTrash width={16} height={16} /> Clear
+              </ConfirmButton>
+            )}
+          </div>
+
+          {sectors.length > 0 && (
+            <div>
+              <span className="label">Sector lines</span>
+              <ul className="mt-1.5 space-y-1">
+                {sectors.map((_, i) => (
+                  <li key={i} className="flex items-center justify-between rounded border border-line px-3 py-1.5 text-sm">
+                    <span>
+                      <Badge tone="warn">S{i + 1}</Badge> line {i + 1}
+                    </span>
+                    <Button size="sm" variant="ghost" aria-label={`Remove sector line ${i + 1}`} onClick={() => setSectors((ss) => ss.filter((__, j) => j !== i))}>
+                      <IconTrash width={14} height={14} />
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          <div>
+            <div className="flex items-center justify-between">
+              <span className="label">Elevation</span>
+              <Button size="sm" onClick={() => void loadElevation()} disabled={!geometry}>
+                {elevation ? 'Reload' : 'Load profile'}
+              </Button>
+            </div>
+            {elevationError && <p className="mt-1 text-xs text-loss">{elevationError}</p>}
+            {elevation && elevation.length > 1 ? (
+              <div className="mt-2 h-28">
+                <ElevationChart points={elevation} distanceUnit={settings.distanceUnit} />
+              </div>
+            ) : (
+              <p className="mt-1 text-xs text-muted">Optional. Fetched from Open-Meteo (90 m terrain model).</p>
+            )}
+          </div>
+
+          {origin === 'routed' && (
+            <p className="text-xs text-muted">
+              Routing: {config.osrmUrl.replace(/^https?:\/\//, '')} ({config.osrmProfile}). The public OSRM demo is rate limited and for light use only.
+            </p>
+          )}
+        </>
+      )}
+    </>
+  );
+  const saveFooter = (
+    <>
+      {saveError && (
+        <p role="alert" className="mb-2 text-sm text-loss">
+          {saveError}
+        </p>
+      )}
+      <Button variant="primary" size="lg" className="w-full" onClick={() => void save()} disabled={saving || !track}>
+        {saving ? 'Saving…' : 'Save circuit'}
+      </Button>
+    </>
+  );
+
+  /** Phone save: problems that need the form (name, …) open the details sheet. */
+  async function saveFromPhone() {
+    if (!name.trim() || !track) setSheetOpen(true);
+    if (!track) return setSaveError('Create a route on the map first.');
+    await save();
+  }
 
   return (
     <div className="flex h-full flex-col md:flex-row">
-      <div className="relative min-h-[55vh] flex-1">
+      <div className="relative min-h-0 flex-1">
         <BaseMap>
           <MapClick onClick={onMapClick} />
           <SearchControl />
@@ -341,149 +494,83 @@ export function CircuitEditor() {
         </BaseMap>
       </div>
 
-      <aside className="flex max-h-[45vh] min-h-0 flex-col border-t border-line bg-panel md:max-h-none md:w-96 md:border-l md:border-t-0">
-        <div className="flex items-center justify-between border-b border-line px-4 py-3">
-          <h1 className="label">{existing ? 'Edit circuit' : origin === 'recorded' ? 'New circuit from GPS' : 'New circuit'}</h1>
-          <Button size="sm" variant="ghost" aria-label="Cancel" onClick={() => navigate(-1)}>
-            <IconX width={16} height={16} />
-          </Button>
-        </div>
-        <div className="min-h-0 flex-1 space-y-4 overflow-auto p-4">
-          {!loaded ? (
-            <Spinner />
-          ) : (
-            <>
-              <Field label="Name">
-                <Input value={name} onChange={(e) => setName(e.target.value)} maxLength={80} placeholder="e.g. Hill loop" />
-              </Field>
-
-              <div>
-                <span className="label">Layout</span>
-                <div className="mt-1.5 grid grid-cols-2 gap-2">
-                  {(['closed', 'sprint'] as const).map((k) => (
-                    <Button key={k} variant={kind === k ? 'primary' : 'secondary'} onClick={() => setKind(k)}>
-                      {k === 'closed' ? 'Closed circuit' : 'Sprint (A→B)'}
-                    </Button>
-                  ))}
-                </div>
-                <p className="mt-1 text-xs text-muted">
-                  {kind === 'closed' ? 'The route returns to the first waypoint; one line is start and finish.' : 'Separate start and finish lines.'}
-                </p>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3 rounded border border-line p-3">
-                <div>
-                  <div className="label">Distance</div>
-                  <div className="font-mono text-lg tabular">{track ? formatDistance(track.length, settings.distanceUnit) : '—'}</div>
-                </div>
-                <div>
-                  <div className="label">{origin === 'routed' ? 'Waypoints' : 'Points'}</div>
-                  <div className="font-mono text-lg tabular">{origin === 'routed' ? waypoints.length : geometry?.length ?? 0}</div>
-                </div>
-                {origin === 'routed' && geometry && (
-                  <div className="col-span-2 text-xs text-muted">
-                    Road geometry: {geometry.length} points from {route?.provider.toUpperCase()} — the line on the map is exactly what will be timed.
-                  </div>
-                )}
-              </div>
-
-              {origin === 'routed' && routing === 'loading' && <Spinner label="Routing along roads…" />}
-              {origin === 'routed' && routeError && (
-                <Notice
-                  tone="error"
-                  title={routeErrorTitle(routeError.code)}
-                  action={
-                    routeError.code !== 'invalid_waypoints' && routeError.code !== 'no_route' ? (
-                      <Button size="sm" onClick={() => setRetry((r) => r + 1)}>
-                        Retry
-                      </Button>
-                    ) : undefined
-                  }
-                >
-                  {routeError.message} No route is drawn until routing succeeds.
-                </Notice>
-              )}
-              {route?.warnings.map((w, i) => (
-                <Notice key={i} tone="warn" title="Check the route">
-                  {w}
-                </Notice>
-              ))}
-              {issues.map((i, k) => (
-                <Notice key={k} tone={i.severity === 'error' ? 'error' : 'warn'}>
-                  {i.message}
-                </Notice>
-              ))}
-
-              <div className="flex flex-wrap gap-2">
-                <Button onClick={reverse} disabled={!geometry && waypoints.length < 2}>
-                  <IconSwap width={16} height={16} /> Reverse direction
+      {desktop ? (
+        <aside className="flex min-h-0 w-96 flex-col border-l border-line bg-panel">
+          <div className="flex items-center justify-between border-b border-line px-4 py-3">
+            <h1 className="label">{title}</h1>
+            <Button size="sm" variant="ghost" aria-label="Cancel" onClick={() => navigate(-1)}>
+              <IconX width={16} height={16} />
+            </Button>
+          </div>
+          <div className="min-h-0 flex-1 space-y-4 overflow-auto p-4">{form}</div>
+          <div className="border-t border-line p-3">{saveFooter}</div>
+        </aside>
+      ) : (
+        <>
+          {/* Phone: the map gets the screen; a summary bar opens the details sheet. */}
+          <div className="border-t border-line bg-panel px-3 pb-3 pt-2">
+            <button type="button" onClick={() => setSheetOpen(true)} className="flex w-full items-center justify-between gap-3 py-1 text-left">
+              <span className="min-w-0">
+                <span className={`block truncate text-base font-bold ${name.trim() ? '' : 'text-muted'}`}>{name.trim() || 'Untitled circuit'}</span>
+                <span className="block text-xs text-muted">
+                  {kind === 'closed' ? 'Closed circuit' : 'Sprint A→B'} · {track ? formatDistance(track.length, settings.distanceUnit) : 'no route yet'}
+                  {issues.length > 0 && <span className="text-warn"> · {issues.length} to check</span>}
+                </span>
+              </span>
+              <span className="shrink-0 text-sm font-semibold text-accent">Edit details</span>
+            </button>
+            {saveError && !sheetOpen && (
+              <p role="alert" className="mt-1 text-sm text-loss">
+                {saveError}
+              </p>
+            )}
+            <div className="mt-2 grid grid-cols-[auto_1fr] gap-2">
+              <Button size="lg" aria-label="Cancel" onClick={() => navigate(-1)}>
+                <IconX width={18} height={18} />
+              </Button>
+              <Button variant="primary" size="lg" onClick={() => void saveFromPhone()} disabled={saving}>
+                {saving ? 'Saving…' : 'Save circuit'}
+              </Button>
+            </div>
+          </div>
+          {sheetOpen && (
+            <div role="dialog" aria-modal="true" aria-label={title} className="fixed inset-0 z-[1500] flex flex-col bg-panel pb-[env(safe-area-inset-bottom)] pt-[env(safe-area-inset-top)]">
+              <div className="flex items-center justify-between border-b border-line px-4 py-3">
+                <h1 className="text-lg font-bold">{title}</h1>
+                <Button size="sm" onClick={() => setSheetOpen(false)}>
+                  <IconMap width={16} height={16} /> Back to map
                 </Button>
-                {startLine && (
-                  <Button onClick={() => setStartManual({ ...startLine, direction: startLine.direction === 1 ? -1 : 1 })} title="Flip which way the start line must be crossed">
-                    Flip start line
-                  </Button>
-                )}
-                {origin === 'routed' && waypoints.length > 0 && (
-                  <ConfirmButton onConfirm={() => setWaypoints([])} confirmLabel="Confirm clear">
-                    <IconTrash width={16} height={16} /> Clear
-                  </ConfirmButton>
-                )}
               </div>
-
-              {sectors.length > 0 && (
-                <div>
-                  <span className="label">Sector lines</span>
-                  <ul className="mt-1.5 space-y-1">
-                    {sectors.map((_, i) => (
-                      <li key={i} className="flex items-center justify-between rounded border border-line px-3 py-1.5 text-sm">
-                        <span>
-                          <Badge tone="warn">S{i + 1}</Badge> line {i + 1}
-                        </span>
-                        <Button size="sm" variant="ghost" aria-label={`Remove sector line ${i + 1}`} onClick={() => setSectors((ss) => ss.filter((__, j) => j !== i))}>
-                          <IconTrash width={14} height={14} />
-                        </Button>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              <div>
-                <div className="flex items-center justify-between">
-                  <span className="label">Elevation</span>
-                  <Button size="sm" onClick={() => void loadElevation()} disabled={!geometry}>
-                    {elevation ? 'Reload' : 'Load profile'}
-                  </Button>
-                </div>
-                {elevationError && <p className="mt-1 text-xs text-loss">{elevationError}</p>}
-                {elevation && elevation.length > 1 ? (
-                  <div className="mt-2 h-28">
-                    <ElevationChart points={elevation} distanceUnit={settings.distanceUnit} />
-                  </div>
+              <div className="min-h-0 flex-1 space-y-5 overflow-auto p-4">
+                {!track && origin === 'routed' && (
+                  <ol className="list-decimal space-y-1 rounded border border-line bg-raised p-3 pl-8 text-sm text-muted">
+                    <li>Name the circuit and choose closed circuit or sprint.</li>
+                    <li>On the map, tap along the roads you want to drive.</li>
+                    <li>Switch to {kind === 'closed' ? 'Start/finish' : 'Start, then Finish,'} and tap the route to place the line.</li>
+                  </ol>
+                )}
+                {form}
+              </div>
+              <div className="border-t border-line p-3">
+                {track ? (
+                  saveFooter
                 ) : (
-                  <p className="mt-1 text-xs text-muted">Optional. Fetched from Open-Meteo (90 m terrain model).</p>
+                  <>
+                    {saveError && (
+                      <p role="alert" className="mb-2 text-sm text-loss">
+                        {saveError}
+                      </p>
+                    )}
+                    <Button variant="primary" size="lg" className="w-full" onClick={() => (setSaveError(null), setSheetOpen(false))}>
+                      Continue on the map
+                    </Button>
+                  </>
                 )}
               </div>
-
-              {origin === 'routed' && (
-                <p className="text-xs text-muted">
-                  Routing: {config.osrmUrl.replace(/^https?:\/\//, '')} ({config.osrmProfile}). The public OSRM demo is rate limited and for light use only.
-                </p>
-              )}
-            </>
+            </div>
           )}
-        </div>
-        <div className="border-t border-line p-3">
-          {saveError && (
-            <p role="alert" className="mb-2 text-sm text-loss">
-              {saveError}
-            </p>
-          )}
-          <Button variant="primary" size="lg" className="w-full" onClick={() => void save()} disabled={saving || !track}>
-            {saving ? 'Saving…' : 'Save circuit'}
-          </Button>
-        </div>
-      </aside>
+        </>
+      )}
     </div>
   );
 }

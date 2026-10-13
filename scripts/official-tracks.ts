@@ -7,14 +7,15 @@
  * Commands (also read from scripts/official-tracks.job.json when no arguments are given):
  *   inspect <text>     Circuits of any user whose name contains <text>: lengths, lines, overlap.
  *   publish <spec>     Publishes circuits as official tracks; see {@link PublishSpec}.
+ *   pair <spec>        A hill climb and its downhill over the same exact distance; see {@link PairSpec}.
  *
  * The service account needs the "Cloud Datastore User" role. It bypasses the security rules,
  * so the output never prints more than the matched circuits' own summary.
  */
 import { createSign } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { TrackModel, lineAlong, type Circuit } from '../packages/core/src/index';
-import { trimSprint } from '../packages/core/src/trim';
+import { TrackModel, bearingDeg, distanceMeters, lineAlong, type Circuit, type ElevationPoint, type LonLat } from '../packages/core/src/index';
+import { sprintPair, trimSprint, type SprintShape } from '../packages/core/src/trim';
 import { decodeCircuit, encodeCircuit, type CircuitDoc } from '../apps/web/src/lib/cloud/codec';
 
 const PROJECT = process.env.FIREBASE_PROJECT ?? 'laptimer-okwph';
@@ -184,6 +185,168 @@ async function publish(token: string, spec: PublishSpec) {
   }
 }
 
+// ---------------------------------------------------------------- hill climb + downhill pair
+
+const OSRM = 'https://router.project-osrm.org';
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const angleDiff = (a: number, b: number) => Math.abs(((a - b + 540) % 360) - 180);
+
+async function osrmRoute(points: LonLat[]): Promise<LonLat[] | null> {
+  await sleep(1100); // public demo server: at most 1 request per second
+  const coords = points.map(([lon, lat]) => `${lon.toFixed(6)},${lat.toFixed(6)}`).join(';');
+  const res = await fetch(`${OSRM}/route/v1/driving/${coords}?overview=full&geometries=geojson&continue_straight=true`);
+  if (!res.ok) return null;
+  const body = (await res.json()) as { code: string; routes?: { geometry: { coordinates: LonLat[] } }[] };
+  return body.code === 'Ok' ? (body.routes?.[0]?.geometry.coordinates ?? null) : null;
+}
+
+/** Elevation every ~25 m along a route (Open-Meteo, ~90 m terrain model). */
+async function elevationProfile(geometry: LonLat[]): Promise<ElevationPoint[]> {
+  const track = TrackModel.fromCoordinates(geometry, false);
+  const n = Math.min(100, Math.max(2, Math.ceil(track.length / 25) + 1));
+  const ds = Array.from({ length: n }, (_, i) => (track.length * i) / (n - 1));
+  const pts = ds.map((d) => track.latLonAt(d));
+  const url = `https://api.open-meteo.com/v1/elevation?latitude=${pts.map((p) => p.lat.toFixed(5)).join(',')}&longitude=${pts.map((p) => p.lon.toFixed(5)).join(',')}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Elevation request failed: HTTP ${res.status}`);
+  const body = (await res.json()) as { elevation: number[] };
+  return ds.map((d, i) => ({ d, elevation: body.elevation[i] }));
+}
+
+/**
+ * Road continuing beyond one end of a route, at least `needM` long, from the routing service.
+ * Tries destinations ahead in the direction of travel (and slightly to either side) and keeps
+ * the first route that carries straight on along the road instead of turning back.
+ */
+async function extendRoad(track: TrackModel, end: 'start' | 'finish', needM: number): Promise<LonLat[] | null> {
+  const atEnd = end === 'finish' ? track.length : 0;
+  const tip = track.latLonAt(atEnd);
+  const inward = track.latLonAt(end === 'finish' ? Math.max(0, track.length - 40) : Math.min(track.length, 40));
+  const outBearing = bearingDeg(inward, tip);
+  const frame = track.frame;
+  for (const dist of [350, 700]) {
+    for (const offset of [0, 30, -30, 60, -60]) {
+      const b = ((outBearing + offset) * Math.PI) / 180;
+      const tipXY = frame.toXY(tip);
+      const target = frame.toLatLon({ x: tipXY.x + dist * Math.sin(b), y: tipXY.y + dist * Math.cos(b) });
+      const tipLL: LonLat = [tip.lon, tip.lat];
+      const targetLL: LonLat = [target.lon, target.lat];
+      const raw = await osrmRoute(end === 'finish' ? [tipLL, targetLL] : [targetLL, tipLL]);
+      if (!raw || raw.length < 2) continue;
+      // Orient away from the route, then check it carries on along the road.
+      const away = end === 'finish' ? raw : [...raw].reverse();
+      const ext = TrackModel.fromCoordinates(away, false, { minLengthM: 1 });
+      if (ext.length < needM) continue;
+      const startsAtTip = distanceMeters(ext.latLonAt(0), tip) < 15;
+      const heading = bearingDeg(ext.latLonAt(0), ext.latLonAt(Math.min(40, ext.length)));
+      const backtracks = [needM * 0.5, needM].some((d) => track.nearest(track.toXY(ext.latLonAt(d))).lateral < 10);
+      if (!startsAtTip || angleDiff(heading, outBearing) > 50 || backtracks) continue;
+      const cut: LonLat[] = [];
+      for (let i = 0; i < ext.coords.length && ext.cum[i] <= needM + 30; i++) cut.push(ext.coords[i]);
+      console.log(`  ${end}: road continues on a heading of ${heading.toFixed(0)}° (route heading ${outBearing.toFixed(0)}°), took ${Math.round(Math.min(ext.length, needM + 30))} m`);
+      return end === 'finish' ? cut : cut.reverse();
+    }
+  }
+  return null;
+}
+
+/**
+ * A hill climb (`up`) and its downhill (`down`) published as official tracks over exactly
+ * `lengthM` of the same road. The up run's lines are kept where possible; missing road is added
+ * at `extendAt` ('finish', 'start' or 'auto' = finish, then start). `publish: false` only reports.
+ */
+interface PairSpec {
+  up: { match: string; name: string };
+  down: { match: string; name: string };
+  lengthM: number;
+  extendAt?: 'finish' | 'start' | 'auto';
+  publish?: boolean;
+}
+
+async function pair(token: string, spec: PairSpec) {
+  const all = await allCircuits(token);
+  const find = (match: string) => {
+    const m = all.filter((o) => norm(o.circuit.name) === norm(match));
+    if (m.length !== 1) throw new Error(`"${match}": ${m.length ? `${m.length} circuits with this name` : 'not found'}`);
+    return m[0];
+  };
+  const up = find(spec.up.match);
+  const down = find(spec.down.match);
+  const runout = 15;
+  let geometry = up.circuit.geometry;
+  let track = TrackModel.fromCoordinates(geometry, false);
+  const a = lineAlong(track, up.circuit.startLine);
+  const b = up.circuit.finishLine ? lineAlong(track, up.circuit.finishLine) : null;
+  if (a === null || b === null) throw new Error(`"${up.circuit.name}" needs a start and a finish line on its route.`);
+  const missing = spec.lengthM - (b - a);
+  console.log(`"${up.circuit.name}": start→finish ${km(b - a)}, ${missing > 0 ? `${Math.round(missing)} m short` : `${Math.round(-missing)} m too long`} of ${km(spec.lengthM)}`);
+
+  let startAlong = a;
+  if (missing > 0) {
+    const order = spec.extendAt === 'start' ? ['start'] : spec.extendAt === 'finish' ? ['finish'] : ['finish', 'start'];
+    let done = false;
+    for (const end of order as ('start' | 'finish')[]) {
+      const have = end === 'finish' ? track.length - b : a;
+      const need = missing + runout - have + 5;
+      const ext = need > 0 ? await extendRoad(track, end, need) : [];
+      if (!ext) {
+        console.log(`  ${end}: no road found that carries straight on`);
+        continue;
+      }
+      if (end === 'finish') geometry = [...geometry, ...ext.slice(1)];
+      else {
+        geometry = [...ext.slice(0, -1), ...geometry];
+        const added = TrackModel.fromCoordinates(geometry, false).length - track.length;
+        startAlong = a + added - missing;
+      }
+      done = true;
+      break;
+    }
+    if (!done) throw new Error('Could not extend the road at either end.');
+    track = TrackModel.fromCoordinates(geometry, false);
+  }
+
+  const shapes = sprintPair(geometry, startAlong, spec.lengthM, runout);
+  const profile = await elevationProfile(shapes.up.geometry);
+  const len = TrackModel.fromCoordinates(shapes.up.geometry, false).length;
+  const downProfile = [...profile].reverse().map((p) => ({ d: len - p.d, elevation: p.elevation }));
+  const at = (d: number) => profile.reduce((best, p) => (Math.abs(p.d - d) < Math.abs(best.d - d) ? p : best)).elevation;
+  const midOf = (s: SprintShape, which: 'startLine' | 'finishLine') => ll({ lat: (s[which].a.lat + s[which].b.lat) / 2, lon: (s[which].a.lon + s[which].b.lon) / 2 });
+  console.log(`\nUp   "${spec.up.name}": start ${midOf(shapes.up, 'startLine')} (${at(runout).toFixed(0)} m) → finish ${midOf(shapes.up, 'finishLine')} (${at(runout + spec.lengthM).toFixed(0)} m)`);
+  console.log(`Down "${spec.down.name}": start ${midOf(shapes.down, 'startLine')} → finish ${midOf(shapes.down, 'finishLine')}`);
+  console.log(`Climb ${(at(runout + spec.lengthM) - at(runout)).toFixed(0)} m over ${km(spec.lengthM)}`);
+
+  if (!spec.publish) {
+    console.log('\nDry run: nothing published (set "publish": true).');
+    return;
+  }
+  const featured = await listDocs(token, 'featured');
+  let order = Math.max(-1, ...featured.map((f) => Number(f.data.featuredOrder ?? -1))) + 1;
+  const now = Date.now();
+  for (const [o, shape, name, elevation] of [
+    [up, shapes.up, spec.up.name, profile],
+    [down, shapes.down, spec.down.name, downProfile],
+  ] as const) {
+    const existing = featured.find((f) => f.id === o.circuit.id);
+    const circuit: Circuit = {
+      ...o.circuit,
+      ...shape,
+      name,
+      kind: 'sprint',
+      origin: 'imported',
+      waypoints: [],
+      sectors: [],
+      elevation: [...elevation],
+      routing: o.circuit.routing ? { ...o.circuit.routing, warnings: [] } : null,
+      updatedAt: now,
+    };
+    const doc = { ...encodeCircuit(circuit), featuredOrder: existing ? Number(existing.data.featuredOrder) : order++, featuredBy: o.uid };
+    await api(token, 'PATCH', `${BASE}/featured/${circuit.id}`, { fields: toFields(doc) });
+    console.log(`\nPublished "${name}" (featured/${circuit.id}, order ${doc.featuredOrder})`);
+    for (const line of describe(circuit)) console.log(line);
+  }
+}
+
 async function main() {
   let [command, ...args] = process.argv.slice(2);
   let spec: unknown = null;
@@ -196,6 +359,7 @@ async function main() {
   const token = await accessToken();
   if (command === 'inspect') await inspect(token, args.join(' '));
   else if (command === 'publish') await publish(token, (spec ?? JSON.parse(args[0])) as PublishSpec);
+  else if (command === 'pair') await pair(token, (spec ?? JSON.parse(args[0])) as PairSpec);
   else throw new Error(`Unknown command "${command}".`);
 }
 
