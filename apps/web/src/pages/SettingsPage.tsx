@@ -131,6 +131,12 @@ export function SettingsPage() {
           <Toggle checked={settings.voiceAnnouncements} onChange={(v) => void update({ voiceAnnouncements: v })} label="Announce lap times" hint="Spoken lap time and delta." />
           <Toggle checked={settings.keepScreenOn} onChange={(v) => void update({ keepScreenOn: v })} label="Keep screen on" hint="Uses the Screen Wake Lock API where available." />
           <Toggle checked={settings.showLiveMap} onChange={(v) => void update({ showLiveMap: v })} label="Show map on live screen" />
+          <Toggle
+            checked={settings.autoStopSprint}
+            onChange={(v) => void update({ autoStopSprint: v })}
+            label="Finish sprints automatically"
+            hint="A sprint session stops and saves itself after the finish line. Off: keep timing for more runs."
+          />
         </Panel>
 
         <Panel title="Privacy">

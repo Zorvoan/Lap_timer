@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { PageHeader } from '../components/AppShell';
+import { SAFETY_DETAIL, SAFETY_TEXT, acceptSafety } from '../lib/safety';
 import { Button, ConfirmButton, Field, Input, Notice, Panel, Spinner } from '../components/ui/primitives';
 import { useAccount } from '../hooks/useData';
 import { describeError, login, logout, register, resetPassword, syncNow, updateProfile } from '../lib/cloud/account';
@@ -35,6 +36,7 @@ function SignInForm() {
   const [mode, setMode] = useState<Mode>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [legal, setLegal] = useState(false);
   const [confirm, setConfirm] = useState('');
   const [nickname, setNickname] = useState('');
   const [car, setCar] = useState('');
@@ -52,11 +54,15 @@ function SignInForm() {
       if (password !== confirm) return setError('The passwords do not match.');
       const p = validateNickname(nickname) ?? validateCar(car);
       if (p) return setError(p);
+      if (!legal) return setError('Please confirm that you will only drive legally.');
     }
     setBusy(true);
     try {
       if (mode === 'login') await login(email, password);
-      else if (mode === 'register') await register(email, password, nickname, car);
+      else if (mode === 'register') {
+        await register(email, password, nickname, car);
+        await acceptSafety();
+      }
       else {
         await resetPassword(email);
         setInfo('If an account exists for this e-mail, a link to set a new password is on its way.');
@@ -112,6 +118,12 @@ function SignInForm() {
             <Field label="Car" hint='Shown next to your times, e.g. "Škoda Octavia RS 2.0 TSI".'>
               <Input value={car} onChange={(e) => setCar(e.target.value)} maxLength={60} required />
             </Field>
+            <label className="flex items-start gap-3 rounded border border-line p-3 text-sm">
+              <input type="checkbox" className="mt-0.5 h-5 w-5 shrink-0 accent-[rgb(var(--c-accent))]" checked={legal} onChange={(e) => setLegal(e.target.checked)} />
+              <span>
+                {SAFETY_TEXT} <span className="text-muted">{SAFETY_DETAIL}</span>
+              </span>
+            </label>
           </>
         )}
         {error && (

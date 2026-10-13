@@ -11,6 +11,8 @@ export const settingsSchema = z.object({
   voiceAnnouncements: z.boolean(),
   keepScreenOn: z.boolean(),
   showLiveMap: z.boolean(),
+  /** A sprint session stops and saves itself a few seconds after the finish line. */
+  autoStopSprint: z.boolean(),
   theme: z.enum(['dark', 'light']),
   mapStyle: z.enum(['dark', 'standard']),
   /** Keep raw GPS samples with saved sessions (needed for re-processing and raw export). */
@@ -33,6 +35,7 @@ export const DEFAULT_SETTINGS: Settings = {
   voiceAnnouncements: false,
   keepScreenOn: true,
   showLiveMap: true,
+  autoStopSprint: true,
   theme: 'dark',
   mapStyle: 'dark',
   storeRawSamples: true,

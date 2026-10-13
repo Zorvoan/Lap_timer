@@ -46,3 +46,10 @@ export function announceLap(lap: number, timeMs: number, deltaMs: number | null)
   speechSynthesis.cancel();
   speechSynthesis.speak(new SpeechSynthesisUtterance(`Lap ${lap}, ${time}${delta}`));
 }
+
+export function announceSector(sector: number, refDeltaMs: number | null): void {
+  if (typeof speechSynthesis === 'undefined' || refDeltaMs === null) return;
+  const d = formatDelta(refDeltaMs, 1);
+  speechSynthesis.cancel();
+  speechSynthesis.speak(new SpeechSynthesisUtterance(`Sector ${sector}, ${d.startsWith('-') ? 'minus' : 'plus'} ${d.slice(1)}`));
+}

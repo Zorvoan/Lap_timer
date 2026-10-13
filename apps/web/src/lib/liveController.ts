@@ -1,19 +1,24 @@
 import {
   DEFAULT_ENGINE_CONFIG,
   ReferenceLap,
+  LiveSectors,
   SessionEngine,
   distanceMeters,
+  idealLap,
+  splitTimes,
   type Circuit,
   type EngineConfig,
   type GpsSample,
   type LapRecord,
   type LatLon,
   type LiveSnapshot,
+  type SectorSplit,
+  type SessionSource,
   type ReferenceSelection,
   type Session,
   type TimingEvent,
 } from '@laptimer/core';
-import { announceLap, beepLap, beepStart } from './audio';
+import { announceLap, announceSector, beepLap, beepStart } from './audio';
 import { getDb, type ActiveSessionInfo } from './db';
 import { assessGps, type GpsAssessment } from './gps/capability';
 import type { GpsError, GpsSource } from './gps/types';
@@ -55,6 +60,12 @@ export interface LiveState {
   wakeLockActive: boolean;
   trail: LatLon[];
   lastLap: LapFlash | null;
+  /** Sectors (thirds by distance) finished in the lap in progress, or in the lap just completed. */
+  sectors: SectorSplit[];
+  /** Session lap number (without the circuit offset) that `sectors` belong to. */
+  sectorsLap: number;
+  /** The sector just finished, for a few seconds' flash on the live screen. */
+  sectorFlash: (SectorSplit & { at: number }) | null;
   /** Laps already driven on this circuit in earlier sessions; display lap = offset + session lap. */
   lapOffset: number;
   lastEvent: TimingEvent | null;
@@ -77,6 +88,9 @@ const initialState = (): LiveState => ({
   wakeLockActive: false,
   trail: [],
   lastLap: null,
+  sectors: [],
+  sectorsLap: 0,
+  sectorFlash: null,
   lapOffset: 0,
   lastEvent: null,
   clock: () => Date.now(),
@@ -112,6 +126,11 @@ export class LiveController {
   private tickTimer: ReturnType<typeof setInterval> | null = null;
   private readonly wakeLock = new ScreenWakeLock();
   private lapOffset = 0;
+  /** Splits the lap in progress into thirds as it is driven. */
+  private liveSectors: LiveSectors | null = null;
+  private sectorLap = -1;
+  /** Best time per third on this circuit before this session (for "purple" sectors). */
+  private bestSectorsBefore: number[] = [];
   /** Sample clock − source clock. GPS timestamps can differ from the system clock on some devices. */
   private clockOffset = 0;
 
@@ -148,7 +167,9 @@ export class LiveController {
       reference: reference?.selection ?? null,
       updatedAt: now,
     };
-    this.lapOffset = lapsDrivenBefore(await listSessions(circuit.id), source.kind, session.id);
+    const history = await listSessions(circuit.id);
+    this.lapOffset = lapsDrivenBefore(history, source.kind, session.id);
+    this.bestSectorsBefore = bestSectorsOf(history, source.kind, session.id, engine.lapLengthM);
     await saveSession(session);
     await this.begin(circuit, source, reference, settings, engine, session, 0, []);
     beepStart();
@@ -157,8 +178,10 @@ export class LiveController {
   /** Resumes a session interrupted by a reload or crash by replaying its stored samples. */
   async recover(active: ActiveSessionInfo, circuit: Circuit, session: Session, source: GpsSource, reference: ActiveReference | null, settings: Settings): Promise<void> {
     const samples = await getSamples(active.sessionId);
-    this.lapOffset = lapsDrivenBefore(await listSessions(circuit.id), source.kind, session.id);
+    const history = await listSessions(circuit.id);
+    this.lapOffset = lapsDrivenBefore(history, source.kind, session.id);
     const engine = new SessionEngine(circuit, engineConfigFrom(settings), reference?.ref ?? null);
+    this.bestSectorsBefore = bestSectorsOf(history, source.kind, session.id, engine.lapLengthM);
     engine.replay(samples, active.marks);
     // Time passed while the app was not running: the lap in progress can't be trusted.
     if (!engine.paused) engine.pause(Date.now());
@@ -191,6 +214,8 @@ export class LiveController {
     this.chunk = chunk;
     this.pending = [];
     this.allSamples = [...priorSamples];
+    this.liveSectors = new LiveSectors(engine.lapLengthM, reference?.ref ?? null, this.bestSectorsBefore);
+    this.sectorLap = -1;
     await this.persistActive();
 
     this.set({
@@ -242,10 +267,36 @@ export class LiveController {
     };
     if (events.length) patch.lastEvent = events[events.length - 1];
     if (engine.laps.length > lapsBefore) {
-      for (const lap of engine.laps.slice(lapsBefore)) patch.lastLap = this.onLapCompleted(lap);
+      for (const lap of engine.laps.slice(lapsBefore)) {
+        const last = this.liveSectors?.finish(lap.timeMs) ?? null;
+        if (last) {
+          patch.sectors = [...(this.state.sectorsLap === lap.lap ? this.state.sectors : []), last];
+          patch.sectorsLap = lap.lap;
+        }
+        patch.lastLap = this.onLapCompleted(lap);
+      }
       void this.saveProgress();
     }
+    this.trackSectors(snapshot, s.t, patch);
     this.set(patch);
+  }
+
+  /** Feeds the lap in progress to the sector splitter and flashes each third as it ends. */
+  private trackSectors(snap: LiveSnapshot, t: number, patch: Partial<LiveState>) {
+    const ls = this.liveSectors;
+    if (!ls) return;
+    if (snap.lap !== this.sectorLap) {
+      this.sectorLap = snap.lap;
+      ls.reset();
+    }
+    if (snap.lapState !== 'in_lap' || snap.lapDistanceM === null || snap.lapStartT === null) return;
+    const done = ls.update(t - snap.lapStartT, snap.lapDistanceM);
+    if (!done.length) return;
+    const latest = done[done.length - 1];
+    patch.sectors = [...(this.state.sectorsLap === snap.lap ? this.state.sectors : []), ...done];
+    patch.sectorsLap = snap.lap;
+    patch.sectorFlash = { ...latest, at: Date.now() };
+    if (this.settings?.voiceAnnouncements) announceSector(latest.sector + 1, latest.refDeltaMs);
   }
 
   private onLapCompleted(lap: LapRecord): LapFlash {
@@ -264,6 +315,7 @@ export class LiveController {
         };
         this.reference = next;
         engine.setReference(next.ref);
+        this.liveSectors?.setReference(next.ref);
         this.set({ reference: { label: next.label, lapTimeMs: next.ref.lapTimeMs, selection: next.selection } });
       } catch (e) {
         log.warn('could not use lap as reference', { lap: lap.lap, error: String(e) });
@@ -373,6 +425,14 @@ export class LiveController {
     this.clockOffset = 0;
     this.set(initialState());
   }
+}
+
+/** Best time per third of the lap across earlier valid laps of the same kind (GPS or simulated). */
+function bestSectorsOf(history: readonly Session[], source: SessionSource, excludeId: string, lapLengthM: number): number[] {
+  const splits = history
+    .filter((s) => s.source === source && s.id !== excludeId)
+    .flatMap((s) => s.laps.filter((l) => l.valid).map((l) => splitTimes(l.trace, l.timeMs, lapLengthM, 3)));
+  return idealLap(splits)?.sectorsMs ?? [];
 }
 
 export const liveController = new LiveController();
