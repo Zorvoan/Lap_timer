@@ -1,0 +1,32 @@
+# Runs scripts/official-tracks.ts with the job in scripts/official-tracks.job.json whenever that
+# job (or the script) changes on the deploy branch. Inspecting or publishing official tracks needs
+# the FIREBASE_SERVICE_ACCOUNT secret with the "Cloud Datastore User" role.
+name: Official tracks
+
+on:
+  push:
+    branches: [claude/serene-curie-ewf8qe]
+    paths:
+      - scripts/official-tracks.job.json
+      - scripts/official-tracks.ts
+
+concurrency:
+  group: official-tracks
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Run job
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: npx tsx scripts/official-tracks.ts

@@ -11,3 +11,4 @@ export * from './analysis';
 export * from './format';
 export * from './recording';
 export * from './sim';
+export * from './trim';
