@@ -1,0 +1,31 @@
+{
+  "name": "lap-timer",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w @laptimer/web",
+    "dev:server": "npm run dev -w @laptimer/server",
+    "dev:server:memory": "npm run dev:memory -w @laptimer/server",
+    "build": "npm run build -w @laptimer/web && npm run build -w @laptimer/server",
+    "test": "npm run test --workspaces --if-present",
+    "lint": "eslint .",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "deploy:firebase": "npm run build:firebase -w @laptimer/web && firebase deploy --only hosting",
+    "emulators": "firebase emulators:start --only auth,firestore --project demo-laptimer",
+    "dev:emulators": "npm run dev:emulators -w @laptimer/web"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.12.0",
+    "eslint": "^9.12.0",
+    "eslint-plugin-react-hooks": "^5.0.0",
+    "globals": "^15.11.0",
+    "typescript": "~5.6.3",
+    "typescript-eslint": "^8.8.1",
+    "vitest": "^2.1.3"
+  }
+}

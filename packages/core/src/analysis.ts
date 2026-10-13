@@ -1,0 +1,124 @@
+import { ReferenceLap } from './delta';
+import type { LapRecord, LapTracePoint } from './model';
+
+export interface AlignedRow {
+  /** Distance from the start line, m. */
+  d: number;
+  tA: number;
+  tB: number;
+  /** tA − tB, ms. Negative means lap A was ahead at this point. */
+  deltaMs: number;
+  vA: number | null;
+  vB: number | null;
+}
+
+/** Speed at distance d by linear interpolation over trace points with known speed. */
+export function speedAt(trace: readonly LapTracePoint[], d: number): number | null {
+  let prev: LapTracePoint | null = null;
+  for (const p of trace) {
+    if (p.v === null) continue;
+    if (p.d >= d) {
+      if (!prev) return p.v;
+      const span = p.d - prev.d;
+      if (span <= 0) return p.v;
+      return (prev.v as number) + ((d - prev.d) / span) * (p.v - (prev.v as number));
+    }
+    prev = p;
+  }
+  return prev ? prev.v : null;
+}
+
+/**
+ * Aligns two laps by distance along the circuit (not elapsed time) on a regular grid.
+ * This is what makes "where was time gained or lost" meaningful.
+ */
+export function compareLaps(a: LapRecord, b: LapRecord, lapLengthM: number, stepM = 5): AlignedRow[] {
+  const ra = ReferenceLap.fromTrace(a.trace, a.timeMs, lapLengthM);
+  const rb = ReferenceLap.fromTrace(b.trace, b.timeMs, lapLengthM);
+  const rows: AlignedRow[] = [];
+  const n = Math.max(1, Math.ceil(lapLengthM / stepM));
+  for (let i = 0; i <= n; i++) {
+    const d = Math.min(lapLengthM, i * stepM);
+    const tA = ra.timeAt(d);
+    const tB = rb.timeAt(d);
+    rows.push({ d, tA, tB, deltaMs: tA - tB, vA: speedAt(a.trace, d), vB: speedAt(b.trace, d) });
+  }
+  return rows;
+}
+
+export interface GainLossSegment {
+  fromD: number;
+  toD: number;
+  /** Time change of A relative to B over the segment, ms. Negative = A gained. */
+  changeMs: number;
+}
+
+/** Splits an aligned comparison into segments of roughly `segmentM` with the time gained/lost in each. */
+export function gainLoss(rows: readonly AlignedRow[], segmentM = 50): GainLossSegment[] {
+  const out: GainLossSegment[] = [];
+  if (rows.length < 2) return out;
+  let start = rows[0];
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i];
+    if (r.d - start.d >= segmentM || i === rows.length - 1) {
+      out.push({ fromD: start.d, toD: r.d, changeMs: r.deltaMs - start.deltaMs });
+      start = r;
+    }
+  }
+  return out;
+}
+
+export interface SessionSummary {
+  laps: number;
+  validLaps: number;
+  bestLap: LapRecord | null;
+  averageValidLapMs: number | null;
+  /** Theoretical best from best individual sectors, when every valid lap has sector times. */
+  theoreticalBestMs: number | null;
+  totalDistanceM: number;
+  maxSpeedMs: number | null;
+}
+
+export function summarizeSession(laps: readonly LapRecord[]): SessionSummary {
+  const valid = laps.filter((l) => l.valid);
+  let best: LapRecord | null = null;
+  for (const l of valid) if (!best || l.timeMs < best.timeMs) best = l;
+  let theoretical: number | null = null;
+  const withSectors = valid.filter((l) => l.sectorTimesMs.length > 0);
+  if (withSectors.length && withSectors.every((l) => l.sectorTimesMs.length === withSectors[0].sectorTimesMs.length)) {
+    theoretical = 0;
+    for (let s = 0; s < withSectors[0].sectorTimesMs.length; s++) {
+      theoretical += Math.min(...withSectors.map((l) => l.sectorTimesMs[s]));
+    }
+  }
+  const speeds = laps.map((l) => l.maxSpeedMs).filter((v): v is number => v !== null);
+  return {
+    laps: laps.length,
+    validLaps: valid.length,
+    bestLap: best,
+    averageValidLapMs: valid.length ? valid.reduce((s, l) => s + l.timeMs, 0) / valid.length : null,
+    theoreticalBestMs: theoretical,
+    totalDistanceM: laps.reduce((s, l) => s + l.distanceM, 0),
+    maxSpeedMs: speeds.length ? Math.max(...speeds) : null,
+  };
+}
+
+/** Position on the lap at elapsed time t (for map replay), interpolated between trace points. */
+export function positionAtTime(trace: readonly LapTracePoint[], t: number): { lat: number; lon: number; d: number; v: number | null } | null {
+  if (!trace.length) return null;
+  if (t <= trace[0].t) return trace[0];
+  for (let i = 1; i < trace.length; i++) {
+    const b = trace[i];
+    if (b.t >= t) {
+      const a = trace[i - 1];
+      const f = b.t > a.t ? (t - a.t) / (b.t - a.t) : 0;
+      return {
+        lat: a.lat + f * (b.lat - a.lat),
+        lon: a.lon + f * (b.lon - a.lon),
+        d: a.d + f * (b.d - a.d),
+        v: a.v !== null && b.v !== null ? a.v + f * (b.v - a.v) : (b.v ?? a.v),
+      };
+    }
+  }
+  return trace[trace.length - 1];
+}

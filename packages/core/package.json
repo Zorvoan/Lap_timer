@@ -1,0 +1,18 @@
+{
+  "name": "@laptimer/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@turf/distance": "^7.1.0",
+    "@turf/helpers": "^7.1.0",
+    "@turf/length": "^7.1.0",
+    "@turf/simplify": "^7.1.0"
+  }
+}

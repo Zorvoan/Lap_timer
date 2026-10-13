@@ -1,0 +1,101 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root,
+[data-theme='dark'] {
+  --c-bg: 13 14 16;
+  --c-panel: 5 5 6;
+  --c-raised: 24 25 28;
+  --c-line: 40 42 46;
+  --c-fg: 244 244 245;
+  --c-muted: 138 142 150;
+  --c-accent: 225 6 0;
+  --c-gain: 22 199 104;
+  --c-loss: 255 64 54;
+  --c-warn: 245 180 20;
+  color-scheme: dark;
+}
+
+[data-theme='light'] {
+  --c-bg: 236 237 239;
+  --c-panel: 255 255 255;
+  --c-raised: 245 246 247;
+  --c-line: 214 216 220;
+  --c-fg: 17 18 20;
+  --c-muted: 96 100 108;
+  --c-accent: 205 6 0;
+  --c-gain: 4 150 72;
+  --c-loss: 214 32 24;
+  --c-warn: 176 120 0;
+  color-scheme: light;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  @apply bg-bg text-fg font-sans antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+.label {
+  @apply text-[11px] font-semibold uppercase tracking-[0.12em] text-muted;
+}
+
+:focus-visible {
+  outline: 2px solid rgb(var(--c-accent));
+  outline-offset: 2px;
+}
+
+/* Leaflet */
+.leaflet-container {
+  @apply bg-raised font-sans;
+}
+
+.map-dark .leaflet-tile-pane {
+  filter: invert(1) hue-rotate(180deg) brightness(0.92) contrast(0.88) saturate(0.35);
+}
+
+.leaflet-control-attribution {
+  @apply !bg-panel/80 !text-muted text-[10px];
+}
+
+.leaflet-control-attribution a {
+  @apply !text-muted;
+}
+
+.leaflet-bar a {
+  @apply !bg-panel !text-fg !border-line;
+}
+
+.lt-divicon {
+  background: transparent;
+  border: none;
+}
+
+.lt-waypoint {
+  @apply flex h-7 w-7 items-center justify-center rounded-full border-2 border-white bg-accent text-xs font-bold text-white shadow;
+}
+
+.lt-handle {
+  @apply h-3.5 w-3.5 rounded-sm border-2 border-white bg-black;
+}
+
+.lt-arrow {
+  @apply flex h-4 w-4 items-center justify-center text-[10px] leading-none text-white;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+}

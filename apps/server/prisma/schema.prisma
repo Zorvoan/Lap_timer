@@ -1,0 +1,130 @@
+// Lap Timer sync database. PostgreSQL + PostGIS.
+// Timestamps that take part in timing (lap start/end, sample times) are stored as double
+// precision epoch milliseconds so sub-millisecond interpolated values are never rounded.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// A guest device. Authentication is a random bearer token; only its SHA-256 hash is stored.
+model Device {
+  id        String        @id @default(uuid()) @db.Uuid
+  tokenHash String        @unique
+  createdAt DateTime      @default(now())
+  circuits  Circuit[]
+  sessions  Session[]
+  settings  UserSettings?
+}
+
+model Circuit {
+  id          String                                      @id
+  ownerId     String                                      @db.Uuid
+  owner       Device                                      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  name        String
+  kind        String // closed | sprint
+  origin      String // routed | recorded | imported
+  lengthM     Float
+  /// Full road-following centreline as GeoJSON [lon, lat] pairs (source of truth for clients).
+  geometry    Json
+  /// The same centreline as PostGIS geography, maintained by the repository for spatial queries.
+  geom        Unsupported("geography(LineString, 4326)")?
+  waypoints   Json
+  routing     Json?
+  elevation   Json?
+  createdAt   Float
+  updatedAt   Float
+  deletedAt   Float?
+  /// Server-assigned change sequence for incremental sync.
+  seq         BigInt
+  timingLines TimingLine[]
+
+  @@index([ownerId, seq])
+}
+
+/// Start, finish and sector lines. Each is two geographic points plus the valid crossing direction.
+model TimingLine {
+  circuitId String
+  circuit   Circuit @relation(fields: [circuitId], references: [id], onDelete: Cascade)
+  kind      String // start | finish | sector
+  idx       Int
+  aLat      Float
+  aLon      Float
+  bLat      Float
+  bLon      Float
+  direction Int
+
+  @@id([circuitId, kind, idx])
+}
+
+model Session {
+  id                 String      @id
+  ownerId            String      @db.Uuid
+  owner              Device      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  /// Not a foreign key: sessions outlive deleted circuits and may arrive before them.
+  circuitId          String
+  circuitName        String
+  source             String // gps | simulated
+  startedAt          Float
+  endedAt            Float?
+  marks              Json
+  /// Reference lap used for live delta during this session.
+  referenceSessionId String?
+  referenceLap       Int?
+  updatedAt          Float
+  deletedAt          Float?
+  seq                BigInt
+  laps               Lap[]
+  samples            GpsSample[]
+
+  @@index([ownerId, seq])
+  @@index([circuitId])
+}
+
+model Lap {
+  sessionId     String
+  session       Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  lap           Int
+  startT        Float
+  endT          Float
+  timeMs        Float
+  sectorTimesMs Float[]
+  distanceM     Float
+  avgSpeedMs    Float
+  maxSpeedMs    Float?
+  valid         Boolean
+  flags         String[]
+  gps           Json
+  /// Distance/time/speed/position trace used for delta and comparison.
+  trace         Json
+
+  @@id([sessionId, lap])
+  @@index([sessionId, timeMs])
+}
+
+/// Raw fixes. Clients do not upload these by default (privacy); the table exists for opt-in backup.
+model GpsSample {
+  sessionId        String
+  session          Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  t                Float
+  lat              Float
+  lon              Float
+  accuracy         Float
+  speed            Float?
+  heading          Float?
+  altitude         Float?
+  altitudeAccuracy Float?
+
+  @@id([sessionId, t])
+}
+
+model UserSettings {
+  deviceId  String   @id @db.Uuid
+  device    Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  data      Json
+  updatedAt DateTime @updatedAt
+}
