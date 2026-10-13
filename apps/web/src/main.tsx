@@ -19,6 +19,7 @@ const Sessions = lazy(() => import('./pages/Sessions').then((m) => ({ default: m
 const SessionDetail = lazy(() => import('./pages/SessionDetail').then((m) => ({ default: m.SessionDetail })));
 const LeaderboardList = lazy(() => import('./pages/Leaderboard').then((m) => ({ default: m.LeaderboardList })));
 const LeaderboardTrack = lazy(() => import('./pages/Leaderboard').then((m) => ({ default: m.LeaderboardTrack })));
+const LeaderboardCompare = lazy(() => import('./pages/LeaderboardCompare').then((m) => ({ default: m.LeaderboardCompare })));
 const Account = lazy(() => import('./pages/Account').then((m) => ({ default: m.Account })));
 const SettingsPage = lazy(() => import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage })));
 
@@ -56,6 +57,7 @@ createRoot(document.getElementById('root')!).render(
               <Route path="account" element={<Account />} />
               <Route path="leaderboard" element={<LeaderboardList />} />
               <Route path="leaderboard/:id" element={<LeaderboardTrack />} />
+              <Route path="leaderboard/:id/compare" element={<LeaderboardCompare />} />
               <Route path="*" element={<NotFound />} />
             </Route>
           </Routes>

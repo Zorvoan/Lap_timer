@@ -1,5 +1,5 @@
 /** Pure leaderboard logic: which laps qualify, and how a lap is published. */
-import type { LapRecord, Session } from '@laptimer/core';
+import { TrackModel, lineAlong, type CircuitDefinition, type LapRecord, type Session } from '@laptimer/core';
 
 export interface Profile {
   nickname: string;
@@ -90,4 +90,37 @@ export function traceForPublishing(lap: LapRecord, lengthM: number): PublishedTr
 export function parsePublishedTrace(t: PublishedTrace): { t: number; d: number; v: number | null }[] {
   const pts = JSON.parse(t.points) as [number, number, number | null][];
   return pts.map(([time, d, v]) => ({ t: time, d, v }));
+}
+
+/**
+ * Turns a published lap into a {@link LapRecord} so it can be analysed like the user's own laps.
+ * Published traces carry time, distance and speed only; positions are placed on the circuit at
+ * each point's distance from the start line. Distances are rescaled when the track's lap length
+ * has changed slightly since the lap was published.
+ */
+export function lapFromPublished(entry: LeaderboardEntry, trace: PublishedTrace, circuit: CircuitDefinition, lengthM: number): LapRecord {
+  const track = TrackModel.fromCoordinates(circuit.geometry, circuit.kind === 'closed');
+  const s0 = lineAlong(track, circuit.startLine) ?? 0;
+  const scale = trace.lengthM > 0 ? lengthM / trace.lengthM : 1;
+  const points = parsePublishedTrace(trace);
+  const lapTrace = points.map((p) => {
+    const d = Math.min(lengthM, Math.max(0, p.d * scale));
+    const pos = track.latLonAt(track.wrap(s0 + d));
+    return { t: p.t, d, v: p.v, lat: pos.lat, lon: pos.lon, accuracy: NaN };
+  });
+  const durationS = trace.timeMs / 1000;
+  return {
+    lap: entry.lap,
+    startT: entry.drivenAt,
+    endT: entry.drivenAt + trace.timeMs,
+    timeMs: trace.timeMs,
+    sectorTimesMs: entry.sectorTimesMs ?? [],
+    distanceM: lengthM,
+    avgSpeedMs: entry.avgSpeedMs ?? lengthM / durationS,
+    maxSpeedMs: entry.maxSpeedMs ?? null,
+    valid: true,
+    flags: [],
+    gps: { samples: points.length, poorSamples: 0, meanAccuracyM: NaN, maxGapMs: 0, meanRateHz: points.length / durationS },
+    trace: lapTrace,
+  };
 }

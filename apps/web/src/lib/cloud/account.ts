@@ -26,8 +26,20 @@ export interface AccountState {
   profile: Profile | null | undefined;
   /** Official leaderboard tracks (cached for offline use). */
   featured: FeaturedCircuit[];
-  /** Laps published to leaderboards in the last sync. */
-  lastSubmitted: number;
+  /** Laps published to leaderboards by the most recent sync that published any. */
+  submissions: LeaderboardSubmission[];
+}
+
+/** A lap just published to an official track's leaderboard. */
+export interface LeaderboardSubmission {
+  circuitId: string;
+  circuitName: string;
+  timeMs: number;
+  /** Place on the leaderboard right after publishing (1 = record). */
+  position: number;
+  /** The driver's previous published time there, if any. */
+  previousMs: number | null;
+  at: number;
 }
 
 export const cloudEnabled = Boolean(config.firebase.apiKey && config.firebase.projectId);
@@ -41,7 +53,7 @@ let state: AccountState = {
   syncError: null,
   profile: undefined,
   featured: [],
-  lastSubmitted: 0,
+  submissions: [],
 };
 const listeners = new Set<() => void>();
 let api: FirebaseApi | null = null;
@@ -127,9 +139,9 @@ export async function syncNow(): Promise<void> {
       const report = await runSync(api!.store(user.uid), user.uid);
       const submitted = await submitBestLaps(user.uid).catch((e) => {
         log.warn('leaderboard submission failed', { error: String(e) });
-        return 0;
+        return [];
       });
-      if (submitted) set({ lastSubmitted: submitted });
+      if (submitted.length) set({ submissions: submitted });
       // Keep showing the last sync that changed something; follow-up syncs are usually empty.
       const changed = report.uploaded + report.downloaded + report.deleted > 0;
       set({ sync: 'idle', lastSyncAt: Date.now(), lastReport: changed || !state.lastReport ? report : state.lastReport });
@@ -231,14 +243,14 @@ export function isFeatured(circuitId: string): boolean {
 }
 
 /** Publishes the best real-GPS lap on each official track when it beats the published one. */
-async function submitBestLaps(uid: string): Promise<number> {
+async function submitBestLaps(uid: string): Promise<LeaderboardSubmission[]> {
   const profile = state.profile;
-  if (!profile || !state.featured.length) return 0;
+  if (!profile || !state.featured.length) return [];
   const c = await community();
   const sessions = await listSessions();
   const cacheKey = `lbSubmitted:${uid}`;
   const cache = (await getKv<Record<string, number>>(cacheKey)) ?? {};
-  let submitted = 0;
+  const submitted: LeaderboardSubmission[] = [];
   for (const f of state.featured) {
     const best = bestEligibleLap(sessions, f.id);
     if (!best) continue;
@@ -250,7 +262,8 @@ async function submitBestLaps(uid: string): Promise<number> {
     }
     await c.submitEntry(f.id, entryFromLap(uid, profile, best.session, best.lap), traceForPublishing(best.lap, lapLength(f)));
     cache[f.id] = best.lap.timeMs;
-    submitted++;
+    const position = await c.getPosition(f.id, best.lap.timeMs).catch(() => 0);
+    submitted.push({ circuitId: f.id, circuitName: f.name, timeMs: best.lap.timeMs, position, previousMs: remote?.timeMs ?? null, at: Date.now() });
   }
   await setKv(cacheKey, cache);
   return submitted;
@@ -279,7 +292,7 @@ export async function logout(removeLocalData: boolean): Promise<void> {
     await clearAllData();
     if (uid) await resetSyncState(uid);
   }
-  set({ lastSyncAt: null, lastReport: null, sync: 'idle', syncError: null, profile: null });
+  set({ lastSyncAt: null, lastReport: null, sync: 'idle', syncError: null, profile: null, submissions: [] });
 }
 
 /** Human-readable message for Firebase Auth / Firestore errors. */

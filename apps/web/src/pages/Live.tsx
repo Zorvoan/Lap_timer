@@ -8,9 +8,9 @@ import { RouteLayer } from '../components/map/RouteLayer';
 import { TimingLineView } from '../components/map/TimingLines';
 import { BigTime, DeltaDisplay, GpsIndicator, StatusChip } from '../components/live/LiveDisplay';
 import { Badge, Button, ConfirmButton, Empty, Field, LinkButton, Notice, Panel, Select, Spinner } from '../components/ui/primitives';
-import { IconPause, IconPlay, IconStop } from '../components/ui/icons';
+import { IconPause, IconPlay, IconStop, IconTrophy } from '../components/ui/icons';
 import { PageHeader } from '../components/AppShell';
-import { useData, useLive, useTicker } from '../hooks/useData';
+import { useAccount, useData, useLive, useTicker } from '../hooks/useData';
 import { useSettings } from '../hooks/useSettings';
 import { liveController } from '../lib/liveController';
 import { getActiveSession, getCircuit, getSession, listCircuits, listSessions, saveSession, setActiveSession, deleteSession } from '../lib/repo';
@@ -30,6 +30,42 @@ export function Live() {
 }
 
 // ---------------------------------------------------------------- setup
+
+/** Tells the driver up front whether laps on this official track will reach its leaderboard. */
+function LeaderboardStatus({ simulated }: { simulated: boolean }) {
+  const acc = useAccount();
+  if (simulated) {
+    return <Notice title="Not for the leaderboard">Simulated laps never count for the leaderboard.</Notice>;
+  }
+  if (acc.status === 'signed_in' && acc.profile) {
+    return (
+      <div className="flex items-start gap-3 rounded border border-accent/60 bg-panel p-3 text-sm">
+        <span className="text-accent">
+          <IconTrophy />
+        </span>
+        <div>
+          <div className="font-semibold">Counts for the leaderboard</div>
+          <div className="text-muted">
+            Official track. Your best valid lap is published as {acc.profile.nickname} after you stop the session.
+          </div>
+        </div>
+      </div>
+    );
+  }
+  if (acc.status === 'signed_in') {
+    return (
+      <Notice tone="warn" title="Set your nickname and car to appear on the leaderboard" action={<LinkButton to="/account" variant="primary" size="sm">Profile</LinkButton>}>
+        Laps you drive now are kept and published once your profile is complete.
+      </Notice>
+    );
+  }
+  if (acc.status === 'disabled') return null;
+  return (
+    <Notice tone="warn" title="Sign in to appear on the leaderboard" action={<LinkButton to="/account" variant="primary" size="sm">Sign in</LinkButton>}>
+      Laps you drive now stay on this phone and are published when you sign in.
+    </Notice>
+  );
+}
 
 function LiveSetup() {
   const { settings } = useSettings();
@@ -53,6 +89,8 @@ function LiveSetup() {
   }, [settings.referenceMode, refParam]);
 
   const circuit = circuits?.find((c) => c.id === circuitId) ?? null;
+  const featured = useAccount().featured;
+  const isOfficial = (id: string) => featured.some((f) => f.id === id);
   const { data: sessions } = useData(async () => (circuitId ? listSessions(circuitId) : []), [circuitId]);
   const lapNumbers = useMemo(() => circuitLapNumbers(sessions ?? []), [sessions]);
   const lapOptions = useMemo(() => {
@@ -103,13 +141,23 @@ function LiveSetup() {
             <div className="space-y-4">
               <Field label="Circuit">
                 <Select value={circuitId} onChange={(e) => setCircuitId(e.target.value)}>
-                  {circuits.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name} · {formatDistance(c.lengthM, settings.distanceUnit)}
-                    </option>
-                  ))}
+                  {[
+                    { label: 'Official tracks', list: circuits.filter((c) => isOfficial(c.id)) },
+                    { label: 'My circuits', list: circuits.filter((c) => !isOfficial(c.id)) },
+                  ]
+                    .filter((g) => g.list.length)
+                    .map((g) => (
+                      <optgroup key={g.label} label={g.label}>
+                        {g.list.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name} · {formatDistance(c.lengthM, settings.distanceUnit)}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ))}
                 </Select>
               </Field>
+              {circuit && isOfficial(circuit.id) && <LeaderboardStatus simulated={source === 'simulated'} />}
               <Field label="Reference lap for delta" hint="A faster lap set during the session replaces personal-best and session-best references automatically.">
                 <Select value={refKey} onChange={(e) => setRefKey(e.target.value)}>
                   <option value="personal_best">Personal best on this circuit</option>
@@ -167,7 +215,7 @@ function LiveSetup() {
                 <IconPlay /> {busy ? 'Starting…' : source === 'simulated' ? 'Start simulated session' : 'Start session'}
               </Button>
               {circuit && (
-                <Button variant="ghost" className="w-full" onClick={() => navigate(`/circuits?selected=${circuit.id}`)}>
+                <Button variant="ghost" className="w-full" onClick={() => navigate(`/circuits?view=map&selected=${circuit.id}`)}>
                   View circuit on map
                 </Button>
               )}

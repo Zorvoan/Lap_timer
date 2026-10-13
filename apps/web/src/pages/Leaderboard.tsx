@@ -136,6 +136,7 @@ export function LeaderboardTrack() {
         <div className="min-w-0 space-y-4">
           <ProfileNotice />
           <Panel title="Leaderboard" bodyClass="p-0" actions={<Button size="sm" variant="ghost" onClick={reload}>Refresh</Button>}>
+            {board && board.length > 0 && <p className="border-b border-line px-4 py-2 text-sm text-muted">Tap a driver to see their telemetry and compare it with your laps.</p>}
             {error && (
               <div className="p-4">
                 <Notice tone="error">Could not load the leaderboard: {error.message}</Notice>
@@ -166,12 +167,16 @@ export function LeaderboardTrack() {
                   <tbody className="divide-y divide-line">
                     {board?.map((e, i) => {
                       const mine = e.uid === me;
+                      const compareUrl = `/leaderboard/${track.id}/compare?a=${encodeURIComponent(`lb:${e.uid}`)}`;
                       return (
-                        <tr key={e.uid} className={mine ? 'bg-raised' : ''}>
+                        <tr key={e.uid} onClick={() => navigate(compareUrl)} className={`cursor-pointer hover:bg-raised ${mine ? 'bg-raised' : ''}`}>
                           <td className="px-3 py-2 font-mono font-bold tabular">{i === 0 ? <span className="text-accent">P1</span> : `P${i + 1}`}</td>
                           <td className="px-3 py-2">
                             <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 font-semibold">
-                              <span className="break-words">{e.nickname}</span> {mine && <Badge tone="accent">You</Badge>}
+                              <Link to={compareUrl} onClick={(ev) => ev.stopPropagation()} className="break-words hover:underline">
+                                {e.nickname}
+                              </Link>{' '}
+                              {mine && <Badge tone="accent">You</Badge>}
                             </div>
                             <div className="truncate text-xs text-muted">{e.car}</div>
                           </td>
@@ -184,7 +189,7 @@ export function LeaderboardTrack() {
                           <td className="hidden px-3 py-2 text-xs text-muted sm:table-cell">{new Date(e.drivenAt).toLocaleDateString()}</td>
                           <td className="px-3 py-2 text-right">
                             {!mine && (
-                              <Button size="sm" onClick={() => void drive(e.uid)} title={`Live delta against ${e.nickname}'s lap`}>
+                              <Button size="sm" onClick={(ev) => (ev.stopPropagation(), void drive(e.uid))} title={`Live delta against ${e.nickname}'s lap`}>
                                 Race
                               </Button>
                             )}

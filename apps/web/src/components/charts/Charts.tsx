@@ -106,7 +106,7 @@ export function SpeedTimeChart({ laps, speedUnit, colors }: { laps: LapRecord[];
         <YAxis tick={AXIS} width={44} />
         <Tooltip {...tooltipStyle} labelFormatter={(t: number) => `${t.toFixed(1)} s`} formatter={(v: number) => [`${v.toFixed(1)} ${speedLabel(speedUnit)}`, 'Speed']} />
         {series.map((s, i) => (
-          <Line key={laps[i].lap} data={s} dataKey="v" name={`Lap ${laps[i].lap}`} stroke={colors[i]} dot={false} strokeWidth={1.6} isAnimationActive={false} />
+          <Line key={i} data={s} dataKey="v" name={`Lap ${laps[i].lap}`} stroke={colors[i]} dot={false} strokeWidth={1.6} isAnimationActive={false} />
         ))}
       </LineChart>
     </ResponsiveContainer>

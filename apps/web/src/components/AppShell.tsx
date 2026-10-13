@@ -1,7 +1,9 @@
+import { useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
+import { formatDelta, formatLapTime } from '@laptimer/core';
 import { useAccount, useLive } from '../hooks/useData';
 import { buttonClass } from './ui/primitives';
-import { IconArrowLeft, IconHome, IconList, IconMap, IconSettings, IconTimer, IconTrophy } from './ui/icons';
+import { IconArrowLeft, IconHome, IconList, IconMap, IconSettings, IconTimer, IconTrophy, IconX } from './ui/icons';
 
 const NAV = [
   { to: '/', label: 'Home', icon: IconHome, end: true, phone: true },
@@ -57,6 +59,7 @@ export function AppShell() {
       <main className="relative min-h-0 min-w-0 flex-1 overflow-auto">
         <Outlet />
       </main>
+      {!immersive && <LeaderboardToast />}
 
       {!immersive && (
         <nav aria-label="Main" className="flex shrink-0 border-t border-line bg-panel pb-[env(safe-area-inset-bottom)] md:hidden">
@@ -79,6 +82,48 @@ export function AppShell() {
           ))}
         </nav>
       )}
+    </div>
+  );
+}
+
+const TOAST_MS = 15_000;
+
+/** Announces laps that a sync just published to leaderboards ("New leaderboard place: P3"). */
+function LeaderboardToast() {
+  const { submissions } = useAccount();
+  const [dismissedAt, setDismissedAt] = useState(0);
+  const latest = submissions.reduce((m, s) => Math.max(m, s.at), 0);
+  const visible = latest > dismissedAt && Date.now() - latest < TOAST_MS;
+  useEffect(() => {
+    if (!visible) return;
+    const t = setTimeout(() => setDismissedAt(latest), TOAST_MS - (Date.now() - latest));
+    return () => clearTimeout(t);
+  }, [visible, latest]);
+  if (!visible) return null;
+  return (
+    <div role="status" className="fixed inset-x-3 bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-[2000] mx-auto max-w-md rounded border border-accent bg-panel p-4 shadow-2xl md:bottom-6 md:left-auto md:right-6 md:mx-0 md:w-96">
+      <div className="flex items-start gap-3">
+        <span className="mt-0.5 text-accent">
+          <IconTrophy />
+        </span>
+        <div className="min-w-0 flex-1 space-y-2">
+          {submissions.map((s) => (
+            <div key={s.circuitId}>
+              <div className="font-bold">{s.position > 0 ? `New leaderboard place: P${s.position}` : 'New leaderboard time'}</div>
+              <div className="text-sm text-muted">
+                {s.circuitName} · <span className="font-mono tabular text-fg">{formatLapTime(s.timeMs)}</span>
+                {s.previousMs !== null && <> ({formatDelta(s.timeMs - s.previousMs)} s on your previous)</>}
+              </div>
+              <Link to={`/leaderboard/${s.circuitId}`} onClick={() => setDismissedAt(latest)} className="mt-1 inline-block text-sm font-semibold text-accent hover:underline">
+                View leaderboard →
+              </Link>
+            </div>
+          ))}
+        </div>
+        <button type="button" onClick={() => setDismissedAt(latest)} aria-label="Dismiss" className="-mr-2 -mt-2 flex h-9 w-9 items-center justify-center rounded text-muted hover:bg-raised hover:text-fg">
+          <IconX width={18} height={18} />
+        </button>
+      </div>
     </div>
   );
 }
