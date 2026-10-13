@@ -27,6 +27,21 @@ let lastView: MapView | null = (() => {
   }
 })();
 
+/**
+ * Keeps Leaflet's idea of the map size in step with its container. A map created while hidden
+ * (e.g. an earlier step of the circuit editor) otherwise loads tiles for a zero-sized box and
+ * stays mostly grey once it is shown.
+ */
+function TrackSize() {
+  const map = useMap();
+  useEffect(() => {
+    const ro = new ResizeObserver(() => map.invalidateSize());
+    ro.observe(map.getContainer());
+    return () => ro.disconnect();
+  }, [map]);
+  return null;
+}
+
 function RememberView() {
   useMapEvents({
     moveend(e) {
@@ -81,6 +96,7 @@ export function BaseMap({
       <TileLayer url={config.tileUrl} attribution={config.tileAttribution} maxZoom={19} />
       {interactive && <ZoomControl position="bottomright" />}
       {interactive && <RememberView />}
+      <TrackSize />
       {children}
     </MapContainer>
   );
