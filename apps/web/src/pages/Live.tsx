@@ -474,7 +474,8 @@ function Readout({ label, value, unit }: { label: string; value: string; unit?: 
 
 function LiveMap({ circuit }: { circuit: Circuit }) {
   const live = useLive();
-  const pos = live.snapshot?.position;
+  // On the road when the fix matches the circuit; the raw fix (off the route) otherwise.
+  const pos = live.snapshot?.trackPosition ?? live.snapshot?.position;
   const bounds = useMemo(() => L.latLngBounds(circuit.geometry.map(([lon, lat]) => [lat, lon] as [number, number])), [circuit]);
   const [follow, setFollow] = useState(false);
   return (

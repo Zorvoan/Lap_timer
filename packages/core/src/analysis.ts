@@ -1,4 +1,8 @@
 import { ReferenceLap } from './delta';
+import type { LatLon } from './geo';
+import { lineAlong } from './lines';
+import type { CircuitDefinition } from './model';
+import { TrackModel } from './track';
 import type { LapRecord, LapTracePoint } from './model';
 
 export interface AlignedRow {
@@ -150,4 +154,20 @@ export function idealLap(splits: readonly (readonly number[])[]): { sectorsMs: n
     from.push(splits.indexOf(usable[best]));
   }
   return { sectorsMs, timeMs: sectorsMs.reduce((a, b) => a + b, 0), from };
+}
+
+/**
+ * Maps a lap distance (metres from the start line, as in lap traces) to the point on the
+ * circuit's centreline. Replays and maps use it to keep the car on the road instead of drawing
+ * raw GPS fixes, which can sit several metres off it. Null when the circuit geometry is unusable.
+ */
+export function lapDistanceToPosition(circuit: CircuitDefinition): ((d: number) => LatLon) | null {
+  let track: TrackModel;
+  try {
+    track = TrackModel.fromCoordinates(circuit.geometry, circuit.kind === 'closed');
+  } catch {
+    return null;
+  }
+  const s0 = lineAlong(track, circuit.startLine) ?? 0;
+  return (d: number) => track.latLonAt(track.wrap(s0 + Math.max(0, d)));
 }

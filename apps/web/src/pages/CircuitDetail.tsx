@@ -16,6 +16,7 @@ import { deleteCircuit, getCircuit, listSessions } from '../lib/repo';
 import { buildExport, downloadText } from '../lib/exportImport';
 import { circuitLapNumbers, lapKey } from '../lib/lapNumbers';
 import { slug } from './Circuits';
+import { SectorCell } from '../components/laps/SectorCell';
 
 /** One lap on this circuit, from any session. */
 interface Entry {
@@ -176,7 +177,7 @@ function CircuitView({ circuit, sessions }: { circuit: Circuit; sessions: Sessio
         <div className="grid grid-cols-2 gap-4 rounded border border-line bg-panel p-4 sm:grid-cols-5">
           <Stat label="Personal best" value={formatLapTime(best?.lap.timeMs)} hint={best ? entryLabel(best) : undefined} />
           <Stat
-            label="Ideal lap"
+            label="Theoretical best"
             value={formatLapTime(ideal?.timeMs)}
             hint={ideal && best ? (ideal.timeMs < best.lap.timeMs - 0.5 ? `${formatDelta(ideal.timeMs - best.lap.timeMs)} s to find` : 'your PB is already ideal') : 'best sectors combined'}
           />
@@ -294,13 +295,6 @@ function CircuitView({ circuit, sessions }: { circuit: Circuit; sessions: Sessio
         )}
       </div>
     </div>
-  );
-}
-
-/** One sector time; the best of its sector is highlighted (purple, as in motorsport timing). */
-export function SectorCell({ ms, best }: { ms: number | undefined; best: boolean }) {
-  return (
-    <td className={`px-3 py-2 text-right font-mono tabular ${best ? 'font-bold text-[#b36bff]' : ''}`}>{ms !== undefined && Number.isFinite(ms) ? (ms / 1000).toFixed(3) : '—'}</td>
   );
 }
 

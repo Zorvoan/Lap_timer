@@ -226,13 +226,16 @@ export class LiveController {
     this.clockOffset = s.t - source.now();
     const lapsBefore = engine.laps.length;
     const events = engine.push(s);
+    const snapshot = engine.snapshot(this.now());
+    // The trail follows the road where the fix matches the circuit, the raw fix otherwise.
+    const here = snapshot.trackPosition ?? { lat: s.lat, lon: s.lon };
     const prevPos = this.state.trail[this.state.trail.length - 1];
     // Start a new trail after a big jump (signal loss, sprint restart) instead of drawing a chord.
-    const jumped = prevPos && distanceMeters(prevPos, s) > 300;
+    const jumped = prevPos && distanceMeters(prevPos, here) > 300;
     const trail = jumped ? [] : this.state.trail.length >= TRAIL_LENGTH ? this.state.trail.slice(-TRAIL_LENGTH + 1) : this.state.trail.slice();
-    trail.push({ lat: s.lat, lon: s.lon });
+    trail.push(here);
     const patch: Partial<LiveState> = {
-      snapshot: engine.snapshot(this.now()),
+      snapshot,
       trail,
       error: null,
       assessment: this.allSamples.length % 5 === 0 || this.allSamples.length < 10 ? assessGps(this.allSamples) : this.state.assessment,

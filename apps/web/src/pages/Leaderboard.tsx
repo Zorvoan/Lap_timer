@@ -1,7 +1,7 @@
 import { useEffect, useMemo } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import L from 'leaflet';
-import { formatDelta, formatDistance, formatLapTime, formatSpeed, idealLap, speedLabel } from '@laptimer/core';
+import { formatDelta, formatDistance, formatLapTime, formatSpeed, idealLap, speedLabel, splitTimes } from '@laptimer/core';
 import { PageHeader } from '../components/AppShell';
 import { Badge, Button, Empty, LinkButton, Notice, Panel, Spinner } from '../components/ui/primitives';
 import { IconTimer } from '../components/ui/icons';
@@ -11,7 +11,7 @@ import { TimingLineView } from '../components/map/TimingLines';
 import { useAccount, useData } from '../hooks/useData';
 import { useSettings } from '../hooks/useSettings';
 import { cloudEnabled, ensureLocalCircuit, refreshFeatured } from '../lib/cloud/account';
-import type { LeaderboardEntry } from '../lib/cloud/leaderboard';
+import { parsePublishedTrace, type LeaderboardEntry } from '../lib/cloud/leaderboard';
 
 const loadBoard = async (circuitId: string, max: number): Promise<LeaderboardEntry[]> => (await import('../lib/cloud/community')).getLeaderboard(circuitId, max);
 
@@ -106,8 +106,22 @@ export function LeaderboardTrack() {
   const bounds = useMemo(() => (track ? L.latLngBounds(track.geometry.map(([lon, lat]) => [lat, lon] as [number, number])) : null), [track]);
   const me = acc.user?.uid;
   const leader = board?.[0];
-  const withSplits = useMemo(() => (board ?? []).filter((e) => e.splitTimesMs?.length === 3), [board]);
-  const ideal = useMemo(() => idealLap(withSplits.map((e) => e.splitTimesMs as number[])), [withSplits]);
+  // Sector splits: stored with newer entries, worked out from the published trace for older ones.
+  const { data: splitsByUid } = useData(async () => {
+    const out = new Map<string, number[]>();
+    if (!board || !track) return out;
+    const c = await import('../lib/cloud/community');
+    await Promise.all(
+      board.slice(0, 50).map(async (e) => {
+        if (e.splitTimesMs?.length === 3) return out.set(e.uid, e.splitTimesMs);
+        const t = await c.getPublishedTrace(track.id, e.uid).catch(() => null);
+        if (t) out.set(e.uid, splitTimes(parsePublishedTrace(t), t.timeMs, t.lengthM, 3));
+      }),
+    );
+    return out;
+  }, [board, track?.id]);
+  const withSplits = useMemo(() => (board ?? []).filter((e) => splitsByUid?.get(e.uid)?.length === 3), [board, splitsByUid]);
+  const ideal = useMemo(() => idealLap(withSplits.map((e) => splitsByUid!.get(e.uid)!)), [withSplits, splitsByUid]);
 
   async function drive(refUid?: string) {
     if (!track) return;
@@ -142,7 +156,7 @@ export function LeaderboardTrack() {
             {ideal && withSplits.length > 1 && (
               <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 border-b border-line px-4 py-2.5 text-sm">
                 <span>
-                  <span className="label">Ideal lap</span> <span className="font-mono font-bold tabular">{formatLapTime(ideal.timeMs)}</span>
+                  <span className="label">Theoretical best</span> <span className="font-mono font-bold tabular">{formatLapTime(ideal.timeMs)}</span>
                 </span>
                 <span className="text-xs text-muted">
                   best sectors of all drivers:{' '}
@@ -208,7 +222,7 @@ export function LeaderboardTrack() {
                           </td>
                           <td className="hidden px-3 py-2 text-right font-mono tabular text-muted sm:table-cell">{leader && i > 0 ? formatDelta(e.timeMs - leader.timeMs) : '—'}</td>
                           {[0, 1, 2].map((k) => {
-                            const ms = e.splitTimesMs?.[k];
+                            const ms = splitsByUid?.get(e.uid)?.[k];
                             const isBest = ms !== undefined && ideal?.sectorsMs[k] === ms;
                             return (
                               <td key={k} className={`hidden px-2 py-2 text-right font-mono tabular md:table-cell ${isBest ? 'font-bold text-[#b36bff]' : ''}`}>
