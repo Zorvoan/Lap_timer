@@ -5,6 +5,6 @@
     "down": { "match": "Halenkovice Downhill", "name": "Halenkovice Downhill" },
     "lengthM": 2000,
     "extendAt": "auto",
-    "publish": false
+    "publish": true
   }
 }
