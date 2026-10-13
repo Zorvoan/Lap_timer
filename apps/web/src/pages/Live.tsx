@@ -309,6 +309,8 @@ function LiveRunning() {
   const navigate = useNavigate();
   const [showMap, setShowMap] = useState(settings.showLiveMap);
   const [stopping, setStopping] = useState(false);
+  /** Stop asks first in a panel: a stray tap while driving must not end the session. */
+  const [confirmStop, setConfirmStop] = useState(false);
   const snap = live.snapshot;
   const running = live.status === 'running';
   const now = useTicker(running && snap?.lapState !== 'waiting_start', live.clock);
@@ -420,10 +422,40 @@ function LiveRunning() {
             <IconPause /> Pause
           </Button>
         )}
-        <ConfirmButton size="xl" variant="primary" onConfirm={stop} disabled={stopping} confirmLabel="Tap again to stop & save">
+        <Button size="xl" variant="primary" className="whitespace-nowrap" onClick={() => setConfirmStop(true)} disabled={stopping}>
           <IconStop /> {stopping ? 'Saving…' : 'Stop'}
-        </ConfirmButton>
+        </Button>
       </div>
+
+      {confirmStop && (
+        <div className="fixed inset-0 z-[2000] flex items-end bg-black/60" onClick={() => setConfirmStop(false)}>
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="stop-title"
+            className="w-full border-t border-line bg-panel p-4 pb-[max(1rem,env(safe-area-inset-bottom))]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 id="stop-title" className="text-xl font-bold">
+              Stop and save?
+            </h2>
+            <p className="mt-1 text-sm text-muted">
+              {snap.completedLaps === 0
+                ? 'No lap is completed yet; the session is saved without laps.'
+                : `${snap.completedLaps} lap${snap.completedLaps > 1 ? 's' : ''} will be saved.`}
+              {snap.lapState === 'in_lap' && ' The lap in progress is not counted.'}
+            </p>
+            <div className="mt-4 grid grid-cols-2 gap-3">
+              <Button size="xl" onClick={() => setConfirmStop(false)}>
+                Keep timing
+              </Button>
+              <Button size="xl" variant="primary" className="whitespace-nowrap" disabled={stopping} onClick={() => (setConfirmStop(false), void stop())}>
+                <IconStop /> Stop & save
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
