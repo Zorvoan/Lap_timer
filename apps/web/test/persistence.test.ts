@@ -2,7 +2,7 @@ import 'fake-indexeddb/auto';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { IDBFactory } from 'fake-indexeddb';
 import { SessionEngine, TrackModel, constantSpeedProfile, perpendicularLine, simulateDrive, type Circuit, type LonLat, type Session } from '@laptimer/core';
-import { closeDbForTests } from '../src/lib/db';
+import { closeDbForTests, getDb } from '../src/lib/db';
 import { deleteSession, getCircuit, getSamples, getSession, listSessions, personalBest, putSampleChunk, saveCircuit, saveSession, getSettings, saveSettings } from '../src/lib/repo';
 import { buildExport, lapsToCsv, parseExport, ImportError } from '../src/lib/exportImport';
 import { exportAll, importFile } from '../src/lib/dataTransfer';
@@ -68,6 +68,14 @@ afterEach(async () => {
 });
 
 describe('local persistence', () => {
+  it('reopens the database when the browser closed the connection underneath the app', async () => {
+    await saveCircuit(makeCircuit());
+    // What the browser does when it force-closes a connection (storage cleared, another tab
+    // upgrading, …): any new transaction then fails with "The database connection is closing".
+    (await getDb()).close();
+    expect((await getCircuit('c1'))?.name).toBe('Test loop');
+  });
+
   it('saves and restores circuits, sessions and raw samples at full precision', async () => {
     const c = makeCircuit();
     await saveCircuit(c);
