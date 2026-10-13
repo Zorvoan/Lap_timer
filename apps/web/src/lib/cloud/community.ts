@@ -88,6 +88,15 @@ export async function submitEntry(circuitId: string, entry: LeaderboardEntry, tr
   await b.commit();
 }
 
+/** Drivers just ahead of a time (fastest first is not guaranteed: nearest first), with when they submitted. */
+export async function getDriversAhead(circuitId: string, timeMs: number, max = 10): Promise<(LeaderboardEntry & { submittedAtMs: number })[]> {
+  const snaps = await getDocs(query(collection(db, 'leaderboards', circuitId, 'entries'), where('timeMs', '<', timeMs), orderBy('timeMs', 'desc'), limit(max)));
+  return snaps.docs.map((d) => {
+    const data = d.data() as LeaderboardEntry & { submittedAt?: { toMillis(): number } };
+    return { ...data, submittedAtMs: data.submittedAt?.toMillis?.() ?? 0 };
+  });
+}
+
 /** Leaderboard place a time holds: 1 + the number of strictly faster entries. */
 export async function getPosition(circuitId: string, timeMs: number): Promise<number> {
   const snap = await getCountFromServer(query(collection(db, 'leaderboards', circuitId, 'entries'), where('timeMs', '<', timeMs)));

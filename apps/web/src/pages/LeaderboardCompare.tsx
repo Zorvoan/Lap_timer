@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
-import { formatDelta, formatDistance, formatLapTime, formatSpeed, speedLabel, type LapRecord, type Session } from '@laptimer/core';
+import { formatDelta, formatDistance, formatLapTime, formatSpeed, speedLabel, splitTimes, type LapRecord, type Session } from '@laptimer/core';
 import { PageHeader } from '../components/AppShell';
 import { Button, Notice, Panel, Select, Spinner } from '../components/ui/primitives';
 import { IconSwap } from '../components/ui/icons';
@@ -64,6 +64,9 @@ export function LeaderboardCompare() {
   const a = useOptionLap(optA, track, lengthM);
   const b = useOptionLap(optB, track, lengthM);
   const rows = useComparisonRows(a.lap, b.lap, lengthM);
+  // Thirds of the track by distance: the same split points for every driver.
+  const splitsA = useMemo(() => (a.lap ? splitTimes(a.lap.trace, a.lap.timeMs, lengthM, 3) : []), [a.lap, lengthM]);
+  const splitsB = useMemo(() => (b.lap ? splitTimes(b.lap.trace, b.lap.timeMs, lengthM, 3) : []), [b.lap, lengthM]);
 
   function choose(next: { a?: string | null; b?: string | null }) {
     const p: Record<string, string> = {};
@@ -80,7 +83,7 @@ export function LeaderboardCompare() {
 
   const labelA = optA ? shortLabel(optA) : 'A';
   const labelB = optB ? shortLabel(optB) : null;
-  const sectorCount = a.lap && b.lap && a.lap.sectorTimesMs.length && a.lap.sectorTimesMs.length === b.lap.sectorTimesMs.length ? a.lap.sectorTimesMs.length : 0;
+  const sectorCount = splitsA.length && splitsA.length === splitsB.length ? splitsA.length : 0;
 
   return (
     <div className="pb-10">
@@ -140,12 +143,12 @@ export function LeaderboardCompare() {
                   </thead>
                   <tbody className="divide-y divide-line">
                     {Array.from({ length: sectorCount }, (_, i) => {
-                      const diff = a.lap!.sectorTimesMs[i] - b.lap!.sectorTimesMs[i];
+                      const diff = splitsA[i] - splitsB[i];
                       return (
                         <tr key={i}>
                           <td className="px-4 py-2">S{i + 1}</td>
-                          <td className="px-4 py-2 text-right font-mono tabular">{(a.lap!.sectorTimesMs[i] / 1000).toFixed(3)}</td>
-                          <td className="px-4 py-2 text-right font-mono tabular">{(b.lap!.sectorTimesMs[i] / 1000).toFixed(3)}</td>
+                          <td className="px-4 py-2 text-right font-mono tabular">{(splitsA[i] / 1000).toFixed(3)}</td>
+                          <td className="px-4 py-2 text-right font-mono tabular">{(splitsB[i] / 1000).toFixed(3)}</td>
                           <td className={`px-4 py-2 text-right font-mono tabular ${diff <= 0 ? 'text-gain' : 'text-loss'}`}>{formatDelta(diff)}</td>
                         </tr>
                       );

@@ -249,6 +249,14 @@ still create their own circuits; only official ones have leaderboards.
   Times are measured on the driver's phone and are not verified server-side (that would need
   Cloud Functions on the paid plan).
 - Official tracks are read-only in the app so every driver is timed on the same lines.
+- Times averaging more than 250 km/h over the track are refused (in the app and in the rules).
+- Every lap is also split into thirds by distance (from its trace, so no sector lines are needed).
+  Circuit pages show your **ideal lap** (best sectors combined); leaderboards show each driver's
+  sectors, the best ones in purple, and the ideal lap of all drivers.
+- After a sync the app tells you when someone has pushed you down a leaderboard.
+- Rules tests run against the emulator: `npm run test:rules` (needs the Firebase CLI and Java).
+  `.github/workflows/firestore-rules.yml` runs them and releases `firestore.rules` (service
+  account role: Firebase Rules Admin).
 
 Manage official tracks (uses your `firebase login` owner credentials):
 

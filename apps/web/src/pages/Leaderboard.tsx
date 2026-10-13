@@ -1,7 +1,7 @@
 import { useEffect, useMemo } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import L from 'leaflet';
-import { formatDelta, formatDistance, formatLapTime, formatSpeed, speedLabel } from '@laptimer/core';
+import { formatDelta, formatDistance, formatLapTime, formatSpeed, idealLap, speedLabel } from '@laptimer/core';
 import { PageHeader } from '../components/AppShell';
 import { Badge, Button, Empty, LinkButton, Notice, Panel, Spinner } from '../components/ui/primitives';
 import { IconTimer } from '../components/ui/icons';
@@ -106,6 +106,8 @@ export function LeaderboardTrack() {
   const bounds = useMemo(() => (track ? L.latLngBounds(track.geometry.map(([lon, lat]) => [lat, lon] as [number, number])) : null), [track]);
   const me = acc.user?.uid;
   const leader = board?.[0];
+  const withSplits = useMemo(() => (board ?? []).filter((e) => e.splitTimesMs?.length === 3), [board]);
+  const ideal = useMemo(() => idealLap(withSplits.map((e) => e.splitTimesMs as number[])), [withSplits]);
 
   async function drive(refUid?: string) {
     if (!track) return;
@@ -137,6 +139,21 @@ export function LeaderboardTrack() {
           <ProfileNotice />
           <Panel title="Leaderboard" bodyClass="p-0" actions={<Button size="sm" variant="ghost" onClick={reload}>Refresh</Button>}>
             {board && board.length > 0 && <p className="border-b border-line px-4 py-2 text-sm text-muted">Tap a driver to see their telemetry and compare it with your laps.</p>}
+            {ideal && withSplits.length > 1 && (
+              <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 border-b border-line px-4 py-2.5 text-sm">
+                <span>
+                  <span className="label">Ideal lap</span> <span className="font-mono font-bold tabular">{formatLapTime(ideal.timeMs)}</span>
+                </span>
+                <span className="text-xs text-muted">
+                  best sectors of all drivers:{' '}
+                  {ideal.from.map((i, k) => (
+                    <span key={k} className="mr-2 whitespace-nowrap">
+                      S{k + 1} <span className="text-[#b36bff]">{withSplits[i].nickname}</span>
+                    </span>
+                  ))}
+                </span>
+              </div>
+            )}
             {error && (
               <div className="p-4">
                 <Notice tone="error">Could not load the leaderboard: {error.message}</Notice>
@@ -159,8 +176,13 @@ export function LeaderboardTrack() {
                       <th className="label px-3 py-2 font-semibold">Driver</th>
                       <th className="label w-28 px-3 py-2 text-right font-semibold">Time</th>
                       <th className="label hidden w-20 px-3 py-2 text-right font-semibold sm:table-cell">Gap</th>
-                      <th className="label hidden w-24 px-3 py-2 text-right font-semibold sm:table-cell">Max {speedLabel(settings.speedUnit)}</th>
-                      <th className="label hidden w-24 px-3 py-2 font-semibold sm:table-cell">Driven</th>
+                      {[1, 2, 3].map((n) => (
+                        <th key={n} className="label hidden w-16 px-2 py-2 text-right font-semibold md:table-cell" title="Thirds of the track by distance">
+                          S{n}
+                        </th>
+                      ))}
+                      <th className="label hidden w-20 px-3 py-2 text-right font-semibold sm:table-cell">Max {speedLabel(settings.speedUnit)}</th>
+                      <th className="label hidden w-24 px-3 py-2 font-semibold 2xl:table-cell">Driven</th>
                       <th className="w-[4.75rem] px-3 py-2" />
                     </tr>
                   </thead>
@@ -185,8 +207,17 @@ export function LeaderboardTrack() {
                             {leader && i > 0 && <div className="text-xs text-muted sm:hidden">{formatDelta(e.timeMs - leader.timeMs)}</div>}
                           </td>
                           <td className="hidden px-3 py-2 text-right font-mono tabular text-muted sm:table-cell">{leader && i > 0 ? formatDelta(e.timeMs - leader.timeMs) : '—'}</td>
+                          {[0, 1, 2].map((k) => {
+                            const ms = e.splitTimesMs?.[k];
+                            const isBest = ms !== undefined && ideal?.sectorsMs[k] === ms;
+                            return (
+                              <td key={k} className={`hidden px-2 py-2 text-right font-mono tabular md:table-cell ${isBest ? 'font-bold text-[#b36bff]' : ''}`}>
+                                {ms !== undefined ? (ms / 1000).toFixed(2) : '—'}
+                              </td>
+                            );
+                          })}
                           <td className="hidden px-3 py-2 text-right font-mono tabular sm:table-cell">{formatSpeed(e.maxSpeedMs, settings.speedUnit)}</td>
-                          <td className="hidden px-3 py-2 text-xs text-muted sm:table-cell">{new Date(e.drivenAt).toLocaleDateString()}</td>
+                          <td className="hidden px-3 py-2 text-xs text-muted 2xl:table-cell">{new Date(e.drivenAt).toLocaleDateString()}</td>
                           <td className="px-3 py-2 text-right">
                             {!mine && (
                               <Button size="sm" onClick={(ev) => (ev.stopPropagation(), void drive(e.uid))} title={`Live delta against ${e.nickname}'s lap`}>

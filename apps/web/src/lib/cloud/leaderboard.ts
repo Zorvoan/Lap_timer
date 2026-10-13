@@ -1,5 +1,5 @@
 /** Pure leaderboard logic: which laps qualify, and how a lap is published. */
-import { TrackModel, lineAlong, type CircuitDefinition, type LapRecord, type Session } from '@laptimer/core';
+import { TrackModel, lineAlong, splitTimes, type CircuitDefinition, type LapRecord, type Session } from '@laptimer/core';
 
 export interface Profile {
   nickname: string;
@@ -16,6 +16,8 @@ export interface LeaderboardEntry {
   sessionId: string;
   lap: number;
   sectorTimesMs: number[];
+  /** The lap split into thirds by distance (same points for every driver); absent on old entries. */
+  splitTimesMs?: number[];
   avgSpeedMs: number;
   maxSpeedMs: number | null;
 }
@@ -49,8 +51,20 @@ export function validateCar(raw: string): string | null {
  * passed the distance check, and the position stayed matched to the track.
  */
 export function isEligible(session: Session, lap: LapRecord): boolean {
-  return session.source === 'gps' && lap.valid && !lap.flags.includes('tracking_lost') && !lap.flags.includes('simulated');
+  return (
+    session.source === 'gps' &&
+    lap.valid &&
+    !lap.flags.includes('tracking_lost') &&
+    !lap.flags.includes('simulated') &&
+    lap.distanceM / (lap.timeMs / 1000) <= MAX_LEADERBOARD_SPEED_MS
+  );
 }
+
+/**
+ * Fastest plausible average speed of a leaderboard lap (250 km/h). Faster laps are GPS errors or
+ * forged; firestore.rules enforces the same limit against the track length.
+ */
+export const MAX_LEADERBOARD_SPEED_MS = 250 / 3.6;
 
 export function bestEligibleLap(sessions: readonly Session[], circuitId: string): { session: Session; lap: LapRecord } | null {
   let best: { session: Session; lap: LapRecord } | null = null;
@@ -61,7 +75,7 @@ export function bestEligibleLap(sessions: readonly Session[], circuitId: string)
   return best;
 }
 
-export function entryFromLap(uid: string, profile: Profile, session: Session, lap: LapRecord): LeaderboardEntry {
+export function entryFromLap(uid: string, profile: Profile, session: Session, lap: LapRecord, lengthM: number): LeaderboardEntry {
   return {
     uid,
     nickname: profile.nickname,
@@ -71,6 +85,7 @@ export function entryFromLap(uid: string, profile: Profile, session: Session, la
     sessionId: session.id,
     lap: lap.lap,
     sectorTimesMs: lap.sectorTimesMs,
+    splitTimesMs: splitTimes(lap.trace, lap.timeMs, lengthM, 3),
     avgSpeedMs: lap.avgSpeedMs,
     maxSpeedMs: lap.maxSpeedMs,
   };

@@ -118,13 +118,16 @@ function SessionBanner() {
   return null;
 }
 
-const TOAST_MS = 15_000;
+const TOAST_MS = 20_000;
 
-/** Announces laps that a sync just published to leaderboards ("New leaderboard place: P3"). */
+/**
+ * Leaderboard news after a sync: laps just published ("New leaderboard place: P3") and tracks
+ * where someone else went faster ("Pushed to P2 on Mladcová").
+ */
 function LeaderboardToast() {
-  const { submissions } = useAccount();
+  const { submissions, overtakes } = useAccount();
   const [dismissedAt, setDismissedAt] = useState(0);
-  const latest = submissions.reduce((m, s) => Math.max(m, s.at), 0);
+  const latest = Math.max(0, ...submissions.map((s) => s.at), ...overtakes.map((o) => o.at));
   const visible = latest > dismissedAt && Date.now() - latest < TOAST_MS;
   useEffect(() => {
     if (!visible) return;
@@ -139,7 +142,22 @@ function LeaderboardToast() {
           <IconTrophy />
         </span>
         <div className="min-w-0 flex-1 space-y-2">
-          {submissions.map((s) => (
+          {overtakes
+            .filter((o) => o.at > dismissedAt)
+            .map((o) => (
+              <div key={`o-${o.circuitId}`}>
+                <div className="font-bold text-loss">
+                  {o.by ? `${o.by} beat your time` : 'Someone beat your time'}
+                </div>
+                <div className="text-sm text-muted">
+                  {o.circuitName}: P{o.from} → <span className="font-semibold text-fg">P{o.to}</span>
+                </div>
+                <Link to={`/leaderboard/${o.circuitId}`} onClick={() => setDismissedAt(latest)} className="mt-1 inline-block text-sm font-semibold text-accent hover:underline">
+                  See the times →
+                </Link>
+              </div>
+            ))}
+          {submissions.filter((s) => s.at > dismissedAt).map((s) => (
             <div key={s.circuitId}>
               <div className="font-bold">{s.position > 0 ? `New leaderboard place: P${s.position}` : 'New leaderboard time'}</div>
               <div className="text-sm text-muted">

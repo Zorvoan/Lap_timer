@@ -3,6 +3,8 @@ import { ReferenceLap, TrackModel, compareLaps, distanceMeters, perpendicularLin
 import {
   MAX_TRACE_POINTS,
   bestEligibleLap,
+  entryFromLap,
+  isEligible,
   lapFromPublished,
   parsePublishedTrace,
   traceForPublishing,
@@ -52,6 +54,19 @@ describe('published traces', () => {
     expect(pts.at(-1)?.t).toBe(50_000);
     const ref = ReferenceLap.fromTrace(pts, t.timeMs, t.lengthM);
     expect(ref.timeAt(500)).toBeCloseTo(25_000, 3);
+  });
+});
+
+describe('leaderboard plausibility and splits', () => {
+  it('rejects laps averaging more than 250 km/h (GPS errors or forged times)', () => {
+    const s = session('a', 'gps', []);
+    expect(isEligible(s, lap(1, 50_000))).toBe(true); // 1 km in 50 s = 72 km/h
+    expect(isEligible(s, lap(1, 14_000))).toBe(false); // 1 km in 14 s = 257 km/h
+  });
+
+  it('publishes the lap split into thirds by distance', () => {
+    const e = entryFromLap('u', { nickname: 'Me', car: 'Car' }, session('a', 'gps', []), lap(1, 60_000), 1000);
+    expect(e.splitTimesMs?.map(Math.round)).toEqual([20_000, 20_000, 20_000]);
   });
 });
 
