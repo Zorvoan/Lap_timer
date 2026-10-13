@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { CircleMarker, Polyline } from 'react-leaflet';
 import L from 'leaflet';
-import { formatDelta, formatDistance, formatLapTime, formatSpeed, speedLabel, type Circuit, type Session } from '@laptimer/core';
+import { formatDelta, formatDistance, formatLapTime, formatSpeed, speedLabel, type Circuit, type SectorSplit, type Session } from '@laptimer/core';
 import { BaseMap, FitBounds, FollowPosition } from '../components/map/BaseMap';
 import { RouteLayer } from '../components/map/RouteLayer';
 import { TimingLineView } from '../components/map/TimingLines';
@@ -18,6 +18,7 @@ import { resolveReference, type ReferenceChoice } from '../lib/references';
 import { GeolocationSource, geolocationSupport } from '../lib/gps/geolocation';
 import { DEFAULT_SIMULATOR, SimulatedSource } from '../lib/gps/simulated';
 import { unlockAudio } from '../lib/audio';
+import { SAFETY_DETAIL, SAFETY_TEXT, acceptSafety, hasAcceptedSafety } from '../lib/safety';
 import { config } from '../lib/config';
 import { ScreenWakeLock } from '../lib/wakeLock';
 import type { ActiveSessionInfo } from '../lib/db';
@@ -109,8 +110,12 @@ function LiveSetup() {
     return { kind: 'lap', sessionId, lap: Number(lap) };
   }
 
-  async function start() {
+  /** Before the first timed run on this device, the driver confirms they will drive legally. */
+  const [askSafety, setAskSafety] = useState(false);
+
+  async function start(confirmed = false) {
     if (!circuit) return;
+    if (!confirmed && source === 'gps' && !(await hasAcceptedSafety())) return setAskSafety(true);
     setBusy(true);
     setError(null);
     unlockAudio();
@@ -127,6 +132,39 @@ function LiveSetup() {
 
   return (
     <div className="pb-8">
+      {askSafety && (
+        <div className="fixed inset-0 z-[2000] flex items-end bg-black/60 md:items-center md:justify-center" onClick={() => setAskSafety(false)}>
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="safety-title"
+            className="w-full border-t border-line bg-panel p-4 pb-[max(1rem,env(safe-area-inset-bottom))] md:max-w-md md:rounded md:border"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 id="safety-title" className="text-xl font-bold">
+              Before your first run
+            </h2>
+            <p className="mt-2 text-sm">{SAFETY_TEXT}</p>
+            <p className="mt-2 text-sm text-muted">{SAFETY_DETAIL}</p>
+            <div className="mt-4 grid grid-cols-2 gap-3">
+              <Button size="lg" onClick={() => setAskSafety(false)}>
+                Cancel
+              </Button>
+              <Button
+                size="lg"
+                variant="primary"
+                onClick={async () => {
+                  setAskSafety(false);
+                  await acceptSafety();
+                  void start(true);
+                }}
+              >
+                I agree
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
       <PageHeader title="Live timing" subtitle="Choose a circuit and a reference lap, then start. Timing begins when you cross the start line." />
       <div className="mx-auto grid max-w-5xl gap-4 p-4 md:grid-cols-[1fr_20rem] md:p-6">
         {active && <RecoveryBanner info={active} />}
@@ -311,6 +349,25 @@ function LiveRunning() {
   const [stopping, setStopping] = useState(false);
   /** Stop asks first in a panel: a stray tap while driving must not end the session. */
   const [confirmStop, setConfirmStop] = useState(false);
+  /** Sprints stop and save themselves shortly after the finish (Settings), unless the driver keeps timing. */
+  const [autoStopAt, setAutoStopAt] = useState<number | null>(null);
+  const finishedAt = live.lastLap?.at;
+  useEffect(() => {
+    if (!finishedAt || Date.now() - finishedAt > 5000) return;
+    if (live.circuit?.kind !== 'sprint' || !settings.autoStopSprint || live.status !== 'running') return;
+    setAutoStopAt(Date.now() + 3500);
+    // Only a newly finished run arms it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [finishedAt]);
+  useEffect(() => {
+    if (autoStopAt === null) return;
+    const t = setTimeout(() => {
+      setAutoStopAt(null);
+      void stop();
+    }, Math.max(0, autoStopAt - Date.now()));
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoStopAt]);
   const snap = live.snapshot;
   const running = live.status === 'running';
   const now = useTicker(running && snap?.lapState !== 'waiting_start', live.clock);
@@ -375,12 +432,19 @@ function LiveRunning() {
                 </div>
               )}
               {flash.newBest && <Badge tone="accent">Best lap</Badge>}
+              {live.sectorsLap + live.lapOffset === flash.lap && <SectorStrip sectors={live.sectors} />}
             </div>
           ) : (
             <DeltaDisplay delta={snap.delta} hasReference={!!live.reference} referenceLabel={live.reference ? formatLapTime(live.reference.lapTimeMs) : null} />
           )}
 
           <BigTime ms={snap.lapState === 'waiting_start' ? null : elapsed} label={snap.lapState === 'waiting_start' ? 'Cross the start line to begin' : 'Lap time'} />
+          {!flash && snap.lapState === 'in_lap' && (
+            <SectorStrip
+              sectors={live.sectorsLap === snap.lap ? live.sectors : []}
+              highlight={live.sectorFlash && Date.now() - live.sectorFlash.at < 5000 && live.sectorsLap === snap.lap ? live.sectorFlash.sector : null}
+            />
+          )}
 
           <div className="mx-auto grid w-full max-w-3xl grid-cols-2 gap-px overflow-hidden rounded border border-line bg-line sm:grid-cols-4">
             <Readout label="Speed" value={formatSpeed(snap.speedMs, settings.speedUnit)} unit={speedLabel(settings.speedUnit)} />
@@ -427,6 +491,20 @@ function LiveRunning() {
         </Button>
       </div>
 
+      {autoStopAt !== null && (
+        <div role="status" className="fixed inset-x-0 bottom-0 z-[1500] border-t border-accent bg-panel p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-lg font-bold">Finish!{live.lastLap && ` ${formatLapTime(live.lastLap.timeMs)}`}</div>
+              <div className="text-sm text-muted">Saving the run…</div>
+            </div>
+            <Button size="lg" onClick={() => setAutoStopAt(null)}>
+              Keep timing
+            </Button>
+          </div>
+        </div>
+      )}
+
       {confirmStop && (
         <div className="fixed inset-0 z-[2000] flex items-end bg-black/60" onClick={() => setConfirmStop(false)}>
           <div
@@ -456,6 +534,30 @@ function LiveRunning() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * The lap's three sectors (thirds by distance): time when done, coloured purple for a personal
+ * best sector, green/red against the reference; the sector just finished is enlarged.
+ */
+function SectorStrip({ sectors, highlight = null }: { sectors: SectorSplit[]; highlight?: number | null }) {
+  return (
+    <div className="mx-auto grid w-full max-w-3xl grid-cols-3 gap-2" aria-label="Sectors">
+      {[0, 1, 2].map((k) => {
+        const s = sectors.find((x) => x.sector === k);
+        const tone = !s ? 'border-line text-muted' : s.personalBest ? 'border-[#b36bff] bg-[#b36bff]/20 text-fg' : s.refDeltaMs === null ? 'border-line text-fg' : s.refDeltaMs < 0 ? 'border-gain/70 text-fg' : 'border-loss/70 text-fg';
+        return (
+          <div key={k} className={`rounded border px-2 py-1.5 text-center transition-transform ${tone} ${highlight === k ? 'scale-110 ring-2 ring-fg' : ''}`}>
+            <div className="label">S{k + 1}</div>
+            <div className="font-mono text-lg font-semibold tabular">{s ? (s.timeMs / 1000).toFixed(2) : '—'}</div>
+            {s?.refDeltaMs != null && (
+              <div className={`font-mono text-sm font-bold tabular ${s.refDeltaMs < 0 ? 'text-gain' : 'text-loss'}`}>{formatDelta(s.refDeltaMs, 2)}</div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

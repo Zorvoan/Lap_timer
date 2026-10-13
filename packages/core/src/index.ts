@@ -12,3 +12,4 @@ export * from './format';
 export * from './recording';
 export * from './sim';
 export * from './trim';
+export * from './liveSectors';
