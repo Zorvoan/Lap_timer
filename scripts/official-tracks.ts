@@ -15,6 +15,7 @@ import { createSign } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { TrackModel, lineAlong, type Circuit } from '../packages/core/src/index';
 import { trimSprint } from '../packages/core/src/trim';
+import { decodeCircuit, encodeCircuit, type CircuitDoc } from '../apps/web/src/lib/cloud/codec';
 
 const PROJECT = process.env.FIREBASE_PROJECT ?? 'laptimer-okwph';
 const BASE = `https://firestore.googleapis.com/v1/projects/${PROJECT}/databases/(default)/documents`;
@@ -96,7 +97,12 @@ async function allCircuits(token: string): Promise<Owned[]> {
   const out: Owned[] = [];
   for (const u of await listDocs(token, 'users')) {
     for (const d of await listDocs(token, `users/${u.id}/circuits`)) {
-      if (d.data.id) out.push({ uid: u.id, circuit: d.data as unknown as Circuit });
+      if (!d.data.id) continue;
+      try {
+        out.push({ uid: u.id, circuit: decodeCircuit(d.data as unknown as CircuitDoc) });
+      } catch (e) {
+        console.warn(`skipping undecodable circuit ${d.id}: ${e instanceof Error ? e.message : e}`);
+      }
     }
   }
   return out;
@@ -137,6 +143,11 @@ async function inspect(token: string, text: string) {
     console.log(`\n"${o.circuit.name}"  id ${o.circuit.id}  owner ${o.uid.slice(0, 6)}…  ${featured.some((f) => f.id === o.circuit.id) ? '(already official)' : ''}`);
     for (const line of describe(o.circuit)) console.log(line);
   }
+  // The same owners' other circuits (names only), to spot ones named differently.
+  for (const uid of new Set(matches.map((m) => m.uid))) {
+    console.log(`\nAll circuits of owner ${uid.slice(0, 6)}…:`);
+    for (const o of all.filter((x) => x.uid === uid)) console.log(`  "${o.circuit.name}"  ${o.circuit.kind}  ${km(o.circuit.lengthM)}  updated ${new Date(o.circuit.updatedAt).toISOString()}`);
+  }
   for (let i = 0; i < matches.length; i++)
     for (let j = 0; j < matches.length; j++)
       if (i !== j) console.log(`overlap: ${(overlap(matches[i].circuit, matches[j].circuit) * 100).toFixed(0)}% of "${matches[j].circuit.name}" lies on "${matches[i].circuit.name}"`);
@@ -163,14 +174,10 @@ async function publish(token: string, spec: PublishSpec) {
     const shaped = t.lengthM ? trimSprint(circuit, t.lengthM) : circuit;
     const existing = featured.find((f) => f.id === circuit.id);
     const doc: Record<string, unknown> = {
-      ...shaped,
-      name: t.name,
-      origin: 'imported',
-      updatedAt: now,
+      ...encodeCircuit({ ...shaped, name: t.name, origin: 'imported', updatedAt: now }),
       featuredOrder: existing ? Number(existing.data.featuredOrder) : order++,
       featuredBy: uid,
     };
-    delete doc.serverUpdatedAt;
     await api(token, 'PATCH', `${BASE}/featured/${circuit.id}`, { fields: toFields(doc) });
     console.log(`\nPublished "${t.name}" (featured/${circuit.id}, order ${doc.featuredOrder})`);
     for (const line of describe(shaped)) console.log(line);
