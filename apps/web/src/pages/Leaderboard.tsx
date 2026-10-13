@@ -215,16 +215,6 @@ export function LeaderboardTrack() {
                               {mine && <Badge tone="accent">You</Badge>}
                             </div>
                             <div className="truncate text-xs text-muted">{e.car}</div>
-                            {splitsByUid?.get(e.uid)?.length === 3 && (
-                              // Phones have no room for sector columns: the splits go under the car.
-                              <div className="mt-0.5 font-mono text-[11px] tabular text-muted md:hidden">
-                                {splitsByUid.get(e.uid)!.map((ms, k) => (
-                                  <span key={k} className={`mr-2 inline-block whitespace-nowrap ${ideal?.sectorsMs[k] === ms ? 'font-bold text-[#b36bff]' : ''}`}>
-                                    S{k + 1} {(ms / 1000).toFixed(2)}
-                                  </span>
-                                ))}
-                              </div>
-                            )}
                           </td>
                           <td className="px-3 py-2 text-right font-mono tabular">
                             {formatLapTime(e.timeMs)}
