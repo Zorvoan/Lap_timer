@@ -21,7 +21,7 @@ import { RouteLayer } from '../components/map/RouteLayer';
 import { TimingLineView } from '../components/map/TimingLines';
 import { LocateControl, SearchControl } from '../components/map/MapControls';
 import { Badge, Button, ConfirmButton, Field, Input, Notice, Spinner } from '../components/ui/primitives';
-import { IconMap, IconSwap, IconTrash, IconX } from '../components/ui/icons';
+import { IconSwap, IconTrash, IconUndo, IconX } from '../components/ui/icons';
 import { ElevationChart } from '../components/charts/Charts';
 import { useSettings } from '../hooks/useSettings';
 import { useAccount } from '../hooks/useData';
@@ -30,9 +30,9 @@ import { getRoutingProvider, RoutingError, type RouteResult } from '../lib/routi
 import { getCircuit, saveCircuit } from '../lib/repo';
 import { fetchElevationProfile } from '../lib/elevation';
 import { newId, log } from '../lib/log';
-import { config } from '../lib/config';
 
-type Tool = 'waypoints' | 'start' | 'finish' | 'sector';
+type Tool = 'waypoints' | 'start' | 'finish' | 'sector' | 'none';
+type Step = 'basics' | 'route' | 'lines' | 'save';
 const LINE_WIDTH_M = 24;
 
 export interface RecordedDraft {
@@ -78,10 +78,19 @@ export function CircuitEditor() {
     setFinishLine(l);
   };
   const [sectors, setSectors] = useState<TimingLine[]>([]);
-  const [tool, setTool] = useState<Tool>(recorded ? 'start' : 'waypoints');
+  /** The guided steps: what it is and its name → the route → start/finish lines → save. */
+  const [step, setStep] = useState<Step>(id ? (recorded ? 'lines' : 'route') : 'basics');
+  /** Which line a tap on the route places in the "Start & finish" step. */
+  const [lineTool, setLineTool] = useState<Exclude<Tool, 'waypoints'>>('start');
+  const tool: Tool = step === 'route' ? 'waypoints' : step === 'lines' ? lineTool : 'none';
   const desktop = useMediaQuery('(min-width: 768px)');
-  /** Phone: the details form is a full-screen sheet over the map; new circuits start there. */
-  const [sheetOpen, setSheetOpen] = useState(!id);
+  /** Earlier waypoint lists, for Undo. */
+  const history = useRef<LonLat[][]>([]);
+  const editWaypoints = (next: (w: LonLat[]) => LonLat[]) =>
+    setWaypoints((w) => {
+      history.current.push(w);
+      return next(w);
+    });
   const [elevation, setElevation] = useState<ElevationPoint[] | null>(null);
   const [elevationError, setElevationError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -114,7 +123,7 @@ export function CircuitEditor() {
       } else {
         setFixedGeometry(c.geometry);
       }
-      setTool(c.origin === 'routed' ? 'waypoints' : 'start');
+      setStep(c.origin === 'routed' ? 'route' : 'lines');
       setFitKey(`load-${c.id}`);
       setLoaded(true);
     });
@@ -186,9 +195,10 @@ export function CircuitEditor() {
 
   function onMapClick(lat: number, lon: number) {
     const p: LonLat = [lon, lat];
+    if (tool === 'none') return;
     if (tool === 'waypoints') {
       if (origin !== 'routed') return;
-      setWaypoints((w) => insertWaypoint(w, p, track, kind === 'closed'));
+      editWaypoints((w) => insertWaypoint(w, p, track, kind === 'closed'));
       return;
     }
     if (!track) return;
@@ -270,201 +280,284 @@ export function CircuitEditor() {
     return L.latLngBounds(pts.map(([lon, lat]) => [lat, lon] as [number, number]));
   }, [geometry, waypoints]);
 
-  const tools: { id: Tool; label: string; show: boolean }[] = [
-    { id: 'waypoints', label: 'Waypoints', show: origin === 'routed' },
-    { id: 'start', label: kind === 'closed' ? 'Start/finish' : 'Start', show: true },
-    { id: 'finish', label: 'Finish', show: kind === 'sprint' },
-    { id: 'sector', label: 'Sector', show: true },
+  const steps: { id: Step; label: string }[] = [
+    { id: 'basics', label: 'Type & name' },
+    { id: 'route', label: 'Route' },
+    { id: 'lines', label: kind === 'closed' ? 'Start line' : 'Start & finish' },
+    { id: 'save', label: 'Save' },
   ];
+  const stepIndex = steps.findIndex((x) => x.id === step);
+  const blocking = issues.filter((i) => i.severity === 'error');
+  const routeReady = !!track && routing !== 'loading';
+  /** Why the user cannot go on from a step yet (null = can continue). */
+  const blocker = (st: Step): string | null => {
+    if (st === 'basics') return name.trim() ? null : 'Give it a name first.';
+    if (st === 'route') return routeReady ? null : origin === 'routed' ? (waypoints.length < 2 ? 'Tap at least two points on the road.' : 'Waiting for the route…') : 'No route.';
+    if (st === 'lines') return blocking[0]?.message ?? null;
+    return null;
+  };
+  const canOpen = (target: Step) => steps.slice(0, steps.findIndex((x) => x.id === target)).every((x) => !blocker(x.id));
+  const [showBlocker, setShowBlocker] = useState(false);
+  useEffect(() => setShowBlocker(false), [step, name, waypoints.length, track]);
+
+  function next() {
+    if (blocker(step)) return setShowBlocker(true);
+    if (step === 'save') return void save();
+    setStep(steps[stepIndex + 1].id);
+  }
+  function back() {
+    if (stepIndex === 0) return navigate(-1);
+    setStep(steps[stepIndex - 1].id);
+  }
+  function undo() {
+    const prev = history.current.pop();
+    if (prev) setWaypoints(prev);
+  }
 
   const tap = desktop ? 'Click' : 'Tap';
-  const hint =
-    tool === 'waypoints'
-      ? waypoints.length === 0
-        ? `${tap} a road to place the start point.`
-        : `${tap} along the roads you want to drive. Drag numbered markers to adjust; ${tap.toLowerCase()} one to remove it.`
-      : !track
-        ? 'Create a route first.'
-        : tool === 'sector'
-          ? `${tap} on the route to add a sector line.`
-          : `${tap} on the route to place the ${tool === 'finish' ? 'finish' : 'start'} line. Drag its ends to adjust.`;
+  const lineName = lineTool === 'finish' ? 'finish' : lineTool === 'sector' ? 'sector' : kind === 'closed' ? 'start/finish' : 'start';
+  const instruction =
+    step === 'route'
+      ? origin !== 'routed'
+        ? 'This is the route from your GPS recording.'
+        : waypoints.length === 0
+          ? kind === 'sprint'
+            ? `${tap} the road where the sprint starts.`
+            : `${tap} the road where the circuit starts.`
+          : waypoints.length === 1
+            ? kind === 'sprint'
+              ? `Now ${tap.toLowerCase()} the road where it ends. The route follows the roads.`
+              : `${tap} the next point around the loop. It closes back to point 1 by itself.`
+            : `${tap} more points to shape the route. Drag a numbered point to move it.`
+      : step === 'lines'
+        ? `${tap} the route where the ${lineName} line goes. Drag its ends to fine-tune.`
+        : null;
 
   const title = existing ? 'Edit circuit' : origin === 'recorded' ? 'New circuit from GPS' : 'New circuit';
-  const form = (
-    <>
-      {!loaded ? (
-        <Spinner />
-      ) : (
-        <>
-          <Field label="Name">
-            <Input value={name} onChange={(e) => setName(e.target.value)} maxLength={80} placeholder="e.g. Hill loop" />
-          </Field>
 
-          <div>
-            <span className="label">Layout</span>
-            <div className="mt-1.5 grid grid-cols-2 gap-2">
-              {(['closed', 'sprint'] as const).map((k) => (
-                <Button key={k} variant={kind === k ? 'primary' : 'secondary'} onClick={() => setKind(k)}>
-                  {k === 'closed' ? 'Closed circuit' : 'Sprint (A→B)'}
-                </Button>
-              ))}
-            </div>
-            <p className="mt-1 text-xs text-muted">
-              {kind === 'closed' ? 'The route returns to the first waypoint; one line is start and finish.' : 'Separate start and finish lines.'}
-            </p>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3 rounded border border-line p-3">
-            <div>
-              <div className="label">Distance</div>
-              <div className="font-mono text-lg tabular">{track ? formatDistance(track.length, settings.distanceUnit) : '—'}</div>
-            </div>
-            <div>
-              <div className="label">{origin === 'routed' ? 'Waypoints' : 'Points'}</div>
-              <div className="font-mono text-lg tabular">{origin === 'routed' ? waypoints.length : geometry?.length ?? 0}</div>
-            </div>
-            {origin === 'routed' && geometry && (
-              <div className="col-span-2 text-xs text-muted">
-                Road geometry: {geometry.length} points from {route?.provider.toUpperCase()} — the line on the map is exactly what will be timed.
-              </div>
-            )}
-          </div>
-
-          {origin === 'routed' && routing === 'loading' && <Spinner label="Routing along roads…" />}
-          {origin === 'routed' && routeError && (
-            <Notice
-              tone="error"
-              title={routeErrorTitle(routeError.code)}
-              action={
-                routeError.code !== 'invalid_waypoints' && routeError.code !== 'no_route' ? (
-                  <Button size="sm" onClick={() => setRetry((r) => r + 1)}>
-                    Retry
-                  </Button>
-                ) : undefined
-              }
+  const stepper = (
+    <ol className="grid grid-cols-4 gap-1" aria-label="Steps">
+      {steps.map((x, i) => {
+        const active = x.id === step;
+        const done = i < stepIndex;
+        const open = canOpen(x.id);
+        return (
+          <li key={x.id}>
+            <button
+              type="button"
+              disabled={!open}
+              onClick={() => setStep(x.id)}
+              aria-current={active ? 'step' : undefined}
+              className="flex w-full flex-col items-center gap-1 rounded py-1 text-center disabled:opacity-40"
             >
-              {routeError.message} No route is drawn until routing succeeds.
-            </Notice>
-          )}
-          {route?.warnings.map((w, i) => (
-            <Notice key={i} tone="warn" title="Check the route">
-              {w}
-            </Notice>
-          ))}
-          {issues.map((i, k) => (
-            <Notice key={k} tone={i.severity === 'error' ? 'error' : 'warn'}>
-              {i.message}
-            </Notice>
-          ))}
-
-          <div className="flex flex-wrap gap-2">
-            <Button onClick={reverse} disabled={!geometry && waypoints.length < 2}>
-              <IconSwap width={16} height={16} /> Reverse direction
-            </Button>
-            {startLine && (
-              <Button onClick={() => setStartManual({ ...startLine, direction: startLine.direction === 1 ? -1 : 1 })} title="Flip which way the start line must be crossed">
-                Flip start line
-              </Button>
-            )}
-            {origin === 'routed' && waypoints.length > 0 && (
-              <ConfirmButton onConfirm={() => setWaypoints([])} confirmLabel="Confirm clear">
-                <IconTrash width={16} height={16} /> Clear
-              </ConfirmButton>
-            )}
-          </div>
-
-          {sectors.length > 0 && (
-            <div>
-              <span className="label">Sector lines</span>
-              <ul className="mt-1.5 space-y-1">
-                {sectors.map((_, i) => (
-                  <li key={i} className="flex items-center justify-between rounded border border-line px-3 py-1.5 text-sm">
-                    <span>
-                      <Badge tone="warn">S{i + 1}</Badge> line {i + 1}
-                    </span>
-                    <Button size="sm" variant="ghost" aria-label={`Remove sector line ${i + 1}`} onClick={() => setSectors((ss) => ss.filter((__, j) => j !== i))}>
-                      <IconTrash width={14} height={14} />
-                    </Button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          <div>
-            <div className="flex items-center justify-between">
-              <span className="label">Elevation</span>
-              <Button size="sm" onClick={() => void loadElevation()} disabled={!geometry}>
-                {elevation ? 'Reload' : 'Load profile'}
-              </Button>
-            </div>
-            {elevationError && <p className="mt-1 text-xs text-loss">{elevationError}</p>}
-            {elevation && elevation.length > 1 ? (
-              <div className="mt-2 h-28">
-                <ElevationChart points={elevation} distanceUnit={settings.distanceUnit} />
-              </div>
-            ) : (
-              <p className="mt-1 text-xs text-muted">Optional. Fetched from Open-Meteo (90 m terrain model).</p>
-            )}
-          </div>
-
-          {origin === 'routed' && (
-            <p className="text-xs text-muted">
-              Routing: {config.osrmUrl.replace(/^https?:\/\//, '')} ({config.osrmProfile}). The public OSRM demo is rate limited and for light use only.
-            </p>
-          )}
-        </>
-      )}
-    </>
+              <span
+                className={`flex h-7 w-7 items-center justify-center rounded-full border-2 text-xs font-bold ${
+                  active ? 'border-accent bg-accent text-white' : done ? 'border-accent text-accent' : 'border-line text-muted'
+                }`}
+              >
+                {done ? '✓' : i + 1}
+              </span>
+              <span className={`text-[11px] font-semibold leading-tight ${active ? 'text-fg' : 'text-muted'}`}>{x.label}</span>
+            </button>
+          </li>
+        );
+      })}
+    </ol>
   );
-  const saveFooter = (
-    <>
-      {saveError && (
+
+  const content = !loaded ? (
+    <Spinner />
+  ) : step === 'basics' ? (
+    <div className="space-y-5">
+      <div>
+        <h2 className="text-lg font-bold">What are you creating?</h2>
+        <div className="mt-3 grid grid-cols-2 gap-3" role="radiogroup" aria-label="Layout">
+          {(['closed', 'sprint'] as const).map((k) => (
+            <button
+              key={k}
+              type="button"
+              role="radio"
+              aria-checked={kind === k}
+              onClick={() => setKind(k)}
+              className={`flex flex-col items-center gap-2 rounded border-2 p-4 text-center ${kind === k ? 'border-accent bg-accent/10' : 'border-line hover:border-muted'}`}
+            >
+              {k === 'closed' ? <LoopPicture /> : <SprintPicture />}
+              <span className="font-bold">{k === 'closed' ? 'Circuit' : 'Sprint'}</span>
+              <span className="text-xs text-muted">{k === 'closed' ? 'A loop: start and finish at the same line' : 'From A to B: separate start and finish'}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+      <Field label="Name">
+        <Input value={name} onChange={(e) => setName(e.target.value)} maxLength={80} placeholder={kind === 'closed' ? 'e.g. Hill loop' : 'e.g. Halenkovice hill climb'} className="h-12 text-base" />
+      </Field>
+    </div>
+  ) : step === 'route' ? (
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <div className="label">Distance</div>
+          <div className="font-mono text-xl tabular">{track ? formatDistance(track.length, settings.distanceUnit) : '—'}</div>
+        </div>
+        <div>
+          <div className="label">{origin === 'routed' ? 'Points' : 'GPS points'}</div>
+          <div className="font-mono text-xl tabular">{origin === 'routed' ? waypoints.length : geometry?.length ?? 0}</div>
+        </div>
+      </div>
+      {origin === 'routed' && routing === 'loading' && <Spinner label="Finding the road…" />}
+      {origin === 'routed' && routeError && (
+        <Notice
+          tone="error"
+          title={routeErrorTitle(routeError.code)}
+          action={
+            routeError.code !== 'invalid_waypoints' && routeError.code !== 'no_route' ? (
+              <Button size="sm" onClick={() => setRetry((r) => r + 1)}>
+                Retry
+              </Button>
+            ) : undefined
+          }
+        >
+          {routeError.message}
+        </Notice>
+      )}
+      {route?.warnings.map((w, i) => (
+        <Notice key={i} tone="warn" title="Check the route">
+          {w}
+        </Notice>
+      ))}
+      <div className="flex flex-wrap gap-2">
+        {origin === 'routed' && (
+          <Button onClick={undo} disabled={!history.current.length}>
+            <IconUndo width={16} height={16} /> Undo
+          </Button>
+        )}
+        <Button onClick={reverse} disabled={!geometry && waypoints.length < 2}>
+          <IconSwap width={16} height={16} /> Reverse
+        </Button>
+        {origin === 'routed' && waypoints.length > 0 && (
+          <ConfirmButton variant="ghost" className="text-loss" onConfirm={() => editWaypoints(() => [])} confirmLabel="Tap again to clear">
+            <IconTrash width={16} height={16} /> Clear
+          </ConfirmButton>
+        )}
+      </div>
+    </div>
+  ) : step === 'lines' ? (
+    <div className="space-y-3">
+      <p className="text-sm text-muted">
+        {kind === 'closed'
+          ? 'The start/finish line is already placed near the beginning of the route. Move it if you want.'
+          : 'Start and finish lines are already placed at the ends of the route. Move them if you want.'}
+      </p>
+      <div role="radiogroup" aria-label="Line to place" className={`grid gap-2 ${kind === 'sprint' ? 'grid-cols-3' : 'grid-cols-2'}`}>
+        {(
+          [
+            { id: 'start', label: kind === 'closed' ? 'Start/finish' : 'Start' },
+            ...(kind === 'sprint' ? [{ id: 'finish', label: 'Finish' }] : []),
+            { id: 'sector', label: '+ Sector' },
+          ] as { id: Exclude<Tool, 'waypoints' | 'none'>; label: string }[]
+        ).map((t) => (
+          <Button key={t.id} role="radio" aria-checked={lineTool === t.id} variant={lineTool === t.id ? 'primary' : 'secondary'} onClick={() => setLineTool(t.id)}>
+            {t.label}
+          </Button>
+        ))}
+      </div>
+      {issues.map((i, k) => (
+        <Notice key={k} tone={i.severity === 'error' ? 'error' : 'warn'}>
+          {i.message}
+        </Notice>
+      ))}
+      {startLine && issues.some((i) => i.message.includes('Flip start line')) && (
+        <Button onClick={() => setStartManual({ ...startLine, direction: startLine.direction === 1 ? -1 : 1 })}>Flip start line</Button>
+      )}
+      {sectors.length > 0 && (
+        <ul className="space-y-1">
+          {sectors.map((_, i) => (
+            <li key={i} className="flex items-center justify-between rounded border border-line px-3 py-1.5 text-sm">
+              <span>
+                <Badge tone="warn">S{i + 1}</Badge> sector line {i + 1}
+              </span>
+              <Button size="sm" variant="ghost" aria-label={`Remove sector line ${i + 1}`} onClick={() => setSectors((ss) => ss.filter((__, j) => j !== i))}>
+                <IconTrash width={14} height={14} />
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  ) : (
+    <div className="space-y-4">
+      <dl className="divide-y divide-line rounded border border-line">
+        <SummaryRow label="Name">
+          <Input value={name} onChange={(e) => setName(e.target.value)} maxLength={80} />
+        </SummaryRow>
+        <SummaryRow label="Type">{kind === 'closed' ? 'Circuit (loop)' : 'Sprint A→B'}</SummaryRow>
+        <SummaryRow label="Distance">{track ? formatDistance(track.length, settings.distanceUnit) : '—'}</SummaryRow>
+        <SummaryRow label="Lines">
+          {kind === 'closed' ? 'Start/finish' : 'Start + finish'}
+          {sectors.length > 0 && ` + ${sectors.length} sector line${sectors.length > 1 ? 's' : ''}`}
+        </SummaryRow>
+      </dl>
+      <div>
+        <div className="flex items-center justify-between">
+          <span className="label">Elevation (optional)</span>
+          <Button size="sm" onClick={() => void loadElevation()} disabled={!geometry}>
+            {elevation ? 'Reload' : 'Load profile'}
+          </Button>
+        </div>
+        {elevationError && <p className="mt-1 text-xs text-loss">{elevationError}</p>}
+        {elevation && elevation.length > 1 && (
+          <div className="mt-2 h-24">
+            <ElevationChart points={elevation} distanceUnit={settings.distanceUnit} />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  const footer = (
+    <div className="border-t border-line p-3">
+      {(saveError || (showBlocker && blocker(step))) && (
         <p role="alert" className="mb-2 text-sm text-loss">
-          {saveError}
+          {saveError ?? blocker(step)}
         </p>
       )}
-      <Button variant="primary" size="lg" className="w-full" onClick={() => void save()} disabled={saving || !track}>
-        {saving ? 'Saving…' : 'Save circuit'}
-      </Button>
-    </>
+      <div className="grid grid-cols-[auto_1fr] gap-2">
+        <Button size="lg" onClick={back}>
+          {stepIndex === 0 ? 'Cancel' : 'Back'}
+        </Button>
+        <Button variant="primary" size="lg" onClick={next} disabled={saving} aria-disabled={!!blocker(step)} className={blocker(step) ? 'opacity-60' : ''}>
+          {step === 'save' ? (saving ? 'Saving…' : 'Save circuit') : `Next: ${steps[stepIndex + 1].label}`}
+        </Button>
+      </div>
+    </div>
   );
-
-  /** Phone save: problems that need the form (name, …) open the details sheet. */
-  async function saveFromPhone() {
-    if (!name.trim() || !track) setSheetOpen(true);
-    if (!track) return setSaveError('Create a route on the map first.');
-    await save();
-  }
 
   return (
     <div className="flex h-full flex-col md:flex-row">
-      <div className="relative min-h-0 flex-1">
+      {/* Phone header: title and steps */}
+      <div className="border-b border-line bg-panel px-3 pb-2 pt-3 md:hidden">
+        <div className="mb-2 flex items-center justify-between">
+          <h1 className="text-lg font-bold">{title}</h1>
+          <Button size="sm" variant="ghost" aria-label="Cancel" onClick={() => navigate(-1)}>
+            <IconX width={18} height={18} />
+          </Button>
+        </div>
+        {stepper}
+      </div>
+
+      <div className={`relative min-h-0 flex-1 ${step === 'basics' ? 'hidden md:block' : ''}`}>
         <BaseMap>
           <MapClick onClick={onMapClick} />
           <SearchControl />
           <LocateControl />
-          <MapOverlay className="bottom-3 left-3 right-14 flex flex-col items-start gap-2 md:left-1/2 md:right-auto md:-translate-x-1/2 md:items-center">
-            <div role="radiogroup" aria-label="Editing tool" className="flex overflow-hidden rounded border border-line bg-panel shadow-lg">
-              {tools
-                .filter((t) => t.show)
-                .map((t) => (
-                  <button
-                    key={t.id}
-                    type="button"
-                    role="radio"
-                    aria-checked={tool === t.id}
-                    onClick={() => setTool(t.id)}
-                    className={`h-10 px-3 text-xs font-semibold uppercase tracking-wider ${tool === t.id ? 'bg-accent text-white' : 'text-muted hover:text-fg'}`}
-                  >
-                    {t.label}
-                  </button>
-                ))}
-            </div>
-            <div className="rounded bg-panel/90 px-2 py-1 text-xs text-muted">{hint}</div>
-          </MapOverlay>
-          {geometry && <RouteLayer geometry={geometry} closed={kind === 'closed'} />}
+          {instruction && (
+            <MapOverlay className="bottom-3 left-3 right-14 md:left-1/2 md:right-auto md:w-[28rem] md:-translate-x-1/2">
+              <div className="rounded border-l-4 border-accent bg-panel px-3 py-2 text-sm font-medium shadow-lg">{instruction}</div>
+            </MapOverlay>
+          )}
+          {geometry && <RouteLayer geometry={geometry} closed={kind === 'closed'} opacity={step === 'route' || step === 'lines' || step === 'save' ? 1 : 0.6} />}
           {origin === 'routed' &&
+            step === 'route' &&
             waypoints.map((w, i) => (
               <Marker
                 key={`${i}-${w[0]}-${w[1]}`}
@@ -474,104 +567,72 @@ export function CircuitEditor() {
                 eventHandlers={{
                   dragend: (e) => {
                     const ll = (e.target as L.Marker).getLatLng();
-                    setWaypoints((ws) => ws.map((x, j) => (j === i ? [ll.lng, ll.lat] : x)));
+                    editWaypoints((ws) => ws.map((x, j) => (j === i ? [ll.lng, ll.lat] : x)));
                   },
                 }}
               >
                 <Popup>
-                  <button type="button" className="text-sm font-semibold text-red-600" onClick={() => setWaypoints((ws) => ws.filter((_, j) => j !== i))}>
-                    Remove waypoint {i + 1}
+                  <button type="button" className="text-sm font-semibold text-red-600" onClick={() => editWaypoints((ws) => ws.filter((_, j) => j !== i))}>
+                    Remove point {i + 1}
                   </button>
                 </Popup>
               </Marker>
             ))}
-          {startLine && <TimingLineView line={startLine} kind="start" label={kind === 'closed' ? 'Start / finish' : 'Start'} editable onChange={setStartManual} />}
-          {kind === 'sprint' && finishLine && <TimingLineView line={finishLine} kind="finish" label="Finish" editable onChange={setFinishManual} />}
-          {sectors.map((s, i) => (
-            <TimingLineView key={i} line={s} kind="sector" label={`Sector line ${i + 1}`} editable onChange={(l) => setSectors((ss) => ss.map((x, j) => (j === i ? l : x)))} />
-          ))}
+          {step !== 'route' && startLine && (
+            <TimingLineView line={startLine} kind="start" label={kind === 'closed' ? 'Start / finish' : 'Start'} editable={step === 'lines'} onChange={setStartManual} />
+          )}
+          {step !== 'route' && kind === 'sprint' && finishLine && <TimingLineView line={finishLine} kind="finish" label="Finish" editable={step === 'lines'} onChange={setFinishManual} />}
+          {step !== 'route' &&
+            sectors.map((x, i) => (
+              <TimingLineView key={i} line={x} kind="sector" label={`Sector line ${i + 1}`} editable={step === 'lines'} onChange={(l) => setSectors((ss) => ss.map((y, j) => (j === i ? l : y)))} />
+            ))}
           <FitBounds bounds={bounds} fitKey={fitKey} />
         </BaseMap>
       </div>
 
-      {desktop ? (
-        <aside className="flex min-h-0 w-96 flex-col border-l border-line bg-panel">
-          <div className="flex items-center justify-between border-b border-line px-4 py-3">
-            <h1 className="label">{title}</h1>
-            <Button size="sm" variant="ghost" aria-label="Cancel" onClick={() => navigate(-1)}>
-              <IconX width={16} height={16} />
-            </Button>
-          </div>
-          <div className="min-h-0 flex-1 space-y-4 overflow-auto p-4">{form}</div>
-          <div className="border-t border-line p-3">{saveFooter}</div>
-        </aside>
-      ) : (
-        <>
-          {/* Phone: the map gets the screen; a summary bar opens the details sheet. */}
-          <div className="border-t border-line bg-panel px-3 pb-3 pt-2">
-            <button type="button" onClick={() => setSheetOpen(true)} className="flex w-full items-center justify-between gap-3 py-1 text-left">
-              <span className="min-w-0">
-                <span className={`block truncate text-base font-bold ${name.trim() ? '' : 'text-muted'}`}>{name.trim() || 'Untitled circuit'}</span>
-                <span className="block text-xs text-muted">
-                  {kind === 'closed' ? 'Closed circuit' : 'Sprint A→B'} · {track ? formatDistance(track.length, settings.distanceUnit) : 'no route yet'}
-                  {issues.length > 0 && <span className="text-warn"> · {issues.length} to check</span>}
-                </span>
-              </span>
-              <span className="shrink-0 text-sm font-semibold text-accent">Edit details</span>
-            </button>
-            {saveError && !sheetOpen && (
-              <p role="alert" className="mt-1 text-sm text-loss">
-                {saveError}
-              </p>
-            )}
-            <div className="mt-2 grid grid-cols-[auto_1fr] gap-2">
-              <Button size="lg" aria-label="Cancel" onClick={() => navigate(-1)}>
-                <IconX width={18} height={18} />
-              </Button>
-              <Button variant="primary" size="lg" onClick={() => void saveFromPhone()} disabled={saving}>
-                {saving ? 'Saving…' : 'Save circuit'}
-              </Button>
-            </div>
-          </div>
-          {sheetOpen && (
-            <div role="dialog" aria-modal="true" aria-label={title} className="fixed inset-0 z-[1500] flex flex-col bg-panel pb-[env(safe-area-inset-bottom)] pt-[env(safe-area-inset-top)]">
-              <div className="flex items-center justify-between border-b border-line px-4 py-3">
-                <h1 className="text-lg font-bold">{title}</h1>
-                <Button size="sm" onClick={() => setSheetOpen(false)}>
-                  <IconMap width={16} height={16} /> Back to map
-                </Button>
-              </div>
-              <div className="min-h-0 flex-1 space-y-5 overflow-auto p-4">
-                {!track && origin === 'routed' && (
-                  <ol className="list-decimal space-y-1 rounded border border-line bg-raised p-3 pl-8 text-sm text-muted">
-                    <li>Name the circuit and choose closed circuit or sprint.</li>
-                    <li>On the map, tap along the roads you want to drive.</li>
-                    <li>Switch to {kind === 'closed' ? 'Start/finish' : 'Start, then Finish,'} and tap the route to place the line.</li>
-                  </ol>
-                )}
-                {form}
-              </div>
-              <div className="border-t border-line p-3">
-                {track ? (
-                  saveFooter
-                ) : (
-                  <>
-                    {saveError && (
-                      <p role="alert" className="mb-2 text-sm text-loss">
-                        {saveError}
-                      </p>
-                    )}
-                    <Button variant="primary" size="lg" className="w-full" onClick={() => (setSaveError(null), setSheetOpen(false))}>
-                      Continue on the map
-                    </Button>
-                  </>
-                )}
-              </div>
-            </div>
-          )}
-        </>
-      )}
+      <aside className={`flex min-h-0 flex-col bg-panel md:w-96 md:flex-none md:border-l md:border-line ${step === 'basics' ? 'flex-1' : 'max-h-[45vh] border-t border-line md:max-h-none'}`}>
+        <div className="hidden items-center justify-between border-b border-line px-4 py-3 md:flex">
+          <h1 className="text-lg font-bold">{title}</h1>
+          <Button size="sm" variant="ghost" aria-label="Cancel" onClick={() => navigate(-1)}>
+            <IconX width={16} height={16} />
+          </Button>
+        </div>
+        <div className="hidden border-b border-line px-3 py-2 md:block">{stepper}</div>
+        <div className="min-h-0 flex-1 overflow-auto p-4">{content}</div>
+        {footer}
+      </aside>
     </div>
+  );
+}
+
+function SummaryRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-3 px-3 py-2.5">
+      <dt className="label shrink-0">{label}</dt>
+      <dd className="min-w-0 text-right text-sm font-medium">{children}</dd>
+    </div>
+  );
+}
+
+function LoopPicture() {
+  return (
+    <svg viewBox="0 0 64 40" width="64" height="40" aria-hidden="true" className="text-accent">
+      <path d="M14 20c0-8 8-13 18-13s18 5 18 13-8 13-18 13S14 28 14 20z" fill="none" stroke="currentColor" strokeWidth="3" />
+      <path d="M32 2v10" stroke="rgb(var(--c-fg))" strokeWidth="3" />
+      <path d="M42 30l6-2-1 6" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function SprintPicture() {
+  return (
+    <svg viewBox="0 0 64 40" width="64" height="40" aria-hidden="true" className="text-accent">
+      <path d="M8 30c10 0 12-20 24-20s14 12 24 12" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+      <circle cx="8" cy="30" r="4" fill="rgb(var(--c-fg))" />
+      <circle cx="56" cy="22" r="4" fill="rgb(var(--c-fg))" />
+      <text x="4" y="14" fontSize="10" fontWeight="700" fill="rgb(var(--c-muted))">A</text>
+      <text x="52" y="12" fontSize="10" fontWeight="700" fill="rgb(var(--c-muted))">B</text>
+    </svg>
   );
 }
 

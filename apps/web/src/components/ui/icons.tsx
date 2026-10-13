@@ -110,3 +110,9 @@ export const IconArrowLeft = (p: P) => (
     <path d="M19 12H5M11 18l-6-6 6-6" />
   </Svg>
 );
+export const IconUndo = (p: P) => (
+  <Svg {...p}>
+    <path d="M9 14L4 9l5-5" />
+    <path d="M4 9h10a6 6 0 0 1 0 12h-3" />
+  </Svg>
+);
