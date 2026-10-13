@@ -63,7 +63,7 @@ To redeploy:
 npm run deploy:firebase
 ```
 
-GitHub Actions also deploys on every push to the deploy branch
+GitHub Actions also deploys on every push to `main`
 (`.github/workflows/firebase-deploy.yml`, repository secret `FIREBASE_SERVICE_ACCOUNT` with a
 service account key that has the Firebase Hosting Admin and API Keys Viewer roles).
 

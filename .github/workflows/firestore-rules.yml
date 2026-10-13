@@ -4,7 +4,7 @@ name: Firestore rules
 
 on:
   push:
-    branches: [claude/serene-curie-ewf8qe]
+    branches: [main]
     paths:
       - firestore.rules
       - apps/web/test-rules/**

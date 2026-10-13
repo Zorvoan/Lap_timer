@@ -5,7 +5,7 @@ name: Official tracks
 
 on:
   push:
-    branches: [claude/serene-curie-ewf8qe]
+    branches: [main]
     paths:
       - scripts/official-tracks.job.json
       - scripts/official-tracks.ts
