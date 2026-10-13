@@ -153,7 +153,7 @@ export function LeaderboardTrack() {
           <ProfileNotice />
           <Panel title="Leaderboard" bodyClass="p-0" actions={<Button size="sm" variant="ghost" onClick={reload}>Refresh</Button>}>
             {board && board.length > 0 && <p className="border-b border-line px-4 py-2 text-sm text-muted">Tap a driver to see their telemetry and compare it with your laps.</p>}
-            {ideal && withSplits.length > 1 && (
+            {ideal && withSplits.length > 0 && (
               <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 border-b border-line px-4 py-2.5 text-sm">
                 <span>
                   <span className="label">Theoretical best</span> <span className="font-mono font-bold tabular">{formatLapTime(ideal.timeMs)}</span>
@@ -215,6 +215,16 @@ export function LeaderboardTrack() {
                               {mine && <Badge tone="accent">You</Badge>}
                             </div>
                             <div className="truncate text-xs text-muted">{e.car}</div>
+                            {splitsByUid?.get(e.uid)?.length === 3 && (
+                              // Phones have no room for sector columns: the splits go under the car.
+                              <div className="mt-0.5 font-mono text-[11px] tabular text-muted md:hidden">
+                                {splitsByUid.get(e.uid)!.map((ms, k) => (
+                                  <span key={k} className={`mr-2 inline-block whitespace-nowrap ${ideal?.sectorsMs[k] === ms ? 'font-bold text-[#b36bff]' : ''}`}>
+                                    S{k + 1} {(ms / 1000).toFixed(2)}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
                           </td>
                           <td className="px-3 py-2 text-right font-mono tabular">
                             {formatLapTime(e.timeMs)}
