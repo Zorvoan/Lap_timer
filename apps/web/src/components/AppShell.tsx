@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { formatDelta, formatLapTime } from '@laptimer/core';
-import { useAccount, useLive } from '../hooks/useData';
+import { useAccount, useData, useLive } from '../hooks/useData';
+import { getActiveSession } from '../lib/repo';
 import { buttonClass } from './ui/primitives';
 import { IconArrowLeft, IconHome, IconList, IconMap, IconSettings, IconTimer, IconTrophy, IconX } from './ui/icons';
 
 const NAV = [
   { to: '/', label: 'Home', icon: IconHome, end: true, phone: true },
   { to: '/circuits', label: 'Circuits', icon: IconMap, end: false, phone: true },
-  { to: '/live', label: 'Live', icon: IconTimer, end: false, phone: true },
   { to: '/leaderboard', label: 'Ranks', icon: IconTrophy, end: false, phone: true },
   { to: '/sessions', label: 'Sessions', icon: IconList, end: false, phone: true },
   // On phones Settings is reached from the gear on the Home screen: five tabs stay readable.
@@ -45,7 +45,6 @@ export function AppShell() {
                       <span className={`h-4 w-0.5 ${isActive ? 'bg-accent' : 'bg-transparent'}`} aria-hidden="true" />
                       <n.icon />
                       {n.label}
-                      {n.to === '/live' && sessionActive && <span className="ml-auto h-2 w-2 animate-pulse rounded-full bg-accent" aria-label="Session running" />}
                     </>
                   )}
                 </NavLink>
@@ -56,9 +55,12 @@ export function AppShell() {
         </nav>
       )}
 
-      <main className="relative min-h-0 min-w-0 flex-1 overflow-auto">
-        <Outlet />
-      </main>
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        {!loc.pathname.startsWith('/live') && <SessionBanner />}
+        <main className="relative min-h-0 min-w-0 flex-1 overflow-auto">
+          <Outlet />
+        </main>
+      </div>
       {!immersive && <LeaderboardToast />}
 
       {!immersive && (
@@ -75,7 +77,6 @@ export function AppShell() {
                   {isActive && <span className="absolute inset-x-4 top-0 h-0.5 bg-accent" aria-hidden="true" />}
                   <n.icon />
                   {n.label}
-                  {n.to === '/live' && sessionActive && <span className="absolute right-[30%] top-2 h-2 w-2 animate-pulse rounded-full bg-accent" />}
                 </>
               )}
             </NavLink>
@@ -84,6 +85,37 @@ export function AppShell() {
       )}
     </div>
   );
+}
+
+/**
+ * Live timing has no tab: it is opened from a circuit (Drive). While a session is recording, or
+ * one was interrupted (app closed mid-session), this bar on every other screen leads back to it.
+ */
+function SessionBanner() {
+  const live = useLive();
+  const { data: interrupted } = useData(getActiveSession, []);
+  if (live.status === 'running' || live.status === 'paused') {
+    return (
+      <Link to="/live" className="flex items-center gap-3 bg-accent px-4 py-2.5 text-sm font-semibold text-white">
+        <span className="h-2.5 w-2.5 shrink-0 animate-pulse rounded-full bg-white" aria-hidden="true" />
+        <span className="min-w-0 flex-1 truncate">
+          {live.status === 'paused' ? 'Paused' : 'Recording'} · {live.circuit?.name}
+        </span>
+        <span className="flex shrink-0 items-center gap-1">
+          <IconTimer width={16} height={16} /> Back to timing
+        </span>
+      </Link>
+    );
+  }
+  if (live.status === 'idle' && interrupted) {
+    return (
+      <Link to="/live" className="flex items-center gap-3 bg-warn px-4 py-2.5 text-sm font-semibold text-black">
+        <span className="min-w-0 flex-1 truncate">A session was interrupted. Resume or save it.</span>
+        <span className="shrink-0">Open →</span>
+      </Link>
+    );
+  }
+  return null;
 }
 
 const TOAST_MS = 15_000;

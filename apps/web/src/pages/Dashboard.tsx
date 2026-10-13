@@ -7,13 +7,12 @@ import { Empty, LinkButton, Notice, Panel, SimBadge, Spinner } from '../componen
 import { IconMap, IconPlus, IconSettings, IconTimer } from '../components/ui/icons';
 import { BaseMap, FitBounds } from '../components/map/BaseMap';
 import { TRACK_COLORS, TrackLines, boundsOf } from '../components/map/TrackLines';
-import { useAccount, useData, useLive } from '../hooks/useData';
+import { useAccount, useData } from '../hooks/useData';
 import { useSettings } from '../hooks/useSettings';
 import { listCircuits, listSessions } from '../lib/repo';
 
 export function Dashboard() {
   const { settings } = useSettings();
-  const live = useLive();
   const acc = useAccount();
   const { data, loading, error } = useData(async () => ({ circuits: await listCircuits(), sessions: await listSessions() }), []);
 
@@ -56,13 +55,6 @@ export function Dashboard() {
           <div className="lg:col-span-3">
             <Notice title="Keep your laps in your account" action={<LinkButton to="/account" variant="primary" size="sm">Sign in</LinkButton>}>
               Laps are only on this device right now. Sign in to back them up and analyse them on your computer.
-            </Notice>
-          </div>
-        )}
-        {(live.status === 'running' || live.status === 'paused') && (
-          <div className="lg:col-span-3">
-            <Notice tone="warn" title="Session in progress" action={<LinkButton to="/live" variant="primary" size="sm">Open live timing</LinkButton>}>
-              Recording on {live.circuit?.name}.
             </Notice>
           </div>
         )}
