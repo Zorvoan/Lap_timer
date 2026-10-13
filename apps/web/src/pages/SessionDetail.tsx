@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { formatDelta, formatDistance, formatLapTime, formatSpeed, speedLabel, summarizeSession, type Circuit, type Session } from '@laptimer/core';
+import { formatDelta, formatDistance, formatLapTime, formatSpeed, speedLabel, idealLap, splitTimes, summarizeSession, type Circuit, type Session } from '@laptimer/core';
 import { PageHeader } from '../components/AppShell';
 import { Badge, Button, ConfirmButton, LinkButton, Notice, Panel, SimBadge, Spinner, Stat } from '../components/ui/primitives';
 import { IconDownload, IconTimer, IconTrash } from '../components/ui/icons';
@@ -13,6 +13,7 @@ import { circuitLapNumbers, lapKey } from '../lib/lapNumbers';
 import { exportSession } from '../lib/dataTransfer';
 import { downloadText, lapsToCsv, samplesToCsv } from '../lib/exportImport';
 import { slug } from './Circuits';
+import { SectorCell } from '../components/laps/SectorCell';
 
 export function SessionDetail() {
   const { id = '' } = useParams();
@@ -55,13 +56,18 @@ function SessionView({ session, circuit, onDeleted, speedUnit, distanceUnit }: {
   }
 
   const best = summary.bestLap;
-  const sectorCount = Math.max(0, ...session.laps.map((l) => l.sectorTimesMs.length));
-  const bestSectors = Array.from({ length: sectorCount }, (_, i) => Math.min(...valid.filter((l) => l.sectorTimesMs.length === sectorCount).map((l) => l.sectorTimesMs[i])));
+  // Sector line times when every lap has them; otherwise thirds of the lap by distance.
+  const lineSectors = session.laps.length && session.laps.every((l) => l.sectorTimesMs.length === session.laps[0].sectorTimesMs.length) ? session.laps[0].sectorTimesMs.length : 0;
+  const splits = new Map(session.laps.map((l) => [l.lap, lineSectors ? l.sectorTimesMs : splitTimes(l.trace, l.timeMs, lengthM, 3)]));
+  const sectorCount = lineSectors || (lengthM > 0 ? 3 : 0);
+  const theoretical = idealLap(valid.map((l) => splits.get(l.lap) ?? []));
+  const bestSectors = theoretical?.sectorsMs ?? [];
 
   return (
     <div className="pb-10">
       <PageHeader
         title={session.circuitName}
+        back={{ to: '/sessions', label: 'All sessions' }}
         subtitle={
           <span className="flex flex-wrap items-center gap-2">
             {new Date(session.startedAt).toLocaleString()} {session.source === 'simulated' && <SimBadge />}
@@ -104,7 +110,11 @@ function SessionView({ session, circuit, onDeleted, speedUnit, distanceUnit }: {
           <Stat label="Fastest lap" value={formatLapTime(best?.timeMs)} hint={best ? `Lap ${num(best.lap)}` : undefined} />
           <Stat label="Laps" value={summary.laps} hint={`${summary.validLaps} valid`} />
           <Stat label="Average (valid)" value={formatLapTime(summary.averageValidLapMs)} />
-          <Stat label="Theoretical best" value={summary.theoreticalBestMs !== null ? formatLapTime(summary.theoreticalBestMs) : '—'} hint={summary.theoreticalBestMs === null ? 'Needs sectors' : 'Best sectors'} />
+          <Stat
+            label="Theoretical best"
+            value={formatLapTime(theoretical?.timeMs)}
+            hint={theoretical && best ? (theoretical.timeMs < best.timeMs - 0.5 ? `${formatDelta(theoretical.timeMs - best.timeMs)} s · best sectors` : 'best sectors') : 'needs a valid lap'}
+          />
           <Stat label="Distance" value={formatDistance(summary.totalDistanceM, distanceUnit)} />
           <Stat label="Max speed" value={formatSpeed(summary.maxSpeedMs, speedUnit)} unit={speedLabel(speedUnit)} />
         </div>
@@ -148,9 +158,7 @@ function SessionView({ session, circuit, onDeleted, speedUnit, distanceUnit }: {
                         {best && l.valid && l.lap !== best.lap ? formatDelta(l.timeMs - best.timeMs) : '—'}
                       </td>
                       {Array.from({ length: sectorCount }, (_, i) => (
-                        <td key={i} className={`px-3 py-2 text-right font-mono tabular ${l.sectorTimesMs[i] !== undefined && l.sectorTimesMs[i] === bestSectors[i] ? 'text-accent' : ''}`}>
-                          {l.sectorTimesMs[i] !== undefined ? (l.sectorTimesMs[i] / 1000).toFixed(3) : '—'}
-                        </td>
+                        <SectorCell key={i} ms={splits.get(l.lap)?.[i]} best={l.valid && splits.get(l.lap)?.[i] === bestSectors[i]} />
                       ))}
                       <td className="px-3 py-2 text-right font-mono tabular">{formatSpeed(l.avgSpeedMs, speedUnit)}</td>
                       <td className="px-3 py-2 text-right font-mono tabular">{formatSpeed(l.maxSpeedMs, speedUnit)}</td>

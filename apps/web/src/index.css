@@ -42,6 +42,15 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
+/* iOS zooms the whole page into any focused field smaller than 16px and does not zoom back. */
+@media (max-width: 767px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
 .tabular {
   font-variant-numeric: tabular-nums;
 }

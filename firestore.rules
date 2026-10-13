@@ -62,15 +62,26 @@ service cloud.firestore {
         let p = getAfter(profilePath(uid)).data;
         return request.resource.data.nickname == p.nickname && request.resource.data.car == p.car;
       }
+      // No lap averages more than 250 km/h (0.06944 m/ms) over the track: GPS errors or forged.
+      function plausibleTime() {
+        let track = get(/databases/$(database)/documents/featured/$(circuitId)).data;
+        return request.resource.data.timeMs * 0.06945 >= track.lengthM;
+      }
+      function validSplits() {
+        return !('splitTimesMs' in request.resource.data)
+          || (request.resource.data.splitTimesMs is list && request.resource.data.splitTimesMs.size() <= 10);
+      }
 
       match /entries/{uid} {
         allow read: if true;
         allow create, update: if isOwner(uid)
           && exists(/databases/$(database)/documents/featured/$(circuitId))
-          && request.resource.data.keys().hasOnly(['uid', 'nickname', 'car', 'timeMs', 'drivenAt', 'sessionId', 'lap', 'sectorTimesMs', 'avgSpeedMs', 'maxSpeedMs', 'submittedAt'])
+          && request.resource.data.keys().hasOnly(['uid', 'nickname', 'car', 'timeMs', 'drivenAt', 'sessionId', 'lap', 'sectorTimesMs', 'splitTimesMs', 'avgSpeedMs', 'maxSpeedMs', 'submittedAt'])
+          && validSplits()
           && request.resource.data.uid == uid
           && request.resource.data.timeMs is number
           && request.resource.data.timeMs > 1000 && request.resource.data.timeMs < 7200000
+          && plausibleTime()
           && entryMatchesProfile(uid)
           // A time can only improve (profile changes keep the same time).
           && (resource == null || request.resource.data.timeMs <= resource.data.timeMs);

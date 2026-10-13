@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import L from 'leaflet';
-import { formatDelta, formatDistance, formatLapTime, formatSpeed, speedLabel, type Circuit, type LapRecord, type Session } from '@laptimer/core';
+import { formatDelta, formatDistance, formatLapTime, formatSpeed, idealLap, speedLabel, splitTimes, type Circuit, type LapRecord, type Session } from '@laptimer/core';
 import { PageHeader } from '../components/AppShell';
 import { Badge, Button, ConfirmButton, Empty, LinkButton, Notice, Panel, SimBadge, Spinner, Stat, Toggle } from '../components/ui/primitives';
 import { IconDownload, IconTimer, IconTrash } from '../components/ui/icons';
@@ -16,6 +16,7 @@ import { deleteCircuit, getCircuit, listSessions } from '../lib/repo';
 import { buildExport, downloadText } from '../lib/exportImport';
 import { circuitLapNumbers, lapKey } from '../lib/lapNumbers';
 import { slug } from './Circuits';
+import { SectorCell } from '../components/laps/SectorCell';
 
 /** One lap on this circuit, from any session. */
 interface Entry {
@@ -105,8 +106,16 @@ function CircuitView({ circuit, sessions }: { circuit: Circuit; sessions: Sessio
   const lengthM = useLapLength(circuit, NO_LAPS);
   const cmpRows = useComparisonRows(A?.lap ?? null, B?.lap ?? null, lengthM);
 
-  const sectorCount = visible.length && visible.every((e) => e.lap.sectorTimesMs.length === visible[0].lap.sectorTimesMs.length) ? visible[0].lap.sectorTimesMs.length : 0;
-  const bestSectors = Array.from({ length: sectorCount }, (_, i) => Math.min(...visible.filter((e) => e.lap.valid).map((e) => e.lap.sectorTimesMs[i])));
+  // Sector times from the circuit's sector lines when every lap has them; otherwise the lap is
+  // split into thirds by distance (works for every lap, as it only needs the trace).
+  const lineSectors = visible.length && visible.every((e) => e.lap.sectorTimesMs.length === visible[0].lap.sectorTimesMs.length) ? visible[0].lap.sectorTimesMs.length : 0;
+  const splitsByKey = useMemo(
+    () => new Map(visible.map((e) => [e.key, lineSectors ? e.lap.sectorTimesMs : splitTimes(e.lap.trace, e.lap.timeMs, lengthM, 3)])),
+    [visible, lineSectors, lengthM],
+  );
+  const sectorCount = lineSectors || (lengthM > 0 ? 3 : 0);
+  const ideal = useMemo(() => idealLap(visible.filter((e) => e.lap.valid).map((e) => splitsByKey.get(e.key) ?? [])), [visible, splitsByKey]);
+  const bestSectors = ideal?.sectorsMs ?? [];
   const sessionCount = new Set(visible.map((e) => e.session.id)).size;
   const lastDriven = chronological.at(-1)?.session.startedAt ?? null;
 
@@ -131,14 +140,11 @@ function CircuitView({ circuit, sessions }: { circuit: Circuit; sessions: Sessio
     <div className="pb-10">
       <PageHeader
         title={circuit.name}
+        back={{ to: '/circuits', label: 'All circuits' }}
         subtitle={
           <span className="flex flex-wrap items-center gap-2">
-            <Link to="/circuits" className="font-semibold text-fg underline decoration-accent underline-offset-4">
-              ← All circuits
-            </Link>
-            <span>
-              {formatDistance(circuit.lengthM, settings.distanceUnit)} · {circuit.kind === 'closed' ? 'closed circuit' : 'sprint A→B'}
-            </span>
+            {official && <Badge tone="accent">Official · leaderboard</Badge>}
+            {formatDistance(circuit.lengthM, settings.distanceUnit)} · {circuit.kind === 'closed' ? 'closed circuit' : 'sprint A→B'}
           </span>
         }
         actions={
@@ -158,16 +164,23 @@ function CircuitView({ circuit, sessions }: { circuit: Circuit; sessions: Sessio
             >
               <IconDownload width={18} height={18} />
             </Button>
-            <ConfirmButton aria-label="Delete circuit" title="Delete circuit (sessions are kept)" onConfirm={remove} confirmLabel="Delete?">
-              <IconTrash width={18} height={18} />
-            </ConfirmButton>
+            {!official && (
+              <ConfirmButton aria-label="Delete circuit" title="Delete circuit (sessions are kept)" onConfirm={remove} confirmLabel="Delete?">
+                <IconTrash width={18} height={18} />
+              </ConfirmButton>
+            )}
           </>
         }
       />
 
       <div className="mx-auto max-w-7xl space-y-4 p-4 md:p-6">
-        <div className="grid grid-cols-2 gap-4 rounded border border-line bg-panel p-4 sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-4 rounded border border-line bg-panel p-4 sm:grid-cols-5">
           <Stat label="Personal best" value={formatLapTime(best?.lap.timeMs)} hint={best ? entryLabel(best) : undefined} />
+          <Stat
+            label="Theoretical best"
+            value={formatLapTime(ideal?.timeMs)}
+            hint={ideal && best ? (ideal.timeMs < best.lap.timeMs - 0.5 ? `${formatDelta(ideal.timeMs - best.lap.timeMs)} s to find` : 'your PB is already ideal') : 'best sectors combined'}
+          />
           <Stat label="Laps" value={visible.length} hint={`${visible.filter((e) => e.lap.valid).length} valid`} />
           <Stat label="Sessions" value={sessionCount} />
           <Stat label="Last driven" value={lastDriven ? new Date(lastDriven).toLocaleDateString() : '—'} />
@@ -212,7 +225,7 @@ function CircuitView({ circuit, sessions }: { circuit: Circuit; sessions: Sessio
                         <th className="label px-3 py-2 text-right font-semibold">Δ PB</th>
                         <th className="label px-3 py-2 font-semibold">Driven</th>
                         {Array.from({ length: sectorCount }, (_, i) => (
-                          <th key={i} className="label px-3 py-2 text-right font-semibold">
+                          <th key={i} className="label px-3 py-2 text-right font-semibold" title={lineSectors ? 'Sector line times' : 'Thirds of the lap by distance'}>
                             S{i + 1}
                           </th>
                         ))}
@@ -243,9 +256,7 @@ function CircuitView({ circuit, sessions }: { circuit: Circuit; sessions: Sessio
                               <span className="text-xs text-muted">lap {e.n}</span> {e.session.source === 'simulated' && <SimBadge />}
                             </td>
                             {Array.from({ length: sectorCount }, (_, i) => (
-                              <td key={i} className={`px-3 py-2 text-right font-mono tabular ${e.lap.sectorTimesMs[i] === bestSectors[i] ? 'text-accent' : ''}`}>
-                                {(e.lap.sectorTimesMs[i] / 1000).toFixed(3)}
-                              </td>
+                              <SectorCell key={i} ms={splitsByKey.get(e.key)?.[i]} best={e.lap.valid && splitsByKey.get(e.key)?.[i] === bestSectors[i]} />
                             ))}
                             <td className="px-3 py-2 text-right font-mono tabular">{formatSpeed(e.lap.maxSpeedMs, settings.speedUnit)}</td>
                             <td className="px-3 py-2">

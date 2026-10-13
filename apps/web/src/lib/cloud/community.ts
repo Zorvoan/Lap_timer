@@ -3,7 +3,7 @@
  * Firebase SDK. Leaderboards and official tracks are public; writes are checked by
  * firestore.rules (own entry only, must match the profile, times can only improve).
  */
-import { collection, doc, getDoc, getDocs, limit, orderBy, query, runTransaction, serverTimestamp, writeBatch } from 'firebase/firestore';
+import { collection, doc, getCountFromServer, getDoc, getDocs, limit, orderBy, query, runTransaction, serverTimestamp, where, writeBatch } from 'firebase/firestore';
 import type { Circuit } from '@laptimer/core';
 import { db } from './firebase';
 import { decodeCircuit, type CircuitDoc } from './codec';
@@ -86,6 +86,21 @@ export async function submitEntry(circuitId: string, entry: LeaderboardEntry, tr
   b.set(doc(db, 'leaderboards', circuitId, 'traces', entry.uid), trace);
   b.set(doc(db, 'leaderboards', circuitId, 'entries', entry.uid), { ...entry, submittedAt: serverTimestamp() });
   await b.commit();
+}
+
+/** Drivers just ahead of a time (fastest first is not guaranteed: nearest first), with when they submitted. */
+export async function getDriversAhead(circuitId: string, timeMs: number, max = 10): Promise<(LeaderboardEntry & { submittedAtMs: number })[]> {
+  const snaps = await getDocs(query(collection(db, 'leaderboards', circuitId, 'entries'), where('timeMs', '<', timeMs), orderBy('timeMs', 'desc'), limit(max)));
+  return snaps.docs.map((d) => {
+    const data = d.data() as LeaderboardEntry & { submittedAt?: { toMillis(): number } };
+    return { ...data, submittedAtMs: data.submittedAt?.toMillis?.() ?? 0 };
+  });
+}
+
+/** Leaderboard place a time holds: 1 + the number of strictly faster entries. */
+export async function getPosition(circuitId: string, timeMs: number): Promise<number> {
+  const snap = await getCountFromServer(query(collection(db, 'leaderboards', circuitId, 'entries'), where('timeMs', '<', timeMs)));
+  return snap.data().count + 1;
 }
 
 export async function getPublishedTrace(circuitId: string, uid: string): Promise<PublishedTrace | null> {

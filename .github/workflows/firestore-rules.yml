@@ -1,0 +1,39 @@
+# Tests firestore.rules against the emulator, then releases them to the live project.
+# Releasing needs the FIREBASE_SERVICE_ACCOUNT secret with the "Firebase Rules Admin" role.
+name: Firestore rules
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - firestore.rules
+      - apps/web/test-rules/**
+      - scripts/deploy-rules.ts
+  workflow_dispatch:
+
+concurrency:
+  group: firestore-rules
+  cancel-in-progress: false
+
+jobs:
+  test-and-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - run: npm ci
+      - name: Test rules (emulator)
+        run: npx --yes firebase-tools@14 emulators:exec --only firestore --project demo-laptimer "npm run test:rules -w @laptimer/web"
+      - name: Release rules
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: npx tsx scripts/deploy-rules.ts

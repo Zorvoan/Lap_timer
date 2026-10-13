@@ -17,7 +17,8 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "deploy:firebase": "npm run build:firebase -w @laptimer/web && firebase deploy --only hosting",
     "emulators": "firebase emulators:start --only auth,firestore --project demo-laptimer",
-    "dev:emulators": "npm run dev:emulators -w @laptimer/web"
+    "dev:emulators": "npm run dev:emulators -w @laptimer/web",
+    "test:rules": "firebase emulators:exec --only firestore --project demo-laptimer \"npm run test:rules -w @laptimer/web\""
   },
   "devDependencies": {
     "@eslint/js": "^9.12.0",

@@ -26,8 +26,33 @@ export interface AccountState {
   profile: Profile | null | undefined;
   /** Official leaderboard tracks (cached for offline use). */
   featured: FeaturedCircuit[];
-  /** Laps published to leaderboards in the last sync. */
-  lastSubmitted: number;
+  /** Laps published to leaderboards by the most recent sync that published any. */
+  submissions: LeaderboardSubmission[];
+  /** Official tracks where someone else has pushed the driver down since the last check. */
+  overtakes: Overtake[];
+}
+
+/** "Someone beat you": the driver's place on an official track got worse. */
+export interface Overtake {
+  circuitId: string;
+  circuitName: string;
+  from: number;
+  to: number;
+  /** Nickname of the driver who most recently went faster, when known. */
+  by: string | null;
+  at: number;
+}
+
+/** A lap just published to an official track's leaderboard. */
+export interface LeaderboardSubmission {
+  circuitId: string;
+  circuitName: string;
+  timeMs: number;
+  /** Place on the leaderboard right after publishing (1 = record). */
+  position: number;
+  /** The driver's previous published time there, if any. */
+  previousMs: number | null;
+  at: number;
 }
 
 export const cloudEnabled = Boolean(config.firebase.apiKey && config.firebase.projectId);
@@ -41,7 +66,8 @@ let state: AccountState = {
   syncError: null,
   profile: undefined,
   featured: [],
-  lastSubmitted: 0,
+  submissions: [],
+  overtakes: [],
 };
 const listeners = new Set<() => void>();
 let api: FirebaseApi | null = null;
@@ -127,9 +153,14 @@ export async function syncNow(): Promise<void> {
       const report = await runSync(api!.store(user.uid), user.uid);
       const submitted = await submitBestLaps(user.uid).catch((e) => {
         log.warn('leaderboard submission failed', { error: String(e) });
-        return 0;
+        return [];
       });
-      if (submitted) set({ lastSubmitted: submitted });
+      if (submitted.length) set({ submissions: submitted });
+      const overtakes = await checkPositions(user.uid).catch((e) => {
+        log.warn('leaderboard position check failed', { error: String(e) });
+        return [];
+      });
+      if (overtakes.length) set({ overtakes });
       // Keep showing the last sync that changed something; follow-up syncs are usually empty.
       const changed = report.uploaded + report.downloaded + report.deleted > 0;
       set({ sync: 'idle', lastSyncAt: Date.now(), lastReport: changed || !state.lastReport ? report : state.lastReport });
@@ -205,11 +236,9 @@ export async function refreshFeatured(): Promise<FeaturedCircuit[]> {
     const list = await (await community()).listFeatured();
     await setKv('featured', list);
     set({ featured: list });
-    // Official tracks are authoritative: replace older local copies (never edit them locally).
-    for (const f of list) {
-      const local = await getCircuit(f.id);
-      if (local && local.updatedAt < f.updatedAt) await saveCircuit(stripFeatured(f), { touch: false });
-    }
+    // Every user gets the official tracks in their circuits; they are authoritative, so older
+    // local copies are replaced (they are never edited locally).
+    for (const f of list) await ensureLocalCircuit(f);
     return list;
   } catch (e) {
     log.warn('official tracks could not be loaded', { error: String(e) });
@@ -233,29 +262,75 @@ export function isFeatured(circuitId: string): boolean {
 }
 
 /** Publishes the best real-GPS lap on each official track when it beats the published one. */
-async function submitBestLaps(uid: string): Promise<number> {
+async function submitBestLaps(uid: string): Promise<LeaderboardSubmission[]> {
   const profile = state.profile;
-  if (!profile || !state.featured.length) return 0;
+  if (!profile || !state.featured.length) return [];
   const c = await community();
   const sessions = await listSessions();
-  const cacheKey = `lbSubmitted:${uid}`;
+  // v2: entries published before sector splits existed are checked (and completed) once.
+  const cacheKey = `lbSubmitted2:${uid}`;
   const cache = (await getKv<Record<string, number>>(cacheKey)) ?? {};
-  let submitted = 0;
+  const submitted: LeaderboardSubmission[] = [];
   for (const f of state.featured) {
     const best = bestEligibleLap(sessions, f.id);
     if (!best) continue;
     if (cache[f.id] !== undefined && best.lap.timeMs >= cache[f.id]) continue;
     const remote = await c.getEntry(f.id, uid);
-    if (remote && remote.timeMs <= best.lap.timeMs) {
+    // Re-publish the same time once when the entry predates sector splits, so it gets them.
+    const addSplits = remote !== null && remote.timeMs === best.lap.timeMs && !remote.splitTimesMs?.length;
+    if (remote && remote.timeMs <= best.lap.timeMs && !addSplits) {
       cache[f.id] = remote.timeMs;
       continue;
     }
-    await c.submitEntry(f.id, entryFromLap(uid, profile, best.session, best.lap), traceForPublishing(best.lap, lapLength(f)));
+    const lengthM = lapLength(f);
+    const entry = entryFromLap(uid, profile, best.session, best.lap, lengthM);
+    const trace = traceForPublishing(best.lap, lengthM);
+    try {
+      await c.submitEntry(f.id, entry, trace);
+    } catch (e) {
+      // Rules older than sector splits reject the extra field: publish the time without them.
+      if (addSplits) continue;
+      const { splitTimesMs: _splits, ...plain } = entry;
+      await c.submitEntry(f.id, plain, trace);
+      log.warn('leaderboard entry published without splits', { error: String(e) });
+    }
     cache[f.id] = best.lap.timeMs;
-    submitted++;
+    if (addSplits) continue; // same time as before: nothing to announce
+    const position = await c.getPosition(f.id, best.lap.timeMs).catch(() => 0);
+    submitted.push({ circuitId: f.id, circuitName: f.name, timeMs: best.lap.timeMs, position, previousMs: remote?.timeMs ?? null, at: Date.now() });
   }
   await setKv(cacheKey, cache);
   return submitted;
+}
+
+const POSITION_CHECK_MS = 10 * 60_000;
+
+/**
+ * Compares the driver's place on each official track with the place seen last time and reports
+ * the tracks where it got worse (somebody else went faster). Runs at most every 10 minutes:
+ * two small reads per track (own entry, a count of faster entries).
+ */
+async function checkPositions(uid: string): Promise<Overtake[]> {
+  const key = `lbPositions:${uid}`;
+  const saved = (await getKv<{ checkedAt: number; positions: Record<string, number> }>(key)) ?? { checkedAt: 0, positions: {} };
+  if (Date.now() - saved.checkedAt < POSITION_CHECK_MS) return [];
+  const c = await community();
+  const positions: Record<string, number> = {};
+  const out: Overtake[] = [];
+  for (const f of state.featured) {
+    const mine = await c.getEntry(f.id, uid);
+    if (!mine) continue;
+    const now = await c.getPosition(f.id, mine.timeMs);
+    positions[f.id] = now;
+    const before = saved.positions[f.id];
+    if (before !== undefined && now > before) {
+      const ahead = await c.getDriversAhead(f.id, mine.timeMs).catch(() => []);
+      const newest = ahead.filter((e) => e.uid !== uid).sort((a, b) => b.submittedAtMs - a.submittedAtMs)[0];
+      out.push({ circuitId: f.id, circuitName: f.name, from: before, to: now, by: newest?.nickname ?? null, at: Date.now() });
+    }
+  }
+  await setKv(key, { checkedAt: Date.now(), positions });
+  return out;
 }
 
 export async function login(email: string, password: string): Promise<void> {
@@ -281,7 +356,7 @@ export async function logout(removeLocalData: boolean): Promise<void> {
     await clearAllData();
     if (uid) await resetSyncState(uid);
   }
-  set({ lastSyncAt: null, lastReport: null, sync: 'idle', syncError: null, profile: null });
+  set({ lastSyncAt: null, lastReport: null, sync: 'idle', syncError: null, profile: null, submissions: [], overtakes: [] });
 }
 
 /** Human-readable message for Firebase Auth / Firestore errors. */

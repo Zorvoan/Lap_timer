@@ -53,7 +53,10 @@ export interface LiveSnapshot {
   speedMs: number | null;
   speedSource: 'gps' | 'derived' | null;
   accuracyM: number | null;
+  /** Raw GPS position of the last fix. */
   position: LatLon | null;
+  /** The last fix placed on the circuit centreline (null while it cannot be matched to the track). */
+  trackPosition: LatLon | null;
   delta: LiveDelta | null;
   lastLap: LapRecord | null;
   bestLap: LapRecord | null;
@@ -352,6 +355,7 @@ export class SessionEngine {
       speedSource: this.lastFix?.speedSource ?? null,
       accuracyM: this.lastFix?.sample.accuracy ?? null,
       position: this.lastFix ? { lat: this.lastFix.sample.lat, lon: this.lastFix.sample.lon } : null,
+      trackPosition: this.lastGood && this.lastConfidence !== 'lost' && !lost ? this.track.latLonAt(this.lastGood.along) : null,
       delta: this.current && this.lastDelta ? { ...this.lastDelta, reliable: this.lastDelta.reliable && !lost } : null,
       lastLap,
       bestLap: bestLap(this.laps_),

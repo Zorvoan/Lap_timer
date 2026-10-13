@@ -10,7 +10,8 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "build:firebase": "tsc --noEmit && vite build --mode firebase",
-    "dev:emulators": "vite --mode emulators --port 5181"
+    "dev:emulators": "vite --mode emulators --port 5181",
+    "test:rules": "vitest run --config vitest.rules.config.ts"
   },
   "dependencies": {
     "@laptimer/core": "*",
@@ -25,6 +26,7 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@firebase/rules-unit-testing": "^4.0.1",
     "@types/leaflet": "^1.9.12",
     "@types/react": "^18.3.11",
     "@types/react-dom": "^18.3.1",

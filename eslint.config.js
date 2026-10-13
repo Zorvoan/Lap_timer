@@ -21,4 +21,9 @@ export default tseslint.config(
       'no-console': ['warn', { allow: ['warn', 'error', 'debug'] }],
     },
   },
+  {
+    // Command-line admin tools: printing is their output.
+    files: ['scripts/**/*.ts'],
+    rules: { 'no-console': 'off' },
+  },
 );

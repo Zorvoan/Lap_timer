@@ -1,6 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { ReferenceLap, type LapRecord, type Session } from '@laptimer/core';
-import { MAX_TRACE_POINTS, bestEligibleLap, parsePublishedTrace, traceForPublishing, validateCar, validateNickname } from '../src/lib/cloud/leaderboard';
+import { ReferenceLap, TrackModel, compareLaps, distanceMeters, perpendicularLine, type CircuitDefinition, type LapRecord, type LonLat, type Session } from '@laptimer/core';
+import {
+  MAX_TRACE_POINTS,
+  bestEligibleLap,
+  entryFromLap,
+  isEligible,
+  lapFromPublished,
+  parsePublishedTrace,
+  traceForPublishing,
+  validateCar,
+  validateNickname,
+  type LeaderboardEntry,
+} from '../src/lib/cloud/leaderboard';
 
 function lap(n: number, timeMs: number, extra: Partial<LapRecord> = {}): LapRecord {
   const trace = Array.from({ length: 5001 }, (_, i) => ({ t: (timeMs * i) / 5000, d: (1000 * i) / 5000, v: 20, lat: 50, lon: 14, accuracy: 3 }));
@@ -43,6 +54,49 @@ describe('published traces', () => {
     expect(pts.at(-1)?.t).toBe(50_000);
     const ref = ReferenceLap.fromTrace(pts, t.timeMs, t.lengthM);
     expect(ref.timeAt(500)).toBeCloseTo(25_000, 3);
+  });
+});
+
+describe('leaderboard plausibility and splits', () => {
+  it('rejects laps averaging more than 250 km/h (GPS errors or forged times)', () => {
+    const s = session('a', 'gps', []);
+    expect(isEligible(s, lap(1, 50_000))).toBe(true); // 1 km in 50 s = 72 km/h
+    expect(isEligible(s, lap(1, 14_000))).toBe(false); // 1 km in 14 s = 257 km/h
+  });
+
+  it('publishes the lap split into thirds by distance', () => {
+    const e = entryFromLap('u', { nickname: 'Me', car: 'Car' }, session('a', 'gps', []), lap(1, 60_000), 1000);
+    expect(e.splitTimesMs?.map(Math.round)).toEqual([20_000, 20_000, 20_000]);
+  });
+});
+
+describe('published laps as telemetry', () => {
+  // A straight 1.2 km road heading east; start 100 m in, finish at 1100 m (a 1000 m sprint).
+  const geometry: LonLat[] = Array.from({ length: 13 }, (_, i) => [14 + (i * 100) / (111_320 * Math.cos((50 * Math.PI) / 180)), 50]);
+  const track = TrackModel.fromCoordinates(geometry, false);
+  const circuit: CircuitDefinition = { kind: 'sprint', geometry, startLine: perpendicularLine(track, 100), finishLine: perpendicularLine(track, 1100), sectors: [] };
+  const entry: LeaderboardEntry = {
+    uid: 'u1', nickname: 'Rival', car: 'Car', timeMs: 50_000, drivenAt: 1_000_000, sessionId: 's', lap: 3, sectorTimesMs: [], avgSpeedMs: 20, maxSpeedMs: 25,
+  };
+
+  it('places every point on the circuit at its distance from the start line', () => {
+    const published = traceForPublishing(lap(1, 50_000), 1000);
+    const l = lapFromPublished(entry, published, circuit, 1000);
+    expect(l.timeMs).toBe(50_000);
+    expect(l.trace[0].d).toBe(0);
+    expect(l.trace.at(-1)?.d).toBeCloseTo(1000, 6);
+    const start = track.latLonAt(100);
+    const half = l.trace.find((p) => p.d >= 500)!;
+    expect(distanceMeters(start, l.trace[0])).toBeLessThan(0.5);
+    expect(distanceMeters(start, half)).toBeCloseTo(half.d, 0);
+  });
+
+  it('rescales distances when the track length changed since publishing, and compares by distance', () => {
+    const published = traceForPublishing(lap(1, 50_000), 980);
+    const l = lapFromPublished(entry, published, circuit, 1000);
+    expect(l.trace.at(-1)?.d).toBeCloseTo(1000, 6);
+    const rows = compareLaps(l, lap(2, 48_000), 1000);
+    expect(rows.at(-1)?.deltaMs).toBeCloseTo(2000, 6);
   });
 });
 

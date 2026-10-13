@@ -1,4 +1,8 @@
 import { ReferenceLap } from './delta';
+import type { LatLon } from './geo';
+import { lineAlong } from './lines';
+import type { CircuitDefinition } from './model';
+import { TrackModel } from './track';
 import type { LapRecord, LapTracePoint } from './model';
 
 export interface AlignedRow {
@@ -121,4 +125,49 @@ export function positionAtTime(trace: readonly LapTracePoint[], t: number): { la
     }
   }
   return trace[trace.length - 1];
+}
+
+/**
+ * Times through `n` equal-distance parts of a lap, read from its trace. Works for any lap with
+ * a trace, including laps on circuits without sector lines and published leaderboard laps, so
+ * every lap of a circuit is split at the same points.
+ */
+export function splitTimes(trace: readonly { t: number; d: number }[], lapTimeMs: number, lengthM: number, n = 3): number[] {
+  if (!(lengthM > 0) || !(lapTimeMs > 0) || n < 1) return [];
+  const ref = ReferenceLap.fromTrace([...trace], lapTimeMs, lengthM);
+  const at = Array.from({ length: n + 1 }, (_, i) => (i === n ? lapTimeMs : ref.timeAt((lengthM * i) / n)));
+  return at.slice(1).map((t, i) => t - at[i]);
+}
+
+/** Best time of each sector across laps (all with the same number of sectors) and their sum. */
+export function idealLap(splits: readonly (readonly number[])[]): { sectorsMs: number[]; timeMs: number; from: number[] } | null {
+  const n0 = splits.find((s) => s.length > 0)?.length ?? 0;
+  const usable = splits.filter((s) => s.length > 0 && s.length === n0 && s.every(Number.isFinite));
+  if (!usable.length) return null;
+  const n = usable[0].length;
+  const sectorsMs: number[] = [];
+  const from: number[] = [];
+  for (let i = 0; i < n; i++) {
+    let best = 0;
+    for (let k = 1; k < usable.length; k++) if (usable[k][i] < usable[best][i]) best = k;
+    sectorsMs.push(usable[best][i]);
+    from.push(splits.indexOf(usable[best]));
+  }
+  return { sectorsMs, timeMs: sectorsMs.reduce((a, b) => a + b, 0), from };
+}
+
+/**
+ * Maps a lap distance (metres from the start line, as in lap traces) to the point on the
+ * circuit's centreline. Replays and maps use it to keep the car on the road instead of drawing
+ * raw GPS fixes, which can sit several metres off it. Null when the circuit geometry is unusable.
+ */
+export function lapDistanceToPosition(circuit: CircuitDefinition): ((d: number) => LatLon) | null {
+  let track: TrackModel;
+  try {
+    track = TrackModel.fromCoordinates(circuit.geometry, circuit.kind === 'closed');
+  } catch {
+    return null;
+  }
+  const s0 = lineAlong(track, circuit.startLine) ?? 0;
+  return (d: number) => track.latLonAt(track.wrap(s0 + Math.max(0, d)));
 }

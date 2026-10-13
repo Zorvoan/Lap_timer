@@ -1,38 +1,102 @@
 import { useEffect, useRef, type ReactNode } from 'react';
 import L, { type LatLngBoundsExpression } from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { MapContainer, TileLayer, ZoomControl, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, ZoomControl, useMap, useMapEvents } from 'react-leaflet';
 import { config } from '../../lib/config';
 import { useSettings } from '../../hooks/useSettings';
 
 const DEFAULT_CENTER: [number, number] = [50.0755, 14.4378];
+const VIEW_KEY = 'laptimer:mapView';
+
+interface MapView {
+  center: [number, number];
+  zoom: number;
+}
+
+/**
+ * Where the user last looked on an interactive map. A new map without an explicit centre
+ * (e.g. building a new circuit from the Circuits map) opens there instead of a fixed city.
+ * Kept in localStorage so it survives restarts; storage may be unavailable, which is fine.
+ */
+let lastView: MapView | null = (() => {
+  try {
+    const v = JSON.parse(localStorage.getItem(VIEW_KEY) ?? 'null') as MapView | null;
+    return v && Array.isArray(v.center) && v.center.every(Number.isFinite) && Number.isFinite(v.zoom) ? v : null;
+  } catch {
+    return null;
+  }
+})();
+
+/**
+ * Keeps Leaflet's idea of the map size in step with its container. A map created while hidden
+ * (e.g. an earlier step of the circuit editor) otherwise loads tiles for a zero-sized box and
+ * stays mostly grey once it is shown.
+ */
+function TrackSize() {
+  const map = useMap();
+  useEffect(() => {
+    const ro = new ResizeObserver(() => map.invalidateSize());
+    ro.observe(map.getContainer());
+    return () => ro.disconnect();
+  }, [map]);
+  return null;
+}
+
+function RememberView() {
+  useMapEvents({
+    moveend(e) {
+      // A hidden map (e.g. the phone list view) has no size and no meaningful view.
+      if (e.target.getSize().x === 0) return;
+      const c = e.target.getCenter();
+      lastView = { center: [c.lat, c.lng], zoom: e.target.getZoom() };
+      try {
+        localStorage.setItem(VIEW_KEY, JSON.stringify(lastView));
+      } catch {
+        /* storage unavailable */
+      }
+    },
+  });
+  return null;
+}
 
 export function BaseMap({
   children,
   className = '',
-  center = DEFAULT_CENTER,
+  center,
   zoom = 13,
   scrollWheelZoom = true,
+  interactive = true,
 }: {
   children?: ReactNode;
   className?: string;
+  /** Initial centre; without one the map opens at the last viewed place. */
   center?: [number, number];
   zoom?: number;
   /** Disable for maps embedded in scrolling pages, so scrolling the page doesn't zoom the map. */
   scrollWheelZoom?: boolean;
+  /** False for static previews: no panning, zooming or zoom buttons. */
+  interactive?: boolean;
 }) {
   const { settings } = useSettings();
+  const initial = center ? { center, zoom } : lastView ?? { center: DEFAULT_CENTER, zoom };
   return (
     <MapContainer
-      center={center}
-      zoom={zoom}
+      center={initial.center}
+      zoom={initial.zoom}
       zoomControl={false}
-      scrollWheelZoom={scrollWheelZoom}
+      scrollWheelZoom={interactive && scrollWheelZoom}
+      dragging={interactive}
+      touchZoom={interactive}
+      doubleClickZoom={interactive}
+      boxZoom={interactive}
+      keyboard={interactive}
       className={`isolate h-full w-full ${settings.mapStyle === 'dark' ? 'map-dark' : ''} ${className}`}
       attributionControl
     >
       <TileLayer url={config.tileUrl} attribution={config.tileAttribution} maxZoom={19} />
-      <ZoomControl position="bottomright" />
+      {interactive && <ZoomControl position="bottomright" />}
+      {interactive && <RememberView />}
+      <TrackSize />
       {children}
     </MapContainer>
   );

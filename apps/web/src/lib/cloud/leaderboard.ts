@@ -1,5 +1,5 @@
 /** Pure leaderboard logic: which laps qualify, and how a lap is published. */
-import type { LapRecord, Session } from '@laptimer/core';
+import { TrackModel, lineAlong, splitTimes, type CircuitDefinition, type LapRecord, type Session } from '@laptimer/core';
 
 export interface Profile {
   nickname: string;
@@ -16,6 +16,8 @@ export interface LeaderboardEntry {
   sessionId: string;
   lap: number;
   sectorTimesMs: number[];
+  /** The lap split into thirds by distance (same points for every driver); absent on old entries. */
+  splitTimesMs?: number[];
   avgSpeedMs: number;
   maxSpeedMs: number | null;
 }
@@ -49,8 +51,20 @@ export function validateCar(raw: string): string | null {
  * passed the distance check, and the position stayed matched to the track.
  */
 export function isEligible(session: Session, lap: LapRecord): boolean {
-  return session.source === 'gps' && lap.valid && !lap.flags.includes('tracking_lost') && !lap.flags.includes('simulated');
+  return (
+    session.source === 'gps' &&
+    lap.valid &&
+    !lap.flags.includes('tracking_lost') &&
+    !lap.flags.includes('simulated') &&
+    lap.distanceM / (lap.timeMs / 1000) <= MAX_LEADERBOARD_SPEED_MS
+  );
 }
+
+/**
+ * Fastest plausible average speed of a leaderboard lap (250 km/h). Faster laps are GPS errors or
+ * forged; firestore.rules enforces the same limit against the track length.
+ */
+export const MAX_LEADERBOARD_SPEED_MS = 250 / 3.6;
 
 export function bestEligibleLap(sessions: readonly Session[], circuitId: string): { session: Session; lap: LapRecord } | null {
   let best: { session: Session; lap: LapRecord } | null = null;
@@ -61,7 +75,7 @@ export function bestEligibleLap(sessions: readonly Session[], circuitId: string)
   return best;
 }
 
-export function entryFromLap(uid: string, profile: Profile, session: Session, lap: LapRecord): LeaderboardEntry {
+export function entryFromLap(uid: string, profile: Profile, session: Session, lap: LapRecord, lengthM: number): LeaderboardEntry {
   return {
     uid,
     nickname: profile.nickname,
@@ -71,6 +85,7 @@ export function entryFromLap(uid: string, profile: Profile, session: Session, la
     sessionId: session.id,
     lap: lap.lap,
     sectorTimesMs: lap.sectorTimesMs,
+    splitTimesMs: splitTimes(lap.trace, lap.timeMs, lengthM, 3),
     avgSpeedMs: lap.avgSpeedMs,
     maxSpeedMs: lap.maxSpeedMs,
   };
@@ -90,4 +105,37 @@ export function traceForPublishing(lap: LapRecord, lengthM: number): PublishedTr
 export function parsePublishedTrace(t: PublishedTrace): { t: number; d: number; v: number | null }[] {
   const pts = JSON.parse(t.points) as [number, number, number | null][];
   return pts.map(([time, d, v]) => ({ t: time, d, v }));
+}
+
+/**
+ * Turns a published lap into a {@link LapRecord} so it can be analysed like the user's own laps.
+ * Published traces carry time, distance and speed only; positions are placed on the circuit at
+ * each point's distance from the start line. Distances are rescaled when the track's lap length
+ * has changed slightly since the lap was published.
+ */
+export function lapFromPublished(entry: LeaderboardEntry, trace: PublishedTrace, circuit: CircuitDefinition, lengthM: number): LapRecord {
+  const track = TrackModel.fromCoordinates(circuit.geometry, circuit.kind === 'closed');
+  const s0 = lineAlong(track, circuit.startLine) ?? 0;
+  const scale = trace.lengthM > 0 ? lengthM / trace.lengthM : 1;
+  const points = parsePublishedTrace(trace);
+  const lapTrace = points.map((p) => {
+    const d = Math.min(lengthM, Math.max(0, p.d * scale));
+    const pos = track.latLonAt(track.wrap(s0 + d));
+    return { t: p.t, d, v: p.v, lat: pos.lat, lon: pos.lon, accuracy: NaN };
+  });
+  const durationS = trace.timeMs / 1000;
+  return {
+    lap: entry.lap,
+    startT: entry.drivenAt,
+    endT: entry.drivenAt + trace.timeMs,
+    timeMs: trace.timeMs,
+    sectorTimesMs: entry.sectorTimesMs ?? [],
+    distanceM: lengthM,
+    avgSpeedMs: entry.avgSpeedMs ?? lengthM / durationS,
+    maxSpeedMs: entry.maxSpeedMs ?? null,
+    valid: true,
+    flags: [],
+    gps: { samples: points.length, poorSamples: 0, meanAccuracyM: NaN, maxGapMs: 0, meanRateHz: points.length / durationS },
+    trace: lapTrace,
+  };
 }

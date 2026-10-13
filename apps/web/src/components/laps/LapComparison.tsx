@@ -8,6 +8,7 @@ import {
   formatDelta,
   formatLapTime,
   gainLoss,
+  lapDistanceToPosition,
   lineAlong,
   positionAtTime,
   speedLabel,
@@ -192,8 +193,11 @@ export function ReplayPanel({
     return () => cancelAnimationFrame(raf.current);
   }, [playing, rate, lapA.timeMs]);
 
-  const posA = positionAtTime(lapA.trace, t);
-  const posB = lapB ? positionAtTime(lapB.trace, t) : null;
+  // Cars are drawn on the road at their distance along the circuit, not at the raw GPS fix.
+  const onTrack = useMemo(() => (circuit ? lapDistanceToPosition(circuit) : null), [circuit]);
+  const place = (p: ReturnType<typeof positionAtTime>) => (p && onTrack ? { ...p, ...onTrack(p.d) } : p);
+  const posA = place(positionAtTime(lapA.trace, t));
+  const posB = lapB ? place(positionAtTime(lapB.trace, t)) : null;
   const deltaHere = posA && rows.length && lapB ? rows[Math.min(rows.length - 1, Math.round((posA.d / lengthM) * (rows.length - 1)))]?.deltaMs : null;
 
   const segments = useMemo(() => {

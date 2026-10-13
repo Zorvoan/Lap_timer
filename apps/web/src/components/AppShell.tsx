@@ -1,14 +1,18 @@
-import { NavLink, Outlet, useLocation } from 'react-router-dom';
-import { useAccount, useLive } from '../hooks/useData';
-import { IconHome, IconList, IconMap, IconSettings, IconTimer, IconTrophy } from './ui/icons';
+import { useEffect, useState } from 'react';
+import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
+import { formatDelta, formatLapTime } from '@laptimer/core';
+import { useAccount, useData, useLive } from '../hooks/useData';
+import { getActiveSession } from '../lib/repo';
+import { buttonClass } from './ui/primitives';
+import { IconArrowLeft, IconHome, IconList, IconMap, IconSettings, IconTimer, IconTrophy, IconX } from './ui/icons';
 
 const NAV = [
-  { to: '/', label: 'Dashboard', icon: IconHome, end: true },
-  { to: '/circuits', label: 'Circuits', icon: IconMap, end: false },
-  { to: '/live', label: 'Live', icon: IconTimer, end: false },
-  { to: '/leaderboard', label: 'Ranks', icon: IconTrophy, end: false },
-  { to: '/sessions', label: 'Sessions', icon: IconList, end: false },
-  { to: '/settings', label: 'Settings', icon: IconSettings, end: false },
+  { to: '/', label: 'Home', icon: IconHome, end: true, phone: true },
+  { to: '/circuits', label: 'Circuits', icon: IconMap, end: false, phone: true },
+  { to: '/leaderboard', label: 'Ranks', icon: IconTrophy, end: false, phone: true },
+  { to: '/sessions', label: 'Sessions', icon: IconList, end: false, phone: true },
+  // On phones Settings is reached from the gear on the Home screen: five tabs stay readable.
+  { to: '/settings', label: 'Settings', icon: IconSettings, end: false, phone: false },
 ];
 
 export function AppShell() {
@@ -41,7 +45,6 @@ export function AppShell() {
                       <span className={`h-4 w-0.5 ${isActive ? 'bg-accent' : 'bg-transparent'}`} aria-hidden="true" />
                       <n.icon />
                       {n.label}
-                      {n.to === '/live' && sessionActive && <span className="ml-auto h-2 w-2 animate-pulse rounded-full bg-accent" aria-label="Session running" />}
                     </>
                   )}
                 </NavLink>
@@ -52,31 +55,125 @@ export function AppShell() {
         </nav>
       )}
 
-      <main className="relative min-h-0 min-w-0 flex-1 overflow-auto">
-        <Outlet />
-      </main>
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        {!loc.pathname.startsWith('/live') && <SessionBanner />}
+        <main className="relative min-h-0 min-w-0 flex-1 overflow-auto">
+          <Outlet />
+        </main>
+      </div>
+      {!immersive && <LeaderboardToast />}
 
       {!immersive && (
         <nav aria-label="Main" className="flex shrink-0 border-t border-line bg-panel pb-[env(safe-area-inset-bottom)] md:hidden">
-          {NAV.map((n) => (
+          {NAV.filter((n) => n.phone).map((n) => (
             <NavLink
               key={n.to}
               to={n.to}
               end={n.end}
-              className={({ isActive }) => `relative flex h-14 flex-1 flex-col items-center justify-center gap-0.5 text-[10px] font-semibold uppercase tracking-wider ${isActive ? 'text-fg' : 'text-muted'}`}
+              className={({ isActive }) => `relative flex h-16 flex-1 flex-col items-center justify-center gap-1 text-xs font-semibold ${isActive ? 'text-fg' : 'text-muted'}`}
             >
               {({ isActive }) => (
                 <>
                   {isActive && <span className="absolute inset-x-4 top-0 h-0.5 bg-accent" aria-hidden="true" />}
                   <n.icon />
                   {n.label}
-                  {n.to === '/live' && sessionActive && <span className="absolute right-[30%] top-2 h-2 w-2 animate-pulse rounded-full bg-accent" />}
                 </>
               )}
             </NavLink>
           ))}
         </nav>
       )}
+    </div>
+  );
+}
+
+/**
+ * Live timing has no tab: it is opened from a circuit (Drive). While a session is recording, or
+ * one was interrupted (app closed mid-session), this bar on every other screen leads back to it.
+ */
+function SessionBanner() {
+  const live = useLive();
+  const { data: interrupted } = useData(getActiveSession, []);
+  if (live.status === 'running' || live.status === 'paused') {
+    return (
+      <Link to="/live" className="flex items-center gap-3 bg-accent px-4 py-2.5 text-sm font-semibold text-white">
+        <span className="h-2.5 w-2.5 shrink-0 animate-pulse rounded-full bg-white" aria-hidden="true" />
+        <span className="min-w-0 flex-1 truncate">
+          {live.status === 'paused' ? 'Paused' : 'Recording'} · {live.circuit?.name}
+        </span>
+        <span className="flex shrink-0 items-center gap-1">
+          <IconTimer width={16} height={16} /> Back to timing
+        </span>
+      </Link>
+    );
+  }
+  if (live.status === 'idle' && interrupted) {
+    return (
+      <Link to="/live" className="flex items-center gap-3 bg-warn px-4 py-2.5 text-sm font-semibold text-black">
+        <span className="min-w-0 flex-1 truncate">A session was interrupted. Resume or save it.</span>
+        <span className="shrink-0">Open →</span>
+      </Link>
+    );
+  }
+  return null;
+}
+
+const TOAST_MS = 20_000;
+
+/**
+ * Leaderboard news after a sync: laps just published ("New leaderboard place: P3") and tracks
+ * where someone else went faster ("Pushed to P2 on Mladcová").
+ */
+function LeaderboardToast() {
+  const { submissions, overtakes } = useAccount();
+  const [dismissedAt, setDismissedAt] = useState(0);
+  const latest = Math.max(0, ...submissions.map((s) => s.at), ...overtakes.map((o) => o.at));
+  const visible = latest > dismissedAt && Date.now() - latest < TOAST_MS;
+  useEffect(() => {
+    if (!visible) return;
+    const t = setTimeout(() => setDismissedAt(latest), TOAST_MS - (Date.now() - latest));
+    return () => clearTimeout(t);
+  }, [visible, latest]);
+  if (!visible) return null;
+  return (
+    <div role="status" className="fixed inset-x-3 bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-[2000] mx-auto max-w-md rounded border border-accent bg-panel p-4 shadow-2xl md:bottom-6 md:left-auto md:right-6 md:mx-0 md:w-96">
+      <div className="flex items-start gap-3">
+        <span className="mt-0.5 text-accent">
+          <IconTrophy />
+        </span>
+        <div className="min-w-0 flex-1 space-y-2">
+          {overtakes
+            .filter((o) => o.at > dismissedAt)
+            .map((o) => (
+              <div key={`o-${o.circuitId}`}>
+                <div className="font-bold text-loss">
+                  {o.by ? `${o.by} beat your time` : 'Someone beat your time'}
+                </div>
+                <div className="text-sm text-muted">
+                  {o.circuitName}: P{o.from} → <span className="font-semibold text-fg">P{o.to}</span>
+                </div>
+                <Link to={`/leaderboard/${o.circuitId}`} onClick={() => setDismissedAt(latest)} className="mt-1 inline-block text-sm font-semibold text-accent hover:underline">
+                  See the times →
+                </Link>
+              </div>
+            ))}
+          {submissions.filter((s) => s.at > dismissedAt).map((s) => (
+            <div key={s.circuitId}>
+              <div className="font-bold">{s.position > 0 ? `New leaderboard place: P${s.position}` : 'New leaderboard time'}</div>
+              <div className="text-sm text-muted">
+                {s.circuitName} · <span className="font-mono tabular text-fg">{formatLapTime(s.timeMs)}</span>
+                {s.previousMs !== null && <> ({formatDelta(s.timeMs - s.previousMs)} s on your previous)</>}
+              </div>
+              <Link to={`/leaderboard/${s.circuitId}`} onClick={() => setDismissedAt(latest)} className="mt-1 inline-block text-sm font-semibold text-accent hover:underline">
+                View leaderboard →
+              </Link>
+            </div>
+          ))}
+        </div>
+        <button type="button" onClick={() => setDismissedAt(latest)} aria-label="Dismiss" className="-mr-2 -mt-2 flex h-9 w-9 items-center justify-center rounded text-muted hover:bg-raised hover:text-fg">
+          <IconX width={18} height={18} />
+        </button>
+      </div>
     </div>
   );
 }
@@ -100,14 +197,32 @@ function AccountNavItem() {
   );
 }
 
-export function PageHeader({ title, subtitle, actions }: { title: string; subtitle?: React.ReactNode; actions?: React.ReactNode }) {
+export function PageHeader({
+  title,
+  subtitle,
+  actions,
+  back,
+}: {
+  title: string;
+  subtitle?: React.ReactNode;
+  actions?: React.ReactNode;
+  /** Link back to the parent list, shown as a button above the title. */
+  back?: { to: string; label: string };
+}) {
   return (
-    <header className="flex flex-wrap items-end justify-between gap-3 border-b border-line px-4 py-4 md:px-6">
-      <div className="min-w-0">
-        <h1 className="text-xl font-bold tracking-tight">{title}</h1>
-        {subtitle && <div className="mt-0.5 text-sm text-muted">{subtitle}</div>}
+    <header className="border-b border-line px-4 py-4 md:px-6">
+      {back && (
+        <Link to={back.to} className={buttonClass('secondary', 'md', 'mb-4 pl-3')}>
+          <IconArrowLeft width={18} height={18} /> {back.label}
+        </Link>
+      )}
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-bold tracking-tight">{title}</h1>
+          {subtitle && <div className="mt-1 text-sm text-muted">{subtitle}</div>}
+        </div>
+        {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
       </div>
-      {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
     </header>
   );
 }
