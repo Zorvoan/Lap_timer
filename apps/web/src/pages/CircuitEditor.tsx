@@ -26,14 +26,14 @@ import { ElevationChart } from '../components/charts/Charts';
 import { useSettings } from '../hooks/useSettings';
 import { useAccount } from '../hooks/useData';
 import { useMediaQuery } from '../hooks/useMediaQuery';
+import { LINE_WIDTH_M, autoLines } from '../lib/autoLines';
 import { getRoutingProvider, RoutingError, type RouteResult } from '../lib/routing';
 import { getCircuit, saveCircuit } from '../lib/repo';
 import { fetchElevationProfile } from '../lib/elevation';
 import { newId, log } from '../lib/log';
 
 type Tool = 'waypoints' | 'start' | 'finish' | 'sector' | 'none';
-type Step = 'basics' | 'route' | 'lines' | 'save';
-const LINE_WIDTH_M = 24;
+type Step = 'basics' | 'route' | 'save';
 
 export interface RecordedDraft {
   geometry: LonLat[];
@@ -65,29 +65,22 @@ export function CircuitEditor() {
   const [startLine, setStartLine] = useState<TimingLine | null>(null);
   const [finishLine, setFinishLine] = useState<TimingLine | null>(null);
   /**
-   * False while the start/finish lines are auto-placed: they then follow the route as it is
-   * re-routed. Becomes true once the user places, drags or flips a line (or loads a saved circuit).
+   * True while a loaded circuit's own lines still belong to its unchanged route. Any change to
+   * the route clears it, and the lines are then placed automatically where the driver tapped.
    */
-  const linesManual = useRef(false);
-  const setStartManual = (l: TimingLine | null) => {
-    linesManual.current = true;
-    setStartLine(l);
-  };
-  const setFinishManual = (l: TimingLine | null) => {
-    linesManual.current = true;
-    setFinishLine(l);
-  };
+  const savedLines = useRef(false);
   const [sectors, setSectors] = useState<TimingLine[]>([]);
   /** The guided steps: what it is and its name → the route → start/finish lines → save. */
-  const [step, setStep] = useState<Step>(id ? (recorded ? 'lines' : 'route') : 'basics');
-  /** Which line a tap on the route places in the "Start & finish" step. */
-  const [lineTool, setLineTool] = useState<Exclude<Tool, 'waypoints'>>('start');
-  const tool: Tool = step === 'route' ? 'waypoints' : step === 'lines' ? lineTool : 'none';
+  const [step, setStep] = useState<Step>(id ? 'route' : 'basics');
+  /** Save step: taps on the route add sector lines while this is on. */
+  const [addingSectors, setAddingSectors] = useState(false);
+  const tool: Tool = step === 'route' ? 'waypoints' : step === 'save' && addingSectors ? 'sector' : 'none';
   const desktop = useMediaQuery('(min-width: 768px)');
   /** Earlier waypoint lists, for Undo. */
   const history = useRef<LonLat[][]>([]);
   const editWaypoints = (next: (w: LonLat[]) => LonLat[]) =>
     setWaypoints((w) => {
+      savedLines.current = false;
       history.current.push(w);
       return next(w);
     });
@@ -112,7 +105,7 @@ export function CircuitEditor() {
       setKind(c.kind);
       setOrigin(c.origin);
       setWaypoints(c.waypoints);
-      linesManual.current = true;
+      savedLines.current = true;
       setStartLine(c.startLine);
       setFinishLine(c.finishLine);
       setSectors(c.sectors);
@@ -123,7 +116,7 @@ export function CircuitEditor() {
       } else {
         setFixedGeometry(c.geometry);
       }
-      setStep(c.origin === 'routed' ? 'route' : 'lines');
+      setStep('route');
       setFitKey(`load-${c.id}`);
       setLoaded(true);
     });
@@ -177,14 +170,18 @@ export function CircuitEditor() {
     };
   }, [waypoints, kind, origin, loaded, retry]);
 
-  // Keep timing lines valid for the current geometry.
+  // Start/finish lines follow the route: where the first and last points were tapped.
   useEffect(() => {
     if (!track) return;
-    const L0 = track.length;
-    const keep = (l: TimingLine | null) => linesManual.current && l !== null && lineAlong(track, l) !== null;
-    setStartLine((s) => (keep(s) ? s : perpendicularLine(track, Math.min(20, L0 * 0.02), LINE_WIDTH_M)));
-    if (kind === 'sprint') setFinishLine((f) => (keep(f) ? f : perpendicularLine(track, Math.max(0, L0 - 20), LINE_WIDTH_M)));
-    setSectors((ss) => ss.filter((s) => lineAlong(track, s) !== null));
+    const fits = (l: TimingLine | null) => l !== null && lineAlong(track, l) !== null;
+    if (savedLines.current && fits(startLine) && (kind === 'closed' || fits(finishLine))) return;
+    savedLines.current = false;
+    const lines = autoLines(track, kind, origin === 'routed' ? waypoints : []);
+    setStartLine(lines.start);
+    setFinishLine(lines.finish);
+    setSectors((ss) => ss.filter((x) => lineAlong(track, x) !== null));
+    // Lines depend on the route and layout only; waypoints are read for where they were tapped.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [track, kind]);
 
   useEffect(() => {
@@ -201,23 +198,16 @@ export function CircuitEditor() {
       editWaypoints((w) => insertWaypoint(w, p, track, kind === 'closed'));
       return;
     }
-    if (!track) return;
+    if (!track || tool !== 'sector') return;
     const along = track.nearest(track.toXY({ lat, lon })).along;
-    const line = perpendicularLine(track, along, LINE_WIDTH_M);
-    if (tool === 'start') setStartManual(line);
-    else if (tool === 'finish') setFinishManual(line);
-    else setSectors((s) => [...s, line]);
+    setSectors((s) => [...s, perpendicularLine(track, along, LINE_WIDTH_M)]);
   }
 
   function reverse() {
-    const flip = (l: TimingLine | null): TimingLine | null => (l ? { ...l, direction: l.direction === 1 ? -1 : 1 } : null);
-    if (origin === 'routed') setWaypoints((w) => (kind === 'closed' && w.length ? [w[0], ...w.slice(1).reverse()] : [...w].reverse()));
+    savedLines.current = false;
+    if (origin === 'routed') editWaypoints((w) => (kind === 'closed' && w.length ? [w[0], ...w.slice(1).reverse()] : [...w].reverse()));
     else setFixedGeometry((g) => (g ? [...g].reverse() : g));
-    if (kind === 'sprint') {
-      setStartLine(flip(finishLine));
-      setFinishLine(flip(startLine));
-    } else setStartLine(flip(startLine));
-    setSectors((s) => s.map((l) => flip(l) as TimingLine));
+    setSectors([]);
   }
 
   async function loadElevation() {
@@ -283,17 +273,14 @@ export function CircuitEditor() {
   const steps: { id: Step; label: string }[] = [
     { id: 'basics', label: 'Type & name' },
     { id: 'route', label: 'Route' },
-    { id: 'lines', label: kind === 'closed' ? 'Start line' : 'Start & finish' },
     { id: 'save', label: 'Save' },
   ];
   const stepIndex = steps.findIndex((x) => x.id === step);
-  const blocking = issues.filter((i) => i.severity === 'error');
   const routeReady = !!track && routing !== 'loading';
   /** Why the user cannot go on from a step yet (null = can continue). */
   const blocker = (st: Step): string | null => {
     if (st === 'basics') return name.trim() ? null : 'Give it a name first.';
     if (st === 'route') return routeReady ? null : origin === 'routed' ? (waypoints.length < 2 ? 'Tap at least two points on the road.' : 'Waiting for the route…') : 'No route.';
-    if (st === 'lines') return blocking[0]?.message ?? null;
     return null;
   };
   const canOpen = (target: Step) => steps.slice(0, steps.findIndex((x) => x.id === target)).every((x) => !blocker(x.id));
@@ -315,7 +302,6 @@ export function CircuitEditor() {
   }
 
   const tap = desktop ? 'Click' : 'Tap';
-  const lineName = lineTool === 'finish' ? 'finish' : lineTool === 'sector' ? 'sector' : kind === 'closed' ? 'start/finish' : 'start';
   const instruction =
     step === 'route'
       ? origin !== 'routed'
@@ -329,14 +315,14 @@ export function CircuitEditor() {
               ? `Now ${tap.toLowerCase()} the road where it ends. The route follows the roads.`
               : `${tap} the next point around the loop. It closes back to point 1 by itself.`
             : `${tap} more points to shape the route. Drag a numbered point to move it.`
-      : step === 'lines'
-        ? `${tap} the route where the ${lineName} line goes. Drag its ends to fine-tune.`
+      : step === 'save' && addingSectors
+        ? `${tap} the route where a sector should end.`
         : null;
 
   const title = existing ? 'Edit circuit' : origin === 'recorded' ? 'New circuit from GPS' : 'New circuit';
 
   const stepper = (
-    <ol className="grid grid-cols-4 gap-1" aria-label="Steps">
+    <ol className="grid grid-cols-3 gap-1" aria-label="Steps">
       {steps.map((x, i) => {
         const active = x.id === step;
         const done = i < stepIndex;
@@ -441,49 +427,6 @@ export function CircuitEditor() {
         )}
       </div>
     </div>
-  ) : step === 'lines' ? (
-    <div className="space-y-3">
-      <p className="text-sm text-muted">
-        {kind === 'closed'
-          ? 'The start/finish line is already placed near the beginning of the route. Move it if you want.'
-          : 'Start and finish lines are already placed at the ends of the route. Move them if you want.'}
-      </p>
-      <div role="radiogroup" aria-label="Line to place" className={`grid gap-2 ${kind === 'sprint' ? 'grid-cols-3' : 'grid-cols-2'}`}>
-        {(
-          [
-            { id: 'start', label: kind === 'closed' ? 'Start/finish' : 'Start' },
-            ...(kind === 'sprint' ? [{ id: 'finish', label: 'Finish' }] : []),
-            { id: 'sector', label: '+ Sector' },
-          ] as { id: Exclude<Tool, 'waypoints' | 'none'>; label: string }[]
-        ).map((t) => (
-          <Button key={t.id} role="radio" aria-checked={lineTool === t.id} variant={lineTool === t.id ? 'primary' : 'secondary'} onClick={() => setLineTool(t.id)}>
-            {t.label}
-          </Button>
-        ))}
-      </div>
-      {issues.map((i, k) => (
-        <Notice key={k} tone={i.severity === 'error' ? 'error' : 'warn'}>
-          {i.message}
-        </Notice>
-      ))}
-      {startLine && issues.some((i) => i.message.includes('Flip start line')) && (
-        <Button onClick={() => setStartManual({ ...startLine, direction: startLine.direction === 1 ? -1 : 1 })}>Flip start line</Button>
-      )}
-      {sectors.length > 0 && (
-        <ul className="space-y-1">
-          {sectors.map((_, i) => (
-            <li key={i} className="flex items-center justify-between rounded border border-line px-3 py-1.5 text-sm">
-              <span>
-                <Badge tone="warn">S{i + 1}</Badge> sector line {i + 1}
-              </span>
-              <Button size="sm" variant="ghost" aria-label={`Remove sector line ${i + 1}`} onClick={() => setSectors((ss) => ss.filter((__, j) => j !== i))}>
-                <IconTrash width={14} height={14} />
-              </Button>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
   ) : (
     <div className="space-y-4">
       <dl className="divide-y divide-line rounded border border-line">
@@ -492,11 +435,37 @@ export function CircuitEditor() {
         </SummaryRow>
         <SummaryRow label="Type">{kind === 'closed' ? 'Circuit (loop)' : 'Sprint A→B'}</SummaryRow>
         <SummaryRow label="Distance">{track ? formatDistance(track.length, settings.distanceUnit) : '—'}</SummaryRow>
-        <SummaryRow label="Lines">
-          {kind === 'closed' ? 'Start/finish' : 'Start + finish'}
-          {sectors.length > 0 && ` + ${sectors.length} sector line${sectors.length > 1 ? 's' : ''}`}
-        </SummaryRow>
+        <SummaryRow label="Timing">{kind === 'closed' ? 'Start/finish at point 1' : 'Start at point 1, finish at the last point'}</SummaryRow>
       </dl>
+      {issues.map((i, k) => (
+        <Notice key={k} tone={i.severity === 'error' ? 'error' : 'warn'}>
+          {i.message}
+        </Notice>
+      ))}
+      <div>
+        <div className="flex items-center justify-between">
+          <span className="label">Sector lines (optional)</span>
+          <Button size="sm" variant={addingSectors ? 'primary' : 'secondary'} onClick={() => setAddingSectors((v) => !v)} disabled={!track}>
+            {addingSectors ? 'Done' : 'Add'}
+          </Button>
+        </div>
+        {sectors.length > 0 ? (
+          <ul className="mt-2 space-y-1">
+            {sectors.map((_, i) => (
+              <li key={i} className="flex items-center justify-between rounded border border-line px-3 py-1.5 text-sm">
+                <span>
+                  <Badge tone="warn">S{i + 1}</Badge> sector line {i + 1}
+                </span>
+                <Button size="sm" variant="ghost" aria-label={`Remove sector line ${i + 1}`} onClick={() => setSectors((ss) => ss.filter((__, j) => j !== i))}>
+                  <IconTrash width={14} height={14} />
+                </Button>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="mt-1 text-xs text-muted">Split the lap into sectors for split times.</p>
+        )}
+      </div>
       <div>
         <div className="flex items-center justify-between">
           <span className="label">Elevation (optional)</span>
@@ -555,7 +524,7 @@ export function CircuitEditor() {
               <div className="rounded border-l-4 border-accent bg-panel px-3 py-2 text-sm font-medium shadow-lg">{instruction}</div>
             </MapOverlay>
           )}
-          {geometry && <RouteLayer geometry={geometry} closed={kind === 'closed'} opacity={step === 'route' || step === 'lines' || step === 'save' ? 1 : 0.6} />}
+          {geometry && <RouteLayer geometry={geometry} closed={kind === 'closed'} opacity={step === 'basics' ? 0.6 : 1} />}
           {origin === 'routed' &&
             step === 'route' &&
             waypoints.map((w, i) => (
@@ -579,12 +548,12 @@ export function CircuitEditor() {
               </Marker>
             ))}
           {step !== 'route' && startLine && (
-            <TimingLineView line={startLine} kind="start" label={kind === 'closed' ? 'Start / finish' : 'Start'} editable={step === 'lines'} onChange={setStartManual} />
+            <TimingLineView line={startLine} kind="start" label={kind === 'closed' ? 'Start / finish' : 'Start'} />
           )}
-          {step !== 'route' && kind === 'sprint' && finishLine && <TimingLineView line={finishLine} kind="finish" label="Finish" editable={step === 'lines'} onChange={setFinishManual} />}
+          {step !== 'route' && kind === 'sprint' && finishLine && <TimingLineView line={finishLine} kind="finish" label="Finish" />}
           {step !== 'route' &&
             sectors.map((x, i) => (
-              <TimingLineView key={i} line={x} kind="sector" label={`Sector line ${i + 1}`} editable={step === 'lines'} onChange={(l) => setSectors((ss) => ss.map((y, j) => (j === i ? l : y)))} />
+              <TimingLineView key={i} line={x} kind="sector" label={`Sector line ${i + 1}`} />
             ))}
           <FitBounds bounds={bounds} fitKey={fitKey} />
         </BaseMap>
@@ -684,7 +653,7 @@ function validateDraft(track: TrackModel | null, kind: CircuitKind, start: Timin
   else {
     const travel = track.tangentAt(sAlong);
     if (directionFor(lineToXY(track, start), travel) !== start.direction) {
-      out.push({ severity: 'warning', message: 'The start line expects travel opposite to the route arrows. Use “Flip start line” if that is not intended.' });
+      out.push({ severity: 'warning', message: 'The start line expects travel opposite to the route arrows.' });
     }
   }
   if (kind === 'sprint') {
