@@ -1,0 +1,42 @@
+# Builds the PWA and deploys it to Firebase Hosting (https://laptimer-okwph.web.app).
+# Needs the repository secret FIREBASE_SERVICE_ACCOUNT: the JSON key of a service account with
+# the "Firebase Hosting Admin" and "API Keys Viewer" roles on project laptimer-okwph.
+name: Deploy to Firebase Hosting
+
+on:
+  push:
+    branches: [claude/serene-curie-ewf8qe]
+  workflow_dispatch:
+
+concurrency:
+  group: firebase-hosting-live
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Test
+        run: npm test
+
+      - name: Build (Firebase mode)
+        run: npm run build:firebase -w @laptimer/web
+
+      - name: Deploy
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          projectId: laptimer-okwph
+          channelId: live

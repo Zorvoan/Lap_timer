@@ -63,7 +63,11 @@ To redeploy:
 npm run deploy:firebase
 ```
 
-This builds with `--mode firebase` (`apps/web/.env.firebase`, which keeps the labelled simulator
+GitHub Actions also deploys on every push to the deploy branch
+(`.github/workflows/firebase-deploy.yml`, repository secret `FIREBASE_SERVICE_ACCOUNT` with a
+service account key that has the Firebase Hosting Admin and API Keys Viewer roles).
+
+`npm run deploy:firebase` builds with `--mode firebase` (`apps/web/.env.firebase`, which keeps the labelled simulator
 on) and deploys `apps/web/dist` using `firebase.json` (SPA rewrite, long-cache hashed assets,
 no-cache service worker). Only the static app is hosted. The optional sync server is not
 deployed, and data lives in each browser's own storage.
