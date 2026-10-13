@@ -205,11 +205,9 @@ export async function refreshFeatured(): Promise<FeaturedCircuit[]> {
     const list = await (await community()).listFeatured();
     await setKv('featured', list);
     set({ featured: list });
-    // Official tracks are authoritative: replace older local copies (never edit them locally).
-    for (const f of list) {
-      const local = await getCircuit(f.id);
-      if (local && local.updatedAt < f.updatedAt) await saveCircuit(stripFeatured(f), { touch: false });
-    }
+    // Every user gets the official tracks in their circuits; they are authoritative, so older
+    // local copies are replaced (they are never edited locally).
+    for (const f of list) await ensureLocalCircuit(f);
     return list;
   } catch (e) {
     log.warn('official tracks could not be loaded', { error: String(e) });

@@ -1,14 +1,16 @@
-import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useAccount, useLive } from '../hooks/useData';
-import { IconHome, IconList, IconMap, IconSettings, IconTimer, IconTrophy } from './ui/icons';
+import { buttonClass } from './ui/primitives';
+import { IconArrowLeft, IconHome, IconList, IconMap, IconSettings, IconTimer, IconTrophy } from './ui/icons';
 
 const NAV = [
-  { to: '/', label: 'Dashboard', icon: IconHome, end: true },
-  { to: '/circuits', label: 'Circuits', icon: IconMap, end: false },
-  { to: '/live', label: 'Live', icon: IconTimer, end: false },
-  { to: '/leaderboard', label: 'Ranks', icon: IconTrophy, end: false },
-  { to: '/sessions', label: 'Sessions', icon: IconList, end: false },
-  { to: '/settings', label: 'Settings', icon: IconSettings, end: false },
+  { to: '/', label: 'Home', icon: IconHome, end: true, phone: true },
+  { to: '/circuits', label: 'Circuits', icon: IconMap, end: false, phone: true },
+  { to: '/live', label: 'Live', icon: IconTimer, end: false, phone: true },
+  { to: '/leaderboard', label: 'Ranks', icon: IconTrophy, end: false, phone: true },
+  { to: '/sessions', label: 'Sessions', icon: IconList, end: false, phone: true },
+  // On phones Settings is reached from the gear on the Home screen: five tabs stay readable.
+  { to: '/settings', label: 'Settings', icon: IconSettings, end: false, phone: false },
 ];
 
 export function AppShell() {
@@ -58,12 +60,12 @@ export function AppShell() {
 
       {!immersive && (
         <nav aria-label="Main" className="flex shrink-0 border-t border-line bg-panel pb-[env(safe-area-inset-bottom)] md:hidden">
-          {NAV.map((n) => (
+          {NAV.filter((n) => n.phone).map((n) => (
             <NavLink
               key={n.to}
               to={n.to}
               end={n.end}
-              className={({ isActive }) => `relative flex h-14 flex-1 flex-col items-center justify-center gap-0.5 text-[10px] font-semibold uppercase tracking-wider ${isActive ? 'text-fg' : 'text-muted'}`}
+              className={({ isActive }) => `relative flex h-16 flex-1 flex-col items-center justify-center gap-1 text-xs font-semibold ${isActive ? 'text-fg' : 'text-muted'}`}
             >
               {({ isActive }) => (
                 <>
@@ -100,14 +102,32 @@ function AccountNavItem() {
   );
 }
 
-export function PageHeader({ title, subtitle, actions }: { title: string; subtitle?: React.ReactNode; actions?: React.ReactNode }) {
+export function PageHeader({
+  title,
+  subtitle,
+  actions,
+  back,
+}: {
+  title: string;
+  subtitle?: React.ReactNode;
+  actions?: React.ReactNode;
+  /** Link back to the parent list, shown as a button above the title. */
+  back?: { to: string; label: string };
+}) {
   return (
-    <header className="flex flex-wrap items-end justify-between gap-3 border-b border-line px-4 py-4 md:px-6">
-      <div className="min-w-0">
-        <h1 className="text-xl font-bold tracking-tight">{title}</h1>
-        {subtitle && <div className="mt-0.5 text-sm text-muted">{subtitle}</div>}
+    <header className="border-b border-line px-4 py-4 md:px-6">
+      {back && (
+        <Link to={back.to} className={buttonClass('secondary', 'md', 'mb-4 pl-3')}>
+          <IconArrowLeft width={18} height={18} /> {back.label}
+        </Link>
+      )}
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-bold tracking-tight">{title}</h1>
+          {subtitle && <div className="mt-1 text-sm text-muted">{subtitle}</div>}
+        </div>
+        {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
       </div>
-      {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
     </header>
   );
 }

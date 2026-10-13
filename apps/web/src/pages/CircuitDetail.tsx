@@ -131,14 +131,11 @@ function CircuitView({ circuit, sessions }: { circuit: Circuit; sessions: Sessio
     <div className="pb-10">
       <PageHeader
         title={circuit.name}
+        back={{ to: '/circuits', label: 'All circuits' }}
         subtitle={
           <span className="flex flex-wrap items-center gap-2">
-            <Link to="/circuits" className="font-semibold text-fg underline decoration-accent underline-offset-4">
-              ← All circuits
-            </Link>
-            <span>
-              {formatDistance(circuit.lengthM, settings.distanceUnit)} · {circuit.kind === 'closed' ? 'closed circuit' : 'sprint A→B'}
-            </span>
+            {official && <Badge tone="accent">Official · leaderboard</Badge>}
+            {formatDistance(circuit.lengthM, settings.distanceUnit)} · {circuit.kind === 'closed' ? 'closed circuit' : 'sprint A→B'}
           </span>
         }
         actions={
@@ -158,9 +155,11 @@ function CircuitView({ circuit, sessions }: { circuit: Circuit; sessions: Sessio
             >
               <IconDownload width={18} height={18} />
             </Button>
-            <ConfirmButton aria-label="Delete circuit" title="Delete circuit (sessions are kept)" onConfirm={remove} confirmLabel="Delete?">
-              <IconTrash width={18} height={18} />
-            </ConfirmButton>
+            {!official && (
+              <ConfirmButton aria-label="Delete circuit" title="Delete circuit (sessions are kept)" onConfirm={remove} confirmLabel="Delete?">
+                <IconTrash width={18} height={18} />
+              </ConfirmButton>
+            )}
           </>
         }
       />

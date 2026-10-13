@@ -1,72 +1,90 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { Polyline } from 'react-leaflet';
 import { formatDistance, formatLapTime, type Circuit, type Session } from '@laptimer/core';
-import { BaseMap, FitBounds } from '../components/map/BaseMap';
-import { RouteLayer } from '../components/map/RouteLayer';
-import { TimingLineView } from '../components/map/TimingLines';
+import { BaseMap, FitBounds, MapClick } from '../components/map/BaseMap';
+import { TRACK_COLORS, TrackLines, boundsOf, trackColor } from '../components/map/TrackLines';
 import { LocateControl, SearchControl } from '../components/map/MapControls';
 import { Badge, Button, ConfirmButton, Empty, LinkButton, Notice, Spinner } from '../components/ui/primitives';
-import { IconDownload, IconMap, IconPlus, IconRecord, IconTimer, IconTrash } from '../components/ui/icons';
+import { IconDownload, IconMap, IconPlus, IconRecord, IconTimer, IconTrash, IconX } from '../components/ui/icons';
 import { useAccount, useData } from '../hooks/useData';
 import { useSettings } from '../hooks/useSettings';
 import { deleteCircuit, listCircuits, listSessions } from '../lib/repo';
 import { buildExport, downloadText } from '../lib/exportImport';
 import { ElevationChart } from '../components/charts/Charts';
 
-function bounds(c: Circuit): [[number, number], [number, number]] {
-  let s = 90,
-    n = -90,
-    w = 180,
-    e = -180;
-  for (const [lon, lat] of c.geometry) {
-    s = Math.min(s, lat);
-    n = Math.max(n, lat);
-    w = Math.min(w, lon);
-    e = Math.max(e, lon);
-  }
-  return [
-    [s, w],
-    [n, e],
-  ];
-}
-
+/**
+ * Circuits: list plus a map of every track (official and the user's own). Nothing is selected
+ * at first; clicking a track on the map or in the list opens its card.
+ * URL: `?view=map` shows the map on phones, `?selected=<id>` the opened track. Tapping
+ * "Circuits" in the navigation again clears both, which returns phones to the list.
+ */
 export function Circuits() {
   const { settings } = useSettings();
   const acc = useAccount();
-  const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const { data, loading, error } = useData(async () => ({ circuits: await listCircuits(), sessions: await listSessions() }), []);
-  const circuits = data?.circuits;
-  const selectedId = params.get('selected') ?? circuits?.[0]?.id ?? null;
-  const selected = circuits?.find((c) => c.id === selectedId) ?? null;
   const stats = useMemo(() => circuitStats(data?.sessions ?? [], settings.includeSimulatedInBests), [data, settings.includeSimulatedInBests]);
-  const selStats = selectedId ? stats.get(selectedId) : undefined;
 
-  const fitBounds = useMemo(() => (selected ? bounds(selected) : null), [selected]);
-  const [mobileView, setMobileView] = useState<'list' | 'map'>(params.get('selected') ? 'map' : 'list');
+  const isOfficial = (id: string) => acc.featured.some((f) => f.id === id);
+  const featuredOrder = (id: string) => acc.featured.findIndex((f) => f.id === id);
+  const all = data?.circuits;
+  const official = (all ?? []).filter((c) => isOfficial(c.id)).sort((a, b) => featuredOrder(a.id) - featuredOrder(b.id));
+  const own = (all ?? []).filter((c) => !isOfficial(c.id));
+
+  const selectedId = params.get('selected');
+  const selected = all?.find((c) => c.id === selectedId) ?? null;
+  const view = params.get('view') === 'map' ? 'map' : 'list';
+
+  // The map frames every track until a track is picked from the list; picking one on the map
+  // keeps the view, so the user can hop between neighbouring tracks.
+  const [fitTo, setFitTo] = useState<string | null>(selectedId);
+  const fitBounds = useMemo(() => boundsOf((all ?? []).filter((c) => !fitTo || c.id === fitTo)), [all, fitTo]);
+
+  function update(next: { view?: 'list' | 'map'; selected?: string | null }) {
+    const v = next.view ?? view;
+    const s = next.selected === undefined ? selectedId : next.selected;
+    const p: Record<string, string> = {};
+    if (v === 'map') p.view = 'map';
+    if (s) p.selected = s;
+    setParams(p);
+  }
+
+  function selectFromList(id: string, showMap: boolean) {
+    setFitTo(id);
+    update({ selected: id, view: showMap ? 'map' : undefined });
+  }
 
   async function remove(c: Circuit) {
     await deleteCircuit(c.id);
-    setParams({});
+    setFitTo(null);
+    update({ selected: null });
   }
 
-  const isOfficial = (id: string) => acc.featured.some((f) => f.id === id);
+  const listItem = (c: Circuit) => (
+    <CircuitListItem
+      key={c.id}
+      circuit={c}
+      stats={stats.get(c.id)}
+      official={isOfficial(c.id)}
+      selected={c.id === selectedId}
+      onSelect={(showMap) => selectFromList(c.id, showMap)}
+    />
+  );
 
   return (
     <div className="flex h-full flex-col md:flex-row">
       {/* Phone: title + List/Map switch */}
       <div className="flex items-center justify-between gap-3 border-b border-line bg-panel px-4 py-3 md:hidden">
-        <h1 className="text-xl font-bold tracking-tight">Circuits</h1>
-        <div role="tablist" aria-label="View" className="flex overflow-hidden rounded border border-line text-xs font-semibold uppercase tracking-wider">
+        <h1 className="text-2xl font-bold tracking-tight">Circuits</h1>
+        <div role="tablist" aria-label="View" className="flex overflow-hidden rounded border border-line text-sm font-semibold">
           {(['list', 'map'] as const).map((v) => (
             <button
               key={v}
               type="button"
               role="tab"
-              aria-selected={mobileView === v}
-              onClick={() => setMobileView(v)}
-              className={`h-9 px-4 ${mobileView === v ? 'bg-accent text-white' : 'text-muted'}`}
+              aria-selected={view === v}
+              onClick={() => update({ view: v })}
+              className={`h-10 px-5 ${view === v ? 'bg-accent text-white' : 'text-muted'}`}
             >
               {v === 'list' ? 'List' : 'Map'}
             </button>
@@ -74,9 +92,9 @@ export function Circuits() {
         </div>
       </div>
 
-      <aside className={`${mobileView === 'list' ? 'flex' : 'hidden'} min-h-0 flex-1 flex-col bg-bg md:flex md:w-80 md:flex-none md:border-r md:border-line md:bg-panel`}>
+      <aside className={`${view === 'list' ? 'flex' : 'hidden'} min-h-0 flex-1 flex-col bg-bg md:flex md:w-80 md:flex-none md:border-r md:border-line md:bg-panel`}>
         <div className="hidden items-center justify-between gap-2 border-b border-line p-3 md:flex">
-          <h1 className="label">Circuits</h1>
+          <h1 className="text-lg font-bold tracking-tight">Circuits</h1>
           <div className="flex gap-2">
             <LinkButton to="/circuits/record" size="sm" title="Record a circuit by driving it">
               <IconRecord width={16} height={16} /> Record
@@ -86,7 +104,7 @@ export function Circuits() {
             </LinkButton>
           </div>
         </div>
-        <div className="min-h-0 flex-1 overflow-auto">
+        <div className="min-h-0 flex-1 overflow-auto pb-4">
           <div className="grid grid-cols-2 gap-2 p-3 md:hidden">
             <LinkButton to="/circuits/new" variant="primary" size="lg">
               <IconPlus width={18} height={18} /> New circuit
@@ -95,7 +113,7 @@ export function Circuits() {
               <IconRecord width={18} height={18} /> Record drive
             </LinkButton>
           </div>
-          {loading && !circuits && (
+          {loading && !all && (
             <div className="p-4">
               <Spinner />
             </div>
@@ -105,179 +123,54 @@ export function Circuits() {
               <Notice tone="error">{error.message}</Notice>
             </div>
           )}
-          {circuits && circuits.length === 0 && (
-            <div className="p-3">
-              <Empty title="No circuits yet">Build one from roads on the map, or record one by driving it.</Empty>
-            </div>
-          )}
-          <ul className="space-y-3 px-3 pb-4 md:space-y-0 md:divide-y md:divide-line md:p-0">
-            {circuits?.map((c) => {
-              const st = stats.get(c.id);
-              const isSel = c.id === selectedId;
-              const official = isOfficial(c.id);
-              return (
-                <li key={c.id} className={isSel ? 'md:bg-raised' : ''}>
-                  {/* desktop row: selects the circuit on the map */}
-                  <button
-                    type="button"
-                    onClick={() => setParams({ selected: c.id })}
-                    className="hidden w-full items-center gap-3 px-4 py-3 text-left hover:bg-raised md:flex"
-                    aria-current={isSel}
-                  >
-                    <span className="min-w-0 flex-1">
-                      <span className="flex items-center gap-2">
-                        {isSel && <span className="h-3 w-0.5 bg-accent" aria-hidden="true" />}
-                        <span className="truncate font-medium">{c.name}</span>
-                      </span>
-                      <span className="mt-0.5 block text-xs text-muted">
-                        {formatDistance(c.lengthM, settings.distanceUnit)} · {c.kind === 'closed' ? 'closed' : 'sprint'}
-                        {official && ' · official'}
-                      </span>
-                    </span>
-                    <span className="shrink-0 text-right">
-                      <span className="block font-mono text-sm tabular">{formatLapTime(st?.bestMs)}</span>
-                      <span className="block text-[11px] text-muted">{st?.laps ?? 0} laps</span>
-                    </span>
-                  </button>
 
-                  {/* phone card */}
-                  <div className="rounded border border-line bg-panel p-4 md:hidden">
-                    <Link to={`/circuits/${c.id}`} className="block">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="truncate text-lg font-bold">{c.name}</div>
-                          <div className="mt-0.5 text-sm text-muted">
-                            {formatDistance(c.lengthM, settings.distanceUnit)} · {c.kind === 'closed' ? 'closed circuit' : 'sprint A→B'}
-                          </div>
-                          {official && (
-                            <div className="mt-1.5">
-                              <Badge tone="accent">Official · leaderboard</Badge>
-                            </div>
-                          )}
-                        </div>
-                        <div className="shrink-0 text-right">
-                          <div className="label">Best</div>
-                          <div className="font-mono text-lg tabular">{formatLapTime(st?.bestMs)}</div>
-                          <div className="text-xs text-muted">{st?.laps ?? 0} laps</div>
-                        </div>
-                      </div>
-                    </Link>
-                    <div className="mt-3 grid grid-cols-[1fr_1fr_auto] gap-2">
-                      <LinkButton to={`/live?circuit=${c.id}`} variant="primary" size="lg">
-                        <IconTimer width={18} height={18} /> Drive
-                      </LinkButton>
-                      <LinkButton to={`/circuits/${c.id}`} size="lg">
-                        Times
-                      </LinkButton>
-                      <Button size="lg" aria-label={`Show ${c.name} on the map`} onClick={() => (setParams({ selected: c.id }), setMobileView('map'))}>
-                        <IconMap width={18} height={18} />
-                      </Button>
-                    </div>
-                  </div>
+          {official.length > 0 && (
+            <ListSection title="Official tracks" color={TRACK_COLORS.official}>
+              {official.map(listItem)}
+            </ListSection>
+          )}
+          {all && (
+            <ListSection title="My circuits" color={TRACK_COLORS.own}>
+              {own.length ? (
+                own.map(listItem)
+              ) : (
+                <li className="px-3 md:px-4 md:py-3">
+                  <Empty title="No circuits of your own yet">Build one from roads on the map, or record one by driving it.</Empty>
                 </li>
-              );
-            })}
-          </ul>
+              )}
+            </ListSection>
+          )}
         </div>
       </aside>
 
-      <div className={`${mobileView === 'map' ? 'block' : 'hidden'} relative min-h-0 flex-1 md:block`}>
+      <div className={`${view === 'map' ? 'block' : 'hidden'} relative min-h-0 flex-1 overflow-hidden md:block`}>
         <BaseMap>
           <SearchControl />
           <LocateControl />
-          {circuits
-            ?.filter((c) => c.id !== selectedId)
-            .map((c) => (
-              <Polyline
-                key={c.id}
-                positions={c.geometry.map(([lon, lat]) => [lat, lon] as [number, number])}
-                pathOptions={{ color: '#8a8e96', weight: 3, opacity: 0.7 }}
-                eventHandlers={{ click: () => setParams({ selected: c.id }) }}
-              />
-            ))}
-          {selected && (
-            <>
-              <RouteLayer geometry={selected.geometry} closed={selected.kind === 'closed'} />
-              <TimingLineView line={selected.startLine} kind="start" label={selected.kind === 'closed' ? 'Start / finish' : 'Start'} />
-              {selected.finishLine && <TimingLineView line={selected.finishLine} kind="finish" label="Finish" />}
-              {selected.sectors.map((s, i) => (
-                <TimingLineView key={i} line={s} kind="sector" label={`Sector ${i + 1} end`} />
-              ))}
-              <FitBounds bounds={fitBounds} fitKey={selected.id} />
-            </>
-          )}
+          <MapClick onClick={() => selectedId && update({ selected: null })} />
+          {all && <TrackLines circuits={all} isOfficial={isOfficial} selectedId={selectedId} onSelect={(id) => update({ selected: id })} />}
+          <FitBounds bounds={fitBounds} fitKey={`${fitTo ?? 'all'}:${all?.length ?? 0}`} maxZoom={15} />
         </BaseMap>
 
-        {/* phone: compact card for the selected circuit */}
-        {selected && (
-          <div className="absolute bottom-3 left-3 right-14 z-[1000] rounded border border-line bg-panel p-3 shadow-xl md:hidden">
-            <div className="truncate font-bold">{selected.name}</div>
-            <div className="text-xs text-muted">
-              {formatDistance(selected.lengthM, settings.distanceUnit)} · best {formatLapTime(selStats?.bestMs)}
+        {!selected && all && all.length > 0 && (
+          <div className="pointer-events-none absolute bottom-3 left-3 z-[1000] rounded border border-line bg-panel/95 px-3 py-2 text-sm shadow-lg">
+            <div className="flex flex-wrap gap-x-4 gap-y-1">
+              {official.length > 0 && <LegendItem color={TRACK_COLORS.official} label="Official" />}
+              <LegendItem color={TRACK_COLORS.own} label="My circuits" />
             </div>
-            <div className="mt-2 grid grid-cols-2 gap-2">
-              <LinkButton to={`/live?circuit=${selected.id}`} variant="primary">
-                <IconTimer width={16} height={16} /> Drive
-              </LinkButton>
-              <LinkButton to={`/circuits/${selected.id}`}>Times</LinkButton>
-            </div>
+            <div className="mt-1 text-xs text-muted">Tap a track to open it</div>
           </div>
         )}
 
         {selected && (
-          <div className="absolute bottom-3 right-14 z-[1000] hidden w-[min(24rem,calc(100%-4.5rem))] rounded border border-line bg-panel p-4 shadow-xl md:block">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <div className="truncate text-lg font-bold">{selected.name}</div>
-                <div className="mt-1 flex flex-wrap gap-1.5">
-                  <Badge>{selected.kind === 'closed' ? 'Closed circuit' : 'Sprint'}</Badge>
-                  <Badge>{selected.origin === 'routed' ? 'Road routed' : selected.origin === 'recorded' ? 'GPS recorded' : 'Imported'}</Badge>
-                  {selected.sectors.length > 0 && <Badge>{selected.sectors.length + 1} sectors</Badge>}
-                  {isOfficial(selected.id) && <Badge tone="accent">Official · leaderboard</Badge>}
-                </div>
-              </div>
-              <div className="text-right">
-                <div className="label">Length</div>
-                <div className="font-mono tabular">{formatDistance(selected.lengthM, settings.distanceUnit)}</div>
-              </div>
-            </div>
-            <div className="mt-3 flex items-center justify-between">
-              <div>
-                <div className="label">Personal best</div>
-                <div className="font-mono text-xl tabular">{formatLapTime(selStats?.bestMs)}</div>
-              </div>
-              <div className="text-right">
-                <div className="label">Laps driven</div>
-                <div className="font-mono text-xl tabular">{selStats?.laps ?? 0}</div>
-              </div>
-            </div>
-            {selected.routing?.warnings.length ? (
-              <div className="mt-3">
-                <Notice tone="warn">{selected.routing.warnings[0]}</Notice>
-              </div>
-            ) : null}
-            {selected.elevation && selected.elevation.length > 1 && (
-              <div className="mt-3 h-20">
-                <ElevationChart points={selected.elevation} distanceUnit={settings.distanceUnit} compact />
-              </div>
-            )}
-            <div className="mt-4 flex flex-wrap gap-2">
-              <Button variant="primary" onClick={() => navigate(`/live?circuit=${selected.id}`)}>
-                <IconTimer width={18} height={18} /> Drive
-              </Button>
-              <LinkButton to={`/circuits/${selected.id}`}>Times & compare</LinkButton>
-              {!isOfficial(selected.id) && <LinkButton to={`/circuits/${selected.id}/edit`}>Edit</LinkButton>}
-              <Button
-                aria-label="Export circuit"
-                title="Export circuit (JSON)"
-                onClick={() => downloadText(`${slug(selected.name)}.laptimer.json`, buildExport([selected], [], []), 'application/json')}
-              >
-                <IconDownload width={18} height={18} />
-              </Button>
-              <ConfirmButton aria-label="Delete circuit" title="Delete circuit (sessions are kept)" onConfirm={() => remove(selected)} confirmLabel="Delete?">
-                <IconTrash width={18} height={18} />
-              </ConfirmButton>
-            </div>
+          <div className="absolute inset-x-3 bottom-3 z-[1001] max-h-[calc(100%-4.5rem)] overflow-auto rounded border border-line bg-panel shadow-2xl md:left-auto md:right-14 md:w-[26rem]">
+            <CircuitCard
+              circuit={selected}
+              stats={stats.get(selected.id)}
+              official={isOfficial(selected.id)}
+              onClose={() => update({ selected: null })}
+              onDelete={() => remove(selected)}
+            />
           </div>
         )}
       </div>
@@ -285,6 +178,177 @@ export function Circuits() {
   );
 }
 
+function ListSection({ title, color, children }: { title: string; color: string; children: React.ReactNode }) {
+  return (
+    <section className="mt-2 md:mt-0">
+      <h2 className="flex items-center gap-2 px-4 pb-2 pt-3 md:border-b md:border-line md:py-2.5">
+        <span className="h-3 w-1 rounded-sm" style={{ background: color }} aria-hidden="true" />
+        <span className="label whitespace-nowrap">{title}</span>
+      </h2>
+      <ul className="space-y-3 px-3 md:space-y-0 md:divide-y md:divide-line md:px-0">{children}</ul>
+    </section>
+  );
+}
+
+function LegendItem({ color, label }: { color: string; label: string }) {
+  return (
+    <span className="flex items-center gap-2 font-medium">
+      <span className="h-1 w-5 rounded-full" style={{ background: color }} aria-hidden="true" />
+      {label}
+    </span>
+  );
+}
+
+function CircuitListItem({
+  circuit: c,
+  stats: st,
+  official,
+  selected,
+  onSelect,
+}: {
+  circuit: Circuit;
+  stats: CircuitStats | undefined;
+  official: boolean;
+  selected: boolean;
+  onSelect: (showMap: boolean) => void;
+}) {
+  const { settings } = useSettings();
+  const meta = `${formatDistance(c.lengthM, settings.distanceUnit)} · ${c.kind === 'closed' ? 'closed circuit' : 'sprint A→B'}`;
+  return (
+    <li className={selected ? 'md:bg-raised' : ''}>
+      {/* desktop row: opens the circuit on the map */}
+      <button type="button" onClick={() => onSelect(false)} className="hidden w-full items-center gap-3 px-4 py-3 text-left hover:bg-raised md:flex" aria-current={selected}>
+        <span className="h-8 w-1 shrink-0 rounded-sm" style={{ background: selected ? trackColor(official) : 'transparent' }} aria-hidden="true" />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate font-semibold">{c.name}</span>
+          <span className="mt-0.5 block text-xs text-muted">{meta}</span>
+        </span>
+        <span className="shrink-0 text-right">
+          <span className="block font-mono text-sm tabular">{formatLapTime(st?.bestMs)}</span>
+          <span className="block text-[11px] text-muted">{st?.laps ?? 0} laps</span>
+        </span>
+      </button>
+
+      {/* phone card */}
+      <div className="rounded border border-line bg-panel p-4 md:hidden">
+        <Link to={`/circuits/${c.id}`} className="block">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="truncate text-lg font-bold">{c.name}</div>
+              <div className="mt-0.5 text-sm text-muted">{meta}</div>
+            </div>
+            <div className="shrink-0 text-right">
+              <div className="label">Best</div>
+              <div className="font-mono text-lg tabular">{formatLapTime(st?.bestMs)}</div>
+              <div className="text-xs text-muted">{st?.laps ?? 0} laps</div>
+            </div>
+          </div>
+        </Link>
+        <div className="mt-3 grid grid-cols-[1fr_1fr_auto] gap-2">
+          <LinkButton to={`/live?circuit=${c.id}`} variant="primary" size="lg">
+            <IconTimer width={18} height={18} /> Drive
+          </LinkButton>
+          <LinkButton to={`/circuits/${c.id}`} size="lg">
+            Times
+          </LinkButton>
+          <Button size="lg" aria-label={`Show ${c.name} on the map`} title="Show on the map" onClick={() => onSelect(true)}>
+            <IconMap width={18} height={18} />
+          </Button>
+        </div>
+      </div>
+    </li>
+  );
+}
+
+/** Details of the track opened on the map. */
+function CircuitCard({
+  circuit: c,
+  stats: st,
+  official,
+  onClose,
+  onDelete,
+}: {
+  circuit: Circuit;
+  stats: CircuitStats | undefined;
+  official: boolean;
+  onClose: () => void;
+  onDelete: () => void;
+}) {
+  const { settings } = useSettings();
+  const navigate = useNavigate();
+  return (
+    <div className="p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="truncate text-xl font-bold">{c.name}</h2>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {official && <Badge tone="accent">Official · leaderboard</Badge>}
+            <Badge>{c.kind === 'closed' ? 'Closed circuit' : 'Sprint'}</Badge>
+            {!official && <Badge>{c.origin === 'routed' ? 'Road routed' : c.origin === 'recorded' ? 'GPS recorded' : 'Imported'}</Badge>}
+            {c.sectors.length > 0 && <Badge>{c.sectors.length + 1} sectors</Badge>}
+          </div>
+        </div>
+        <button type="button" onClick={onClose} aria-label="Close" className="-mr-2 -mt-1 flex h-10 w-10 shrink-0 items-center justify-center rounded text-muted hover:bg-raised hover:text-fg">
+          <IconX />
+        </button>
+      </div>
+
+      <dl className="mt-4 grid grid-cols-3 gap-3">
+        <div>
+          <dt className="label">Length</dt>
+          <dd className="mt-0.5 font-mono text-lg tabular">{formatDistance(c.lengthM, settings.distanceUnit)}</dd>
+        </div>
+        <div>
+          <dt className="label">Your best</dt>
+          <dd className="mt-0.5 font-mono text-lg tabular">{formatLapTime(st?.bestMs)}</dd>
+        </div>
+        <div className="text-right">
+          <dt className="label">Laps</dt>
+          <dd className="mt-0.5 font-mono text-lg tabular">{st?.laps ?? 0}</dd>
+        </div>
+      </dl>
+
+      {!official && c.routing?.warnings.length ? (
+        <div className="mt-3">
+          <Notice tone="warn">{c.routing.warnings[0]}</Notice>
+        </div>
+      ) : null}
+      {c.elevation && c.elevation.length > 1 && (
+        <div className="mt-3 hidden h-16 md:block">
+          <ElevationChart points={c.elevation} distanceUnit={settings.distanceUnit} compact />
+        </div>
+      )}
+
+      <div className="mt-4 grid grid-cols-2 gap-2">
+        <Button variant="primary" size="lg" onClick={() => navigate(`/live?circuit=${c.id}`)}>
+          <IconTimer width={18} height={18} /> Drive
+        </Button>
+        <LinkButton to={`/circuits/${c.id}`} size="lg" className="whitespace-nowrap">
+          Times<span className="hidden sm:inline">&nbsp;&amp; compare</span>
+        </LinkButton>
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-1">
+        {official ? (
+          <LinkButton to={`/leaderboard/${c.id}`} variant="ghost" size="sm">
+            Leaderboard
+          </LinkButton>
+        ) : (
+          <LinkButton to={`/circuits/${c.id}/edit`} variant="ghost" size="sm">
+            Edit
+          </LinkButton>
+        )}
+        <Button variant="ghost" size="sm" title="Export circuit (JSON)" onClick={() => downloadText(`${slug(c.name)}.laptimer.json`, buildExport([c], [], []), 'application/json')}>
+          <IconDownload width={16} height={16} /> Export
+        </Button>
+        {!official && (
+          <ConfirmButton variant="ghost" size="sm" className="ml-auto text-loss" title="Delete circuit (sessions are kept)" onConfirm={onDelete} confirmLabel="Tap again to delete">
+            <IconTrash width={16} height={16} /> Delete
+          </ConfirmButton>
+        )}
+      </div>
+    </div>
+  );
+}
 
 interface CircuitStats {
   laps: number;

@@ -13,6 +13,7 @@ export function BaseMap({
   center = DEFAULT_CENTER,
   zoom = 13,
   scrollWheelZoom = true,
+  interactive = true,
 }: {
   children?: ReactNode;
   className?: string;
@@ -20,6 +21,8 @@ export function BaseMap({
   zoom?: number;
   /** Disable for maps embedded in scrolling pages, so scrolling the page doesn't zoom the map. */
   scrollWheelZoom?: boolean;
+  /** False for static previews: no panning, zooming or zoom buttons. */
+  interactive?: boolean;
 }) {
   const { settings } = useSettings();
   return (
@@ -27,12 +30,17 @@ export function BaseMap({
       center={center}
       zoom={zoom}
       zoomControl={false}
-      scrollWheelZoom={scrollWheelZoom}
+      scrollWheelZoom={interactive && scrollWheelZoom}
+      dragging={interactive}
+      touchZoom={interactive}
+      doubleClickZoom={interactive}
+      boxZoom={interactive}
+      keyboard={interactive}
       className={`isolate h-full w-full ${settings.mapStyle === 'dark' ? 'map-dark' : ''} ${className}`}
       attributionControl
     >
       <TileLayer url={config.tileUrl} attribution={config.tileAttribution} maxZoom={19} />
-      <ZoomControl position="bottomright" />
+      {interactive && <ZoomControl position="bottomright" />}
       {children}
     </MapContainer>
   );

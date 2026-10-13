@@ -62,6 +62,7 @@ function SessionView({ session, circuit, onDeleted, speedUnit, distanceUnit }: {
     <div className="pb-10">
       <PageHeader
         title={session.circuitName}
+        back={{ to: '/sessions', label: 'All sessions' }}
         subtitle={
           <span className="flex flex-wrap items-center gap-2">
             {new Date(session.startedAt).toLocaleString()} {session.source === 'simulated' && <SimBadge />}

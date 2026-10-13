@@ -121,16 +121,8 @@ export function LeaderboardTrack() {
     <div className="pb-10">
       <PageHeader
         title={track.name}
-        subtitle={
-          <span className="flex flex-wrap items-center gap-2">
-            <Link to="/leaderboard" className="font-semibold text-fg underline decoration-accent underline-offset-4">
-              ← All tracks
-            </Link>
-            <span>
-              {formatDistance(track.lengthM, settings.distanceUnit)} · {track.kind === 'closed' ? 'closed circuit' : 'sprint A→B'}
-            </span>
-          </span>
-        }
+        back={{ to: '/leaderboard', label: 'All tracks' }}
+        subtitle={`${formatDistance(track.lengthM, settings.distanceUnit)} · ${track.kind === 'closed' ? 'closed circuit' : 'sprint A→B'}`}
         actions={
           <>
             <Button variant="primary" onClick={() => void drive()}>
