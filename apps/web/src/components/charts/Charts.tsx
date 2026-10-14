@@ -5,6 +5,7 @@ import {
   ComposedChart,
   Line,
   LineChart,
+  ReferenceArea,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
@@ -19,6 +20,8 @@ import {
   formatDelta,
   formatLapTime,
   speedLabel,
+  traceGaps,
+  TRACE_GAP_MS,
   type AlignedRow,
   type DistanceUnit,
   type ElevationPoint,
@@ -36,6 +39,28 @@ const tooltipStyle = {
   contentStyle: { background: '#050506', border: '1px solid #2a2c30', borderRadius: 4, fontSize: 12 },
   labelStyle: { color: '#8a8e96' },
 };
+
+/** A stretch without GPS fixes, in the chart's x units. */
+export interface ChartGap {
+  from: number;
+  to: number;
+}
+
+/** Shades the stretches where the phone had no GPS fix, so a missing line reads as missing data. */
+function gapAreas(gaps: readonly ChartGap[]) {
+  return gaps.map((g, i) => (
+    <ReferenceArea
+      key={`gap${i}`}
+      x1={g.from}
+      x2={g.to}
+      fill="#8a8e96"
+      fillOpacity={0.12}
+      stroke="none"
+      ifOverflow="hidden"
+      label={{ value: 'No GPS', position: 'insideTop', fill: '#8a8e96', fontSize: 10 }}
+    />
+  ));
+}
 
 function distTick(unit: DistanceUnit) {
   return (m: number) => convertDistance(m, unit).toFixed(unit === 'km' ? 1 : 2);
@@ -76,7 +101,22 @@ export function LapTimesChart({
   );
 }
 
-export function SpeedDistanceChart({ rows, speedUnit, distanceUnit, labelA, labelB }: { rows: AlignedRow[]; speedUnit: SpeedUnit; distanceUnit: DistanceUnit; labelA: string; labelB: string | null }) {
+export function SpeedDistanceChart({
+  rows,
+  speedUnit,
+  distanceUnit,
+  labelA,
+  labelB,
+  gaps = [],
+}: {
+  rows: AlignedRow[];
+  speedUnit: SpeedUnit;
+  distanceUnit: DistanceUnit;
+  labelA: string;
+  labelB: string | null;
+  /** Distances without GPS fixes; the lines break there instead of bridging them. */
+  gaps?: ChartGap[];
+}) {
   const data = rows.map((r) => ({ d: r.d, a: r.vA === null ? null : convertSpeed(r.vA, speedUnit), b: r.vB === null ? null : convertSpeed(r.vB, speedUnit) }));
   return (
     <ResponsiveContainer width="100%" height="100%">
@@ -89,15 +129,27 @@ export function SpeedDistanceChart({ rows, speedUnit, distanceUnit, labelA, labe
           labelFormatter={(d: number) => `${convertDistance(d, distanceUnit).toFixed(3)} ${distanceUnit}`}
           formatter={(v: number, name: string) => [`${v.toFixed(1)} ${speedLabel(speedUnit)}`, name === 'a' ? labelA : labelB ?? '']}
         />
-        <Line dataKey="a" stroke={COLOR_A} dot={false} strokeWidth={1.8} isAnimationActive={false} connectNulls />
-        {labelB && <Line dataKey="b" stroke={COLOR_B} dot={false} strokeWidth={1.5} isAnimationActive={false} connectNulls />}
+        {gapAreas(gaps)}
+        <Line dataKey="a" stroke={COLOR_A} dot={false} strokeWidth={1.8} isAnimationActive={false} />
+        {labelB && <Line dataKey="b" stroke={COLOR_B} dot={false} strokeWidth={1.5} isAnimationActive={false} />}
       </LineChart>
     </ResponsiveContainer>
   );
 }
 
 export function SpeedTimeChart({ laps, speedUnit, colors }: { laps: LapRecord[]; speedUnit: SpeedUnit; colors: string[] }) {
-  const series = laps.map((l) => l.trace.filter((p) => p.v !== null).map((p) => ({ t: p.t / 1000, v: convertSpeed(p.v as number, speedUnit) })));
+  // A null point inside each signal gap breaks the line there rather than drawing a straight one across.
+  const series = laps.map((l) => {
+    const out: { t: number; v: number | null }[] = [];
+    for (const p of l.trace) {
+      if (p.v === null) continue;
+      const prev = out[out.length - 1];
+      if (prev && p.t / 1000 - prev.t > TRACE_GAP_MS / 1000) out.push({ t: (prev.t + p.t / 1000) / 2, v: null });
+      out.push({ t: p.t / 1000, v: convertSpeed(p.v, speedUnit) });
+    }
+    return out;
+  });
+  const gaps = laps.flatMap((l) => traceGaps(l.trace).map((g) => ({ from: g.fromT / 1000, to: g.toT / 1000 })));
   return (
     <ResponsiveContainer width="100%" height="100%">
       <LineChart margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
@@ -105,6 +157,7 @@ export function SpeedTimeChart({ laps, speedUnit, colors }: { laps: LapRecord[];
         <XAxis dataKey="t" type="number" domain={[0, 'dataMax']} tick={AXIS} tickFormatter={(v: number) => `${Math.round(v)} s`} allowDuplicatedCategory={false} />
         <YAxis tick={AXIS} width={44} />
         <Tooltip {...tooltipStyle} labelFormatter={(t: number) => `${t.toFixed(1)} s`} formatter={(v: number) => [`${v.toFixed(1)} ${speedLabel(speedUnit)}`, 'Speed']} />
+        {gapAreas(gaps)}
         {series.map((s, i) => (
           <Line key={i} data={s} dataKey="v" name={`Lap ${laps[i].lap}`} stroke={colors[i]} dot={false} strokeWidth={1.6} isAnimationActive={false} />
         ))}
@@ -114,7 +167,7 @@ export function SpeedTimeChart({ laps, speedUnit, colors }: { laps: LapRecord[];
 }
 
 /** Delta of lap A relative to lap B by distance. Below zero (green) = A ahead. */
-export function DeltaDistanceChart({ rows, distanceUnit }: { rows: AlignedRow[]; distanceUnit: DistanceUnit }) {
+export function DeltaDistanceChart({ rows, distanceUnit, gaps = [] }: { rows: AlignedRow[]; distanceUnit: DistanceUnit; gaps?: ChartGap[] }) {
   const data = rows.map((r) => ({ d: r.d, delta: r.deltaMs / 1000 }));
   const vals = data.map((d) => d.delta);
   const max = Math.max(...vals, 0);
@@ -134,6 +187,7 @@ export function DeltaDistanceChart({ rows, distanceUnit }: { rows: AlignedRow[];
         <YAxis tick={AXIS} width={48} tickFormatter={(v: number) => formatDelta(v * 1000, 1)} />
         <ReferenceLine y={0} stroke="#8a8e96" />
         <Tooltip {...tooltipStyle} labelFormatter={(d: number) => `${convertDistance(d, distanceUnit).toFixed(3)} ${distanceUnit}`} formatter={(v: number) => [`${formatDelta(v * 1000)} s`, 'Delta']} />
+        {gapAreas(gaps)}
         <Area dataKey="delta" stroke="#f4f4f5" strokeWidth={1.2} fill="url(#deltaSplit)" isAnimationActive={false} />
       </AreaChart>
     </ResponsiveContainer>

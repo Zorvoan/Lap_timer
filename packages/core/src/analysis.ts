@@ -16,13 +16,20 @@ export interface AlignedRow {
   vB: number | null;
 }
 
-/** Speed at distance d by linear interpolation over trace points with known speed. */
-export function speedAt(trace: readonly LapTracePoint[], d: number): number | null {
+/** Trace points further apart than this have no GPS data between them (phones log about once a second), ms. */
+export const TRACE_GAP_MS = 3000;
+
+/**
+ * Speed at distance d by linear interpolation over trace points with known speed. Null inside a
+ * signal gap (known speeds more than `maxGapMs` apart): a straight line across it would be invented.
+ */
+export function speedAt(trace: readonly LapTracePoint[], d: number, maxGapMs = TRACE_GAP_MS): number | null {
   let prev: LapTracePoint | null = null;
   for (const p of trace) {
     if (p.v === null) continue;
     if (p.d >= d) {
-      if (!prev) return p.v;
+      if (!prev || p.d === d) return p.v;
+      if (p.t - prev.t > maxGapMs) return null;
       const span = p.d - prev.d;
       if (span <= 0) return p.v;
       return (prev.v as number) + ((d - prev.d) / span) * (p.v - (prev.v as number));
@@ -30,6 +37,25 @@ export function speedAt(trace: readonly LapTracePoint[], d: number): number | nu
     prev = p;
   }
   return prev ? prev.v : null;
+}
+
+/** A stretch of a lap without GPS fixes. */
+export interface TraceGap {
+  fromT: number;
+  toT: number;
+  fromD: number;
+  toD: number;
+}
+
+/** Where a lap's trace has no fixes for longer than `maxGapMs`. */
+export function traceGaps(trace: readonly { t: number; d: number }[], maxGapMs = TRACE_GAP_MS): TraceGap[] {
+  const out: TraceGap[] = [];
+  for (let i = 1; i < trace.length; i++) {
+    const a = trace[i - 1];
+    const b = trace[i];
+    if (b.t - a.t > maxGapMs) out.push({ fromT: a.t, toT: b.t, fromD: a.d, toD: b.d });
+  }
+  return out;
 }
 
 /**
