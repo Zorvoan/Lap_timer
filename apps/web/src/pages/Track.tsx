@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from 'react';
-import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import L from 'leaflet';
 import { formatDistance, type Circuit } from '@laptimer/core';
 import { BaseMap, FitBounds } from '../components/map/BaseMap';
@@ -26,6 +26,9 @@ export function Track() {
   const { settings } = useSettings();
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
+  // Back returns to the list or the map, whichever the track was opened from.
+  const from = (useLocation().state as { from?: string } | null)?.from;
+  const backTo = from === '/' || from === '/?view=map' ? from : '/';
   useEffect(() => {
     if (!acc.featured.length) void refreshFeatured();
   }, [acc.featured.length]);
@@ -61,7 +64,7 @@ export function Track() {
           {circuit.finishLine && <TimingLineView line={circuit.finishLine} kind="finish" label="Finish" />}
           <FitBounds bounds={bounds} fitKey={circuit.id} padding={28} />
         </BaseMap>
-        <Link to="/" aria-label="All tracks" className="absolute left-3 top-3 z-[1000] flex h-11 w-11 items-center justify-center rounded border border-line bg-panel/95 text-fg shadow-lg">
+        <Link to={backTo} aria-label="Back to all roads" className="absolute left-3 top-3 z-[1000] flex h-11 w-11 items-center justify-center rounded border border-line bg-panel/95 text-fg shadow-lg">
           <IconArrowLeft />
         </Link>
       </div>
@@ -87,7 +90,7 @@ export function Track() {
                 type="button"
                 role="tab"
                 aria-selected={tab === t}
-                onClick={() => setParams(t === 'laps' ? { tab: 'laps' } : {}, { replace: true })}
+                onClick={() => setParams(t === 'laps' ? { tab: 'laps' } : {}, { replace: true, state: { from } })}
                 className={`h-9 rounded ${tab === t ? 'bg-panel text-fg shadow' : 'text-muted hover:text-fg'}`}
               >
                 {t === 'leaderboard' ? 'Leaderboard' : `My laps${lapCount ? ` (${lapCount})` : ''}`}

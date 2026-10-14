@@ -129,7 +129,7 @@ export function LeaderboardTab({ track }: { track: FeaturedCircuit }) {
       </table>
       {ideal && withSplits.length > 0 && (
         <p className="px-2 py-3 text-sm text-muted">
-          Best possible time <span className="font-mono font-semibold tabular text-fg">{formatLapTime(ideal.timeMs)}</span>
+          Best possible time <span className="font-mono font-bold tabular text-[#b36bff]">{formatLapTime(ideal.timeMs)}</span>
           {ideal.from.every((i) => i === ideal.from[0])
             ? `: all three best parts are ${withSplits[ideal.from[0]].nickname}'s.`
             : ', the fastest drivers\' best parts put together.'}

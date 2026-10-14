@@ -8,6 +8,7 @@ import { ImportError, downloadText, parseExport } from '../lib/exportImport';
 import { clearAllData } from '../lib/repo';
 import { resetSync, syncNow } from '../lib/sync';
 import { config } from '../lib/config';
+import { simulatorAllowed } from '../lib/developer';
 import { cloudEnabled } from '../lib/cloud/account';
 import { InstallCard } from '../components/InstallCard';
 import { useAccount } from '../hooks/useData';
@@ -15,6 +16,7 @@ import { SyncLine } from './Account';
 import { Link } from 'react-router-dom';
 
 export function SettingsPage() {
+  const acc = useAccount();
   const { settings, update } = useSettings();
   const [message, setMessage] = useState<{ tone: 'info' | 'error'; text: string } | null>(null);
   const [syncing, setSyncing] = useState(false);
@@ -122,7 +124,9 @@ export function SettingsPage() {
                 <option value="none">None</option>
               </Select>
             </Field>
-            <Toggle checked={settings.includeSimulatedInBests} onChange={(v) => void update({ includeSimulatedInBests: v })} label="Count simulated laps as personal bests" hint="Off: only real GPS laps are used." />
+            {simulatorAllowed(acc.user?.uid) && (
+              <Toggle checked={settings.includeSimulatedInBests} onChange={(v) => void update({ includeSimulatedInBests: v })} label="Count simulated laps as personal bests" hint="Off: only real GPS laps are used." />
+            )}
           </div>
         </Panel>
 
@@ -207,7 +211,7 @@ export function SettingsPage() {
             Map data © OpenStreetMap contributors. Routing: OSRM ({config.osrmUrl}). Consumer GPS typically updates at 1–10 Hz with 3–10 m accuracy; lap times are interpolated
             between fixes and are estimates, not certified timing.
           </p>
-          {config.simulatorEnabled && <p className="mt-2 text-sm text-warn">Developer GPS simulator is enabled in this build.</p>}
+          {simulatorAllowed(acc.user?.uid) && <p className="mt-2 text-sm text-warn">Developer GPS simulator is enabled for this account.</p>}
         </Panel>
       </div>
     </div>
