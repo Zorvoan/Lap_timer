@@ -9,6 +9,7 @@ import {
   formatLapTime,
   gainLoss,
   lapDistanceToPosition,
+  traceGaps,
   lineAlong,
   positionAtTime,
   speedLabel,
@@ -114,6 +115,8 @@ export function ComparisonCharts({
   speedUnit: SpeedUnit;
   distanceUnit: DistanceUnit;
 }) {
+  // Stretches either lap drove without a GPS fix: the charts can't know what happened there.
+  const gaps = useMemo(() => [A, B].flatMap((l) => (l ? traceGaps(l.trace).map((g) => ({ from: g.fromD, to: g.toD })) : [])), [A, B]);
   return (
     <>
       <Panel
@@ -125,7 +128,7 @@ export function ComparisonCharts({
       >
         <div className="h-56">
           {A && B ? (
-            <DeltaDistanceChart rows={rows} distanceUnit={distanceUnit} />
+            <DeltaDistanceChart rows={rows} distanceUnit={distanceUnit} gaps={gaps} />
           ) : (
             <p className="text-sm text-muted">Select a lap B to see where lap A gained (green, below zero) or lost (red) time. Laps are aligned by distance along the circuit.</p>
           )}
@@ -133,7 +136,7 @@ export function ComparisonCharts({
       </Panel>
       <Panel title={`Speed vs distance (${speedLabel(speedUnit)})`}>
         <div className="h-56">
-          {A && rows.length ? <SpeedDistanceChart rows={rows} speedUnit={speedUnit} distanceUnit={distanceUnit} labelA={labelA} labelB={B ? labelB : null} /> : <Unavailable />}
+          {A && rows.length ? <SpeedDistanceChart rows={rows} speedUnit={speedUnit} distanceUnit={distanceUnit} labelA={labelA} labelB={B ? labelB : null} gaps={gaps} /> : <Unavailable />}
         </div>
       </Panel>
       <Panel title={`Speed vs time (${speedLabel(speedUnit)})`}>
