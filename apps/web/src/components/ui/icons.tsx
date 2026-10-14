@@ -116,3 +116,20 @@ export const IconUndo = (p: P) => (
     <path d="M4 9h10a6 6 0 0 1 0 12h-3" />
   </Svg>
 );
+export const IconUser = (p: P) => (
+  <Svg {...p}>
+    <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
+    <circle cx="12" cy="7" r="4" />
+  </Svg>
+);
+export const IconChevronRight = (p: P) => (
+  <Svg {...p}>
+    <path d="M9 18l6-6-6-6" />
+  </Svg>
+);
+export const IconPin = (p: P) => (
+  <Svg {...p}>
+    <path d="M20 10c0 5-5.5 10.2-7.4 11.8a1 1 0 0 1-1.2 0C9.5 20.2 4 15 4 10a8 8 0 0 1 16 0" />
+    <circle cx="12" cy="10" r="3" />
+  </Svg>
+);

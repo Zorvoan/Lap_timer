@@ -92,7 +92,7 @@ export function LeaderboardCompare() {
     <div className="pb-10">
       <PageHeader
         title="Compare laps"
-        back={{ to: `/leaderboard/${track.id}`, label: 'Leaderboard' }}
+        back={{ to: `/tracks/${track.id}`, label: track.name }}
         subtitle={`${track.name} · ${formatDistance(track.lengthM, settings.distanceUnit)} · aligned by distance along the track`}
       />
       <div className="mx-auto max-w-7xl space-y-4 p-4 md:p-6">

@@ -256,7 +256,7 @@ export function CircuitEditor() {
     setSaving(true);
     try {
       await saveCircuit(circuit);
-      navigate(`/circuits?selected=${circuit.id}`);
+      navigate(`/tracks/${circuit.id}`);
     } catch (e) {
       setSaveError(e instanceof Error ? e.message : 'Saving failed.');
     } finally {

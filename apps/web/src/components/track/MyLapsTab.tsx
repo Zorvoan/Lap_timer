@@ -1,22 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import L from 'leaflet';
-import { formatDelta, formatDistance, formatLapTime, formatSpeed, idealLap, speedLabel, splitTimes, type Circuit, type LapRecord, type Session } from '@laptimer/core';
-import { PageHeader } from '../components/AppShell';
-import { Badge, Button, ConfirmButton, Empty, LinkButton, Notice, Panel, SimBadge, Spinner, Stat, Toggle } from '../components/ui/primitives';
-import { IconDownload, IconTimer, IconTrash } from '../components/ui/icons';
-import { LapHistoryChart, type HistoryPoint } from '../components/charts/Charts';
-import { ABButtons, ComparisonCharts, GpsQuality, ReplayPanel, useComparisonRows, useLapLength } from '../components/laps/LapComparison';
-import { BaseMap, FitBounds } from '../components/map/BaseMap';
-import { RouteLayer } from '../components/map/RouteLayer';
-import { TimingLineView } from '../components/map/TimingLines';
-import { useAccount, useData } from '../hooks/useData';
-import { useSettings } from '../hooks/useSettings';
-import { deleteCircuit, getCircuit, listSessions } from '../lib/repo';
-import { buildExport, downloadText } from '../lib/exportImport';
-import { circuitLapNumbers, lapKey } from '../lib/lapNumbers';
-import { slug } from './Circuits';
-import { SectorCell } from '../components/laps/SectorCell';
+import { Link, useSearchParams } from 'react-router-dom';
+import { formatDelta, formatLapTime, formatSpeed, idealLap, speedLabel, splitTimes, type Circuit, type LapRecord, type Session } from '@laptimer/core';
+import { Badge, Panel, SimBadge, Stat, Toggle } from '../ui/primitives';
+import { LapHistoryChart, type HistoryPoint } from '../charts/Charts';
+import { ABButtons, ComparisonCharts, GpsQuality, ReplayPanel, useComparisonRows, useLapLength } from '../laps/LapComparison';
+import { SectorCell } from '../laps/SectorCell';
+import { useSettings } from '../../hooks/useSettings';
+import { circuitLapNumbers, lapKey } from '../../lib/lapNumbers';
 
 /** One lap on this circuit, from any session. */
 interface Entry {
@@ -33,33 +23,10 @@ function entryLabel(e: Entry): string {
   return `lap ${e.n}${e.session.source === 'simulated' ? ' (sim)' : ''} · ${new Date(e.session.startedAt).toLocaleDateString()}`;
 }
 
-/** Every lap ever driven on a circuit, across all sessions, with A/B comparison. */
-export function CircuitDetail() {
-  const { id = '' } = useParams();
-  const { data, loading } = useData(async () => ({ circuit: await getCircuit(id), sessions: await listSessions(id) }), [id]);
-  if (loading && !data) {
-    return (
-      <div className="p-6">
-        <Spinner />
-      </div>
-    );
-  }
-  if (!data?.circuit) {
-    return (
-      <div className="space-y-3 p-6">
-        <Notice tone="error">Circuit not found. It may have been deleted; its sessions are still listed under Sessions.</Notice>
-        <LinkButton to="/circuits">← All circuits</LinkButton>
-      </div>
-    );
-  }
-  return <CircuitView circuit={data.circuit} sessions={data.sessions} />;
-}
-
-function CircuitView({ circuit, sessions }: { circuit: Circuit; sessions: Session[] }) {
+/** Every lap the user drove on a track, across all sessions, with A/B comparison. */
+export function MyLapsTab({ circuit, sessions }: { circuit: Circuit; sessions: Session[] }) {
   const { settings } = useSettings();
-  const navigate = useNavigate();
   const [params] = useSearchParams();
-  const official = useAccount().featured.some((f) => f.id === circuit.id);
   const focusSession = params.get('session');
 
   const hasSim = sessions.some((s) => s.source === 'simulated' && s.laps.length);
@@ -129,72 +96,31 @@ function CircuitView({ circuit, sessions }: { circuit: Circuit; sessions: Sessio
     isB: e.key === keyB,
   }));
 
-  async function remove() {
-    await deleteCircuit(circuit.id);
-    navigate('/circuits');
+  if (all.length === 0) {
+    return (
+      <div className="py-10 text-center">
+        <div className="font-semibold">No laps here yet</div>
+        <p className="mx-auto mt-1.5 max-w-xs text-sm text-muted">Drive the track once and your time, parts and replay appear here.</p>
+      </div>
+    );
   }
 
-  const driveRef = A?.lap.valid ? `&ref=${encodeURIComponent(A.key)}` : '';
-
   return (
-    <div className="pb-10">
-      <PageHeader
-        title={circuit.name}
-        back={{ to: '/circuits', label: 'All circuits' }}
-        subtitle={
-          <span className="flex flex-wrap items-center gap-2">
-            {official && <Badge tone="accent">Official · leaderboard</Badge>}
-            {formatDistance(circuit.lengthM, settings.distanceUnit)} · {circuit.kind === 'closed' ? 'closed circuit' : 'sprint A→B'}
-          </span>
-        }
-        actions={
-          <>
-            <LinkButton to={`/live?circuit=${circuit.id}${driveRef}`} variant="primary" title={A?.lap.valid ? `Live delta against ${entryLabel(A)}` : undefined}>
-              <IconTimer width={18} height={18} /> {A?.lap.valid && A.key !== best?.key ? 'Drive vs lap A' : 'Drive'}
-            </LinkButton>
-            {official ? (
-              <LinkButton to={`/leaderboard/${circuit.id}`}>Leaderboard</LinkButton>
-            ) : (
-              <LinkButton to={`/circuits/${circuit.id}/edit`}>Edit</LinkButton>
-            )}
-            <Button
-              aria-label="Export circuit and its sessions"
-              title="Export circuit and all its times (JSON)"
-              onClick={() => downloadText(`${slug(circuit.name)}.laptimer.json`, buildExport([circuit], sessions, []), 'application/json')}
-            >
-              <IconDownload width={18} height={18} />
-            </Button>
-            {!official && (
-              <ConfirmButton aria-label="Delete circuit" title="Delete circuit (sessions are kept)" onConfirm={remove} confirmLabel="Delete?">
-                <IconTrash width={18} height={18} />
-              </ConfirmButton>
-            )}
-          </>
-        }
-      />
-
-      <div className="mx-auto max-w-7xl space-y-4 p-4 md:p-6">
+    <div>
+      <div className="space-y-4">
         <div className="grid grid-cols-2 gap-4 rounded border border-line bg-panel p-4 sm:grid-cols-5">
           <Stat label="Personal best" value={formatLapTime(best?.lap.timeMs)} hint={best ? entryLabel(best) : undefined} />
           <Stat
-            label="Theoretical best"
+            label="Best possible"
             value={formatLapTime(ideal?.timeMs)}
-            hint={ideal && best ? (ideal.timeMs < best.lap.timeMs - 0.5 ? `${formatDelta(ideal.timeMs - best.lap.timeMs)} s to find` : 'your PB is already ideal') : 'best sectors combined'}
+            hint={ideal && best ? (ideal.timeMs < best.lap.timeMs - 0.5 ? `${formatDelta(ideal.timeMs - best.lap.timeMs)} s to find` : 'your PB is already ideal') : 'your best parts combined'}
           />
           <Stat label="Laps" value={visible.length} hint={`${visible.filter((e) => e.lap.valid).length} valid`} />
           <Stat label="Sessions" value={sessionCount} />
           <Stat label="Last driven" value={lastDriven ? new Date(lastDriven).toLocaleDateString() : '—'} />
         </div>
 
-        {all.length === 0 ? (
-          <>
-            <Empty title="No times yet" action={<LinkButton to={`/live?circuit=${circuit.id}`} variant="primary">Drive this circuit</LinkButton>}>
-              Every lap you drive on this circuit, in any session, is listed here so you can compare them.
-            </Empty>
-            <RouteOnlyMap circuit={circuit} />
-          </>
-        ) : (
-          <>
+        <>
             <Panel
               title="All laps on this circuit"
               bodyClass="p-0"
@@ -226,7 +152,7 @@ function CircuitView({ circuit, sessions }: { circuit: Circuit; sessions: Sessio
                         <th className="label px-3 py-2 font-semibold">Driven</th>
                         {Array.from({ length: sectorCount }, (_, i) => (
                           <th key={i} className="label px-3 py-2 text-right font-semibold" title={lineSectors ? 'Sector line times' : 'Thirds of the lap by distance'}>
-                            S{i + 1}
+                            Part {i + 1}
                           </th>
                         ))}
                         <th className="label px-3 py-2 text-right font-semibold">Max {speedLabel(settings.speedUnit)}</th>
@@ -286,28 +212,9 @@ function CircuitView({ circuit, sessions }: { circuit: Circuit; sessions: Sessio
               />
             </div>
 
-            {A ? (
-              <ReplayPanel circuit={circuit} lapA={A.lap} lapB={B?.lap ?? null} labelA={entryLabel(A)} labelB={B ? entryLabel(B) : null} rows={cmpRows} lengthM={lengthM} speedUnit={settings.speedUnit} />
-            ) : (
-              <RouteOnlyMap circuit={circuit} />
-            )}
-          </>
-        )}
+            {A && <ReplayPanel circuit={circuit} lapA={A.lap} lapB={B?.lap ?? null} labelA={entryLabel(A)} labelB={B ? entryLabel(B) : null} rows={cmpRows} lengthM={lengthM} speedUnit={settings.speedUnit} />}
+        </>
       </div>
-    </div>
-  );
-}
-
-function RouteOnlyMap({ circuit }: { circuit: Circuit }) {
-  const bounds = useMemo(() => L.latLngBounds(circuit.geometry.map(([lon, lat]) => [lat, lon] as [number, number])), [circuit]);
-  return (
-    <div className="h-80 overflow-hidden rounded border border-line">
-      <BaseMap scrollWheelZoom={false}>
-        <RouteLayer geometry={circuit.geometry} closed={circuit.kind === 'closed'} />
-        <TimingLineView line={circuit.startLine} kind="start" label={circuit.kind === 'closed' ? 'Start / finish' : 'Start'} />
-        {circuit.finishLine && <TimingLineView line={circuit.finishLine} kind="finish" label="Finish" />}
-        <FitBounds bounds={bounds} fitKey={circuit.id} />
-      </BaseMap>
     </div>
   );
 }
