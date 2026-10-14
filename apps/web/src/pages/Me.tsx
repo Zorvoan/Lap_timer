@@ -31,7 +31,7 @@ export function Me() {
 
   return (
     <div className="mx-auto max-w-2xl pb-10">
-      <h1 className="px-4 pb-4 pt-5 text-[1.7rem] font-extrabold tracking-tight">Me</h1>
+      <h1 className="px-4 pb-4 pt-5 font-display text-[2.1rem] font-black leading-none tracking-tight">Me</h1>
 
       {acc.status !== 'disabled' && (
         <Link to="/account" className="flex items-center gap-3 border-y border-line px-4 py-3.5 hover:bg-raised">
