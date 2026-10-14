@@ -1,0 +1,130 @@
+import { useEffect, useMemo } from 'react';
+import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import L from 'leaflet';
+import { formatDistance, type Circuit } from '@laptimer/core';
+import { BaseMap, FitBounds } from '../components/map/BaseMap';
+import { RouteLayer } from '../components/map/RouteLayer';
+import { TimingLineView } from '../components/map/TimingLines';
+import { LeaderboardTab } from '../components/track/LeaderboardTab';
+import { MyLapsTab } from '../components/track/MyLapsTab';
+import { Button, ConfirmButton, LinkButton, Notice, Spinner } from '../components/ui/primitives';
+import { IconArrowLeft, IconPlay } from '../components/ui/icons';
+import { useAccount, useData } from '../hooks/useData';
+import { useSettings } from '../hooks/useSettings';
+import { ensureLocalCircuit, refreshFeatured } from '../lib/cloud/account';
+import { buildExport, downloadText } from '../lib/exportImport';
+import { slug } from '../lib/circuitStats';
+import { deleteCircuit, getCircuit, listSessions } from '../lib/repo';
+
+/**
+ * One track, one page: its map, the Drive button, then the leaderboard (official tracks) and
+ * the user's own laps. URL: `?tab=leaderboard|laps`, `?session=<id>` focuses that session's laps.
+ */
+export function Track() {
+  const { id = '' } = useParams();
+  const acc = useAccount();
+  const { settings } = useSettings();
+  const navigate = useNavigate();
+  const [params, setParams] = useSearchParams();
+  useEffect(() => {
+    if (!acc.featured.length) void refreshFeatured();
+  }, [acc.featured.length]);
+  const { data, loading } = useData(async () => ({ circuit: await getCircuit(id), sessions: await listSessions(id) }), [id]);
+  const featured = acc.featured.find((f) => f.id === id) ?? null;
+  const circuit: Circuit | null = data?.circuit ?? featured;
+  const sessions = data?.sessions ?? [];
+  const lapCount = sessions.reduce((n, s) => n + s.laps.length, 0);
+  const tab = featured && params.get('tab') !== 'laps' && !params.get('session') ? 'leaderboard' : 'laps';
+  const bounds = useMemo(() => (circuit ? L.latLngBounds(circuit.geometry.map(([lon, lat]) => [lat, lon] as [number, number])) : null), [circuit]);
+
+  async function drive() {
+    if (featured) await ensureLocalCircuit(featured);
+    navigate(`/live?circuit=${id}`);
+  }
+
+  if (!circuit) {
+    if (loading || (!data && !acc.featured.length)) return <div className="p-6"><Spinner /></div>;
+    return (
+      <div className="space-y-3 p-6">
+        <Notice tone="error">This track no longer exists. Its drives are still under Me, My drives.</Notice>
+        <LinkButton to="/">All tracks</LinkButton>
+      </div>
+    );
+  }
+
+  return (
+    <div className="pb-10">
+      <div className="relative h-52 border-b border-line md:h-72">
+        <BaseMap scrollWheelZoom={false} zoomSnap={0.1}>
+          <RouteLayer geometry={circuit.geometry} closed={circuit.kind === 'closed'} />
+          <TimingLineView line={circuit.startLine} kind="start" label={circuit.kind === 'closed' ? 'Start / finish' : 'Start'} />
+          {circuit.finishLine && <TimingLineView line={circuit.finishLine} kind="finish" label="Finish" />}
+          <FitBounds bounds={bounds} fitKey={circuit.id} padding={28} />
+        </BaseMap>
+        <Link to="/" aria-label="All tracks" className="absolute left-3 top-3 z-[1000] flex h-11 w-11 items-center justify-center rounded border border-line bg-panel/95 text-fg shadow-lg">
+          <IconArrowLeft />
+        </Link>
+      </div>
+
+      <div className="mx-auto max-w-5xl px-4 md:px-6">
+        <div className="flex flex-wrap items-end justify-between gap-4 pt-4">
+          <div className="min-w-0">
+            <h1 className="text-2xl font-extrabold tracking-tight">{circuit.name}</h1>
+            <p className="mt-0.5 text-sm text-muted">
+              {formatDistance(circuit.lengthM, settings.distanceUnit)}, {circuit.kind === 'closed' ? 'a closed circuit' : 'from start to finish'}
+            </p>
+          </div>
+          <Button variant="primary" size="xl" className="w-full text-xl md:w-64" onClick={() => void drive()}>
+            <IconPlay width={20} height={20} /> Drive
+          </Button>
+        </div>
+
+        {featured ? (
+          <div role="tablist" aria-label="Track" className="mt-5 grid grid-cols-2 gap-1 rounded border border-line bg-raised p-1 text-sm font-semibold md:max-w-sm">
+            {(['leaderboard', 'laps'] as const).map((t) => (
+              <button
+                key={t}
+                type="button"
+                role="tab"
+                aria-selected={tab === t}
+                onClick={() => setParams(t === 'laps' ? { tab: 'laps' } : {}, { replace: true })}
+                className={`h-9 rounded ${tab === t ? 'bg-panel text-fg shadow' : 'text-muted hover:text-fg'}`}
+              >
+                {t === 'leaderboard' ? 'Leaderboard' : `My laps${lapCount ? ` (${lapCount})` : ''}`}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <h2 className="label mt-6">My laps</h2>
+        )}
+
+        <div className="mt-3">
+          {tab === 'leaderboard' && featured ? <LeaderboardTab track={featured} /> : data ? <MyLapsTab circuit={circuit} sessions={sessions} /> : <Spinner />}
+        </div>
+
+        {!featured && data?.circuit && (
+          <div className="mt-8 flex flex-wrap gap-2 border-t border-line pt-4">
+            <LinkButton to={`/circuits/${circuit.id}/edit`} size="sm">
+              Edit track
+            </LinkButton>
+            <Button size="sm" onClick={() => downloadText(`${slug(circuit.name)}.laptimer.json`, buildExport([circuit], sessions, []), 'application/json')}>
+              Export
+            </Button>
+            <ConfirmButton size="sm" className="ml-auto" onConfirm={async () => (await deleteCircuit(circuit.id), navigate('/'))} confirmLabel="Tap again to delete">
+              Delete track
+            </ConfirmButton>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Old addresses (`/circuits/:id`, `/leaderboard/:id`) lead to the track page. */
+export function TrackRedirect({ tab }: { tab?: 'leaderboard' }) {
+  const { id = '' } = useParams();
+  const [params] = useSearchParams();
+  const session = params.get('session');
+  const q = session ? `?session=${encodeURIComponent(session)}` : tab ? '' : '?tab=laps';
+  return <Navigate to={`/tracks/${id}${q}`} replace />;
+}

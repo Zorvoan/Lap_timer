@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { formatLapTime, summarizeSession, type Session } from '@laptimer/core';
 import { PageHeader } from '../components/AppShell';
-import { Empty, LinkButton, Notice, Panel, Select, Spinner } from '../components/ui/primitives';
+import { Empty, LinkButton, Notice, Panel, Select, SimBadge, Spinner } from '../components/ui/primitives';
 import { useData } from '../hooks/useData';
 import { listCircuits, listSessions } from '../lib/repo';
-import { SessionRows } from './Dashboard';
 
 export function Sessions() {
   const { data, loading, error } = useData(async () => ({ sessions: await listSessions(), circuits: await listCircuits() }), []);
@@ -18,20 +19,20 @@ export function Sessions() {
 
   return (
     <div className="pb-8">
-      <PageHeader title="Sessions" subtitle="Every recorded session, newest first." />
+      <PageHeader title="My drives" subtitle="Every drive, newest first." back={{ to: '/me', label: 'Me' }} />
       <div className="mx-auto max-w-5xl space-y-4 p-4 md:p-6">
         {error && <Notice tone="error">{error.message}</Notice>}
         {loading && !data ? (
           <Spinner />
         ) : data && data.sessions.length === 0 ? (
-          <Empty title="No sessions recorded" action={<LinkButton to="/live" variant="primary">Start a session</LinkButton>} />
+          <Empty title="No drives yet" action={<LinkButton to="/" variant="primary">Pick a track</LinkButton>} />
         ) : (
           <Panel
-            title={`${sessions.length} session${sessions.length === 1 ? '' : 's'}`}
+            title={`${sessions.length} drive${sessions.length === 1 ? '' : 's'}`}
             bodyClass="p-0"
             actions={
-              <Select aria-label="Filter by circuit" value={circuit} onChange={(e) => setCircuit(e.target.value)} className="h-8 w-48 text-xs">
-                <option value="">All circuits</option>
+              <Select aria-label="Filter by track" value={circuit} onChange={(e) => setCircuit(e.target.value)} className="h-8 w-48 text-xs">
+                <option value="">All tracks</option>
                 {circuitNames.map(([id, name]) => (
                   <option key={id} value={id}>
                     {name}
@@ -45,5 +46,31 @@ export function Sessions() {
         )}
       </div>
     </div>
+  );
+}
+
+export function SessionRows({ sessions }: { sessions: Session[] }) {
+  return (
+    <ul className="divide-y divide-line">
+      {sessions.map((s) => {
+        const sum = summarizeSession(s.laps);
+        return (
+          <li key={s.id}>
+            <Link to={`/sessions/${s.id}`} className="grid grid-cols-[1fr_auto] items-center gap-x-4 gap-y-0.5 px-4 py-3 hover:bg-raised sm:grid-cols-[1fr_8rem_6rem_7rem]">
+              <span className="min-w-0">
+                <span className="flex items-center gap-2 truncate text-sm font-medium">
+                  {s.circuitName} {s.source === 'simulated' && <SimBadge />}
+                  {s.endedAt === null && <span className="text-[10px] uppercase tracking-wider text-warn">Interrupted</span>}
+                </span>
+                <span className="text-xs text-muted">{new Date(s.startedAt).toLocaleString()}</span>
+              </span>
+              <span className="hidden text-sm text-muted sm:block">{sum.laps} laps</span>
+              <span className="hidden text-sm text-muted sm:block">{sum.validLaps} valid</span>
+              <span className="text-right font-mono text-sm tabular">{formatLapTime(sum.bestLap?.timeMs)}</span>
+            </Link>
+          </li>
+        );
+      })}
+    </ul>
   );
 }

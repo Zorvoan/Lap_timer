@@ -12,7 +12,7 @@ import { deleteSession, getCircuit, getSamples, getSession, listSessions } from 
 import { circuitLapNumbers, lapKey } from '../lib/lapNumbers';
 import { exportSession } from '../lib/dataTransfer';
 import { downloadText, lapsToCsv, samplesToCsv } from '../lib/exportImport';
-import { slug } from './Circuits';
+import { slug } from '../lib/circuitStats';
 import { SectorCell } from '../components/laps/SectorCell';
 
 export function SessionDetail() {
@@ -74,7 +74,7 @@ function SessionView({ session, circuit, onDeleted, speedUnit, distanceUnit }: {
             {session.endedAt === null && <Badge tone="warn">Interrupted</Badge>}
             {!circuit && <Badge>Circuit deleted</Badge>}
             {circuit && (
-              <Link to={`/circuits/${circuit.id}?session=${session.id}`} className="font-semibold text-fg underline decoration-accent underline-offset-4">
+              <Link to={`/tracks/${circuit.id}?session=${session.id}`} className="font-semibold text-fg underline decoration-accent underline-offset-4">
                 Compare with all times on this circuit →
               </Link>
             )}

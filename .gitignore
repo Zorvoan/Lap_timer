@@ -6,4 +6,6 @@ coverage
 apps/web/dev-dist
 .firebase
 *.local
-.claude/
+# Local Claude Code state stays out; shared project skills are kept.
+.claude/*
+!.claude/skills/

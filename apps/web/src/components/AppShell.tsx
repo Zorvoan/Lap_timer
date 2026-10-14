@@ -5,16 +5,14 @@ import { useAccount, useData, useLive } from '../hooks/useData';
 import { getActiveSession } from '../lib/repo';
 import { applyUpdateIfReady } from '../lib/update';
 import { buttonClass } from './ui/primitives';
-import { IconArrowLeft, IconHome, IconList, IconMap, IconSettings, IconTimer, IconTrophy, IconX } from './ui/icons';
+import { IconArrowLeft, IconMap, IconTimer, IconTrophy, IconUser, IconX } from './ui/icons';
 
-const NAV = [
-  { to: '/', label: 'Home', icon: IconHome, end: true, phone: true },
-  { to: '/circuits', label: 'Circuits', icon: IconMap, end: false, phone: true },
-  { to: '/leaderboard', label: 'Ranks', icon: IconTrophy, end: false, phone: true },
-  { to: '/sessions', label: 'Sessions', icon: IconList, end: false, phone: true },
-  // On phones Settings is reached from the gear on the Home screen: five tabs stay readable.
-  { to: '/settings', label: 'Settings', icon: IconSettings, end: false, phone: false },
-];
+/** Which tab a path belongs to: tracks and everything about them, or the user's own things. */
+function tabOf(path: string): 'tracks' | 'drive' | 'me' {
+  if (path.startsWith('/live')) return 'drive';
+  if (/^\/(me|account|settings|sessions|help)(\/|$)/.test(path)) return 'me';
+  return 'tracks';
+}
 
 export function AppShell() {
   const live = useLive();
@@ -22,6 +20,7 @@ export function AppShell() {
   const sessionActive = live.status === 'running' || live.status === 'paused';
   // Live timing gets the full screen while recording: no navigation to tap by accident.
   const immersive = sessionActive && loc.pathname.startsWith('/live');
+  const tab = tabOf(loc.pathname);
   // Moving to another page is a natural moment to switch to a newly deployed version.
   useEffect(() => applyUpdateIfReady(), [loc.pathname]);
 
@@ -34,26 +33,14 @@ export function AppShell() {
             <span className="text-sm font-bold uppercase tracking-[0.2em]">Lap Timer</span>
           </div>
           <ul className="flex flex-col gap-0.5 p-2">
-            {NAV.map((n) => (
-              <li key={n.to}>
-                <NavLink
-                  to={n.to}
-                  end={n.end}
-                  className={({ isActive }) =>
-                    `flex h-10 items-center gap-3 rounded px-3 text-sm font-medium ${isActive ? 'bg-raised text-fg' : 'text-muted hover:text-fg'}`
-                  }
-                >
-                  {({ isActive }) => (
-                    <>
-                      <span className={`h-4 w-0.5 ${isActive ? 'bg-accent' : 'bg-transparent'}`} aria-hidden="true" />
-                      <n.icon />
-                      {n.label}
-                    </>
-                  )}
-                </NavLink>
-              </li>
-            ))}
+            <SideItem to="/" label="Tracks" icon={IconMap} active={tab === 'tracks'} />
+            <SideItem to="/me" label="Me" icon={IconUser} active={tab === 'me'} />
           </ul>
+          <div className="px-2">
+            <Link to="/live" className={`flex h-11 items-center justify-center gap-2 rounded-lg font-bold text-white ${tab === 'drive' ? 'bg-accent ring-2 ring-fg/60' : 'bg-accent hover:brightness-110'}`}>
+              <IconTimer /> Drive
+            </Link>
+          </div>
           <AccountNavItem />
         </nav>
       )}
@@ -67,23 +54,14 @@ export function AppShell() {
       {!immersive && <LeaderboardToast />}
 
       {!immersive && (
-        <nav aria-label="Main" className="flex shrink-0 border-t border-line bg-panel pb-[env(safe-area-inset-bottom)] md:hidden">
-          {NAV.filter((n) => n.phone).map((n) => (
-            <NavLink
-              key={n.to}
-              to={n.to}
-              end={n.end}
-              className={({ isActive }) => `relative flex h-16 flex-1 flex-col items-center justify-center gap-1 text-xs font-semibold ${isActive ? 'text-fg' : 'text-muted'}`}
-            >
-              {({ isActive }) => (
-                <>
-                  {isActive && <span className="absolute inset-x-4 top-0 h-0.5 bg-accent" aria-hidden="true" />}
-                  <n.icon />
-                  {n.label}
-                </>
-              )}
-            </NavLink>
-          ))}
+        <nav aria-label="Main" className="grid shrink-0 grid-cols-3 border-t border-line bg-panel pb-[env(safe-area-inset-bottom)] md:hidden">
+          <TabItem to="/" label="Tracks" icon={IconMap} active={tab === 'tracks'} />
+          <div className="flex items-center justify-center">
+            <Link to="/live" aria-current={tab === 'drive' ? 'page' : undefined} className="flex h-12 w-[6.5rem] items-center justify-center gap-2 rounded-xl bg-accent text-[15px] font-extrabold text-white">
+              <IconTimer /> Drive
+            </Link>
+          </div>
+          <TabItem to="/me" label="Me" icon={IconUser} active={tab === 'me'} />
         </nav>
       )}
     </div>
@@ -91,9 +69,33 @@ export function AppShell() {
 }
 
 /**
- * Live timing has no tab: it is opened from a circuit (Drive). While a session is recording, or
- * one was interrupted (app closed mid-session), this bar on every other screen leads back to it.
+ * While a session is recording, or one was interrupted (app closed mid-session), this bar on
+ * every other screen leads back to it.
  */
+type NavIcon = (p: React.SVGProps<SVGSVGElement>) => React.ReactElement;
+
+function TabItem({ to, label, icon: Icon, active }: { to: string; label: string; icon: NavIcon; active: boolean }) {
+  return (
+    <Link to={to} aria-current={active ? 'page' : undefined} className={`relative flex h-[4.25rem] flex-col items-center justify-center gap-1 text-xs font-semibold ${active ? 'text-fg' : 'text-muted'}`}>
+      {active && <span className="absolute inset-x-[28%] top-0 h-[3px] rounded-b bg-accent" aria-hidden="true" />}
+      <Icon width={22} height={22} />
+      {label}
+    </Link>
+  );
+}
+
+function SideItem({ to, label, icon: Icon, active }: { to: string; label: string; icon: NavIcon; active: boolean }) {
+  return (
+    <li>
+      <Link to={to} aria-current={active ? 'page' : undefined} className={`flex h-10 items-center gap-3 rounded px-3 text-sm font-medium ${active ? 'bg-raised text-fg' : 'text-muted hover:text-fg'}`}>
+        <span className={`h-4 w-0.5 ${active ? 'bg-accent' : 'bg-transparent'}`} aria-hidden="true" />
+        <Icon />
+        {label}
+      </Link>
+    </li>
+  );
+}
+
 function SessionBanner() {
   const live = useLive();
   const { data: interrupted } = useData(getActiveSession, []);
@@ -155,7 +157,7 @@ function LeaderboardToast() {
                 <div className="text-sm text-muted">
                   {o.circuitName}: P{o.from} → <span className="font-semibold text-fg">P{o.to}</span>
                 </div>
-                <Link to={`/leaderboard/${o.circuitId}`} onClick={() => setDismissedAt(latest)} className="mt-1 inline-block text-sm font-semibold text-accent hover:underline">
+                <Link to={`/tracks/${o.circuitId}`} onClick={() => setDismissedAt(latest)} className="mt-1 inline-block text-sm font-semibold text-accent hover:underline">
                   See the times →
                 </Link>
               </div>
@@ -167,7 +169,7 @@ function LeaderboardToast() {
                 {s.circuitName} · <span className="font-mono tabular text-fg">{formatLapTime(s.timeMs)}</span>
                 {s.previousMs !== null && <> ({formatDelta(s.timeMs - s.previousMs)} s on your previous)</>}
               </div>
-              <Link to={`/leaderboard/${s.circuitId}`} onClick={() => setDismissedAt(latest)} className="mt-1 inline-block text-sm font-semibold text-accent hover:underline">
+              <Link to={`/tracks/${s.circuitId}`} onClick={() => setDismissedAt(latest)} className="mt-1 inline-block text-sm font-semibold text-accent hover:underline">
                 View leaderboard →
               </Link>
             </div>

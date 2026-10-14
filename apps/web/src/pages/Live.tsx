@@ -253,7 +253,7 @@ function LiveSetup() {
                 <IconPlay /> {busy ? 'Starting…' : source === 'simulated' ? 'Start simulated session' : 'Start session'}
               </Button>
               {circuit && (
-                <Button variant="ghost" className="w-full" onClick={() => navigate(`/circuits?view=map&selected=${circuit.id}`)}>
+                <Button variant="ghost" className="w-full" onClick={() => navigate(`/tracks/${circuit.id}`)}>
                   View circuit on map
                 </Button>
               )}
@@ -385,7 +385,7 @@ function LiveRunning() {
     try {
       const circuitId = live.circuit?.id;
       const id = await liveController.stop();
-      navigate(id && circuitId ? `/circuits/${circuitId}?session=${id}` : id ? `/sessions/${id}` : '/sessions');
+      navigate(id && circuitId ? `/tracks/${circuitId}?session=${id}` : id ? `/sessions/${id}` : '/sessions');
     } finally {
       setStopping(false);
     }
