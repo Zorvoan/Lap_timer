@@ -156,6 +156,7 @@ export function ReplayPanel({
   rows,
   lengthM,
   speedUnit,
+  chooseFollow = false,
 }: {
   circuit: Circuit | null;
   lapA: LapRecord;
@@ -165,13 +166,14 @@ export function ReplayPanel({
   rows: AlignedRow[];
   lengthM: number;
   speedUnit: SpeedUnit;
+  /** Offer a Follow A / Follow B switch (racing someone else); otherwise the map follows A. */
+  chooseFollow?: boolean;
 }) {
   const [t, setT] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [rate, setRate] = useState(4);
-  // The map follows car A, zoomed in, until the user pans it or asks for the whole track.
-  const [follow, setFollow] = useState(true);
-  const [fitCount, setFitCount] = useState(0);
+  // The map follows one car, zoomed in: A, or B when the user picks it.
+  const [followB, setFollowB] = useState(false);
   const raf = useRef(0);
 
   useEffect(() => {
@@ -204,6 +206,7 @@ export function ReplayPanel({
   const place = (p: ReturnType<typeof positionAtTime>) => (p && onTrack ? { ...p, ...onTrack(p.d) } : p);
   const posA = place(positionAtTime(lapA.trace, t));
   const posB = lapB ? place(positionAtTime(lapB.trace, t)) : null;
+  const followed = chooseFollow && followB && posB ? posB : posA;
   const deltaHere = posA && rows.length && lapB ? rows[Math.min(rows.length - 1, Math.round((posA.d / lengthM) * (rows.length - 1)))]?.deltaMs : null;
 
   const segments = useMemo(() => {
@@ -247,11 +250,7 @@ export function ReplayPanel({
             {circuit?.finishLine && <TimingLineView line={circuit.finishLine} kind="finish" label="Finish" />}
             {posB && <CircleMarker center={[posB.lat, posB.lon]} radius={7} pathOptions={{ color: '#000', weight: 2, fillColor: COLOR_B, fillOpacity: 1 }} />}
             {posA && <CircleMarker center={[posA.lat, posA.lon]} radius={8} pathOptions={{ color: '#fff', weight: 2, fillColor: COLOR_A, fillOpacity: 1 }} />}
-            {follow ? (
-              <FollowCar position={posA} onUserMove={() => setFollow(false)} />
-            ) : (
-              <FitBounds bounds={bounds} fitKey={`${circuit?.id ?? labelA}:${fitCount}`} padding={24} />
-            )}
+            {followed ? <FollowCar position={followed} /> : <FitBounds bounds={bounds} fitKey={circuit?.id ?? labelA} padding={24} />}
           </BaseMap>
         </div>
         <div className="space-y-4 border-t border-line p-4 lg:border-l lg:border-t-0">
@@ -267,24 +266,22 @@ export function ReplayPanel({
               ))}
             </select>
           </div>
-          <div className="grid grid-cols-2 gap-1 rounded border border-line bg-raised p-1 text-sm" role="group" aria-label="Map view">
-            <button
-              type="button"
-              aria-pressed={follow}
-              onClick={() => setFollow(true)}
-              className={`h-9 rounded font-semibold ${follow ? 'bg-panel text-fg shadow' : 'text-muted hover:text-fg'}`}
-            >
-              Follow A
-            </button>
-            <button
-              type="button"
-              aria-pressed={!follow}
-              onClick={() => (setFollow(false), setFitCount((n) => n + 1))}
-              className={`h-9 rounded font-semibold ${!follow ? 'bg-panel text-fg shadow' : 'text-muted hover:text-fg'}`}
-            >
-              Whole track
-            </button>
-          </div>
+          {chooseFollow && lapB && (
+            <div className="grid grid-cols-2 gap-1 rounded border border-line bg-raised p-1 text-sm" role="group" aria-label="Map follows">
+              {([false, true] as const).map((b) => (
+                <button
+                  key={String(b)}
+                  type="button"
+                  aria-pressed={followB === b}
+                  onClick={() => setFollowB(b)}
+                  className={`flex h-9 items-center justify-center gap-1.5 rounded font-semibold ${followB === b ? 'bg-panel text-fg shadow' : 'text-muted hover:text-fg'}`}
+                >
+                  <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: b ? COLOR_B : COLOR_A }} aria-hidden="true" />
+                  Follow {b ? 'B' : 'A'}
+                </button>
+              ))}
+            </div>
+          )}
           <input
             type="range"
             aria-label="Replay position"
@@ -320,29 +317,20 @@ export function ReplayPanel({
 const FOLLOW_ZOOM = 16;
 
 /**
- * Keeps the map centred on a moving car. It zooms in once when following starts; the user may
- * still zoom with the buttons. Dragging the map hands control back to the user.
+ * Keeps the map centred on a moving car. It zooms in once; the user may still zoom with the
+ * buttons, and may pan around while the replay is paused: the map picks the car up again as
+ * soon as it moves.
  */
-function FollowCar({ position, onUserMove }: { position: { lat: number; lon: number } | null; onUserMove: () => void }) {
+function FollowCar({ position }: { position: { lat: number; lon: number } }) {
   const map = useMap();
   const zoomed = useRef(false);
-  const onMove = useRef(onUserMove);
-  onMove.current = onUserMove;
   useEffect(() => {
-    if (!position) return;
     if (!zoomed.current) {
       map.setView([position.lat, position.lon], Math.max(map.getZoom(), FOLLOW_ZOOM), { animate: false });
       zoomed.current = true;
     } else {
       map.panTo([position.lat, position.lon], { animate: false });
     }
-  }, [map, position?.lat, position?.lon]);
-  useEffect(() => {
-    const h = () => onMove.current();
-    map.on('dragstart', h);
-    return () => {
-      map.off('dragstart', h);
-    };
-  }, [map]);
+  }, [map, position.lat, position.lon]);
   return null;
 }
