@@ -112,7 +112,7 @@ export function MyLapsTab({ circuit, sessions }: { circuit: Circuit; sessions: S
           <Stat label="Personal best" value={formatLapTime(best?.lap.timeMs)} hint={best ? entryLabel(best) : undefined} />
           <Stat
             label="Best possible"
-            value={formatLapTime(ideal?.timeMs)}
+            value={<span className={ideal ? 'text-[#b36bff]' : ''}>{formatLapTime(ideal?.timeMs)}</span>}
             hint={ideal && best ? (ideal.timeMs < best.lap.timeMs - 0.5 ? `${formatDelta(ideal.timeMs - best.lap.timeMs)} s to find` : 'your PB is already ideal') : 'your best parts combined'}
           />
           <Stat label="Laps" value={visible.length} hint={`${visible.filter((e) => e.lap.valid).length} valid`} />

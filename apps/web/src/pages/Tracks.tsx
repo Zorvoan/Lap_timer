@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { useMapEvents } from 'react-leaflet';
 import { distanceMeters, formatDistance, formatLapTime, type Circuit } from '@laptimer/core';
 import { BaseMap, FitBounds } from '../components/map/BaseMap';
 import { TrackLines, boundsOf } from '../components/map/TrackLines';
@@ -17,6 +18,20 @@ import { listCircuits, listSessions } from '../lib/repo';
 
 /** A start line closer than this is "where you are". */
 const AT_START_M = 400;
+
+/** Where the tracks map was last left during this app session (not stored across restarts). */
+let lastMapView: { center: [number, number]; zoom: number } | null = null;
+
+function KeepView() {
+  useMapEvents({
+    moveend(e) {
+      if (e.target.getSize().x === 0) return; // hidden (list view on phones)
+      const c = e.target.getCenter();
+      lastMapView = { center: [c.lat, c.lng], zoom: e.target.getZoom() };
+    },
+  });
+  return null;
+}
 
 /**
  * The home screen: every track (official first, then the user's own) with the user's best time
@@ -53,6 +68,8 @@ export function Tracks() {
   }, [ids]);
 
   const near = useNearestStart(all);
+  // Read once per visit: the map opens where the user left it during this app session.
+  const [mapView] = useState(() => lastMapView);
   const bounds = useMemo(() => boundsOf(all), [all]);
 
   async function drive(c: Circuit) {
@@ -74,7 +91,7 @@ export function Tracks() {
               {circuits.official.length > 0 && (
                 <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#d08a4e]">{circuits.official.length} official tracks</div>
               )}
-              <h1 className="font-display text-[2.1rem] font-black leading-none tracking-tight">Tracks</h1>
+              <h1 className="font-display text-[2.1rem] font-black leading-none tracking-tight">Roads</h1>
             </div>
             <ViewSwitch view={view} onChange={(v) => setParams(v === 'map' ? { view: 'map' } : {}, { replace: true })} />
           </header>
@@ -131,14 +148,16 @@ export function Tracks() {
 
       <section className={`${view === 'map' ? 'flex' : 'hidden'} min-h-0 flex-1 flex-col md:flex`}>
         <header className="flex items-center justify-between gap-3 border-b border-line px-4 pb-3 pt-5 md:hidden">
-          <h1 className="font-display text-[2.1rem] font-black leading-none tracking-tight">Tracks</h1>
+          <h1 className="font-display text-[2.1rem] font-black leading-none tracking-tight">Roads</h1>
           <ViewSwitch view={view} onChange={(v) => setParams(v === 'map' ? { view: 'map' } : {}, { replace: true })} />
         </header>
         <div className="relative min-h-0 flex-1">
-        <BaseMap>
+        <BaseMap center={mapView?.center} zoom={mapView?.zoom}>
           <LocateControl />
-          {all.length > 0 && <TrackLines circuits={all} isOfficial={isOfficial} onSelect={(id) => navigate(`/tracks/${id}`)} />}
-          <FitBounds bounds={bounds} fitKey={`all:${all.length}`} maxZoom={15} />
+          {all.length > 0 && <TrackLines circuits={all} isOfficial={isOfficial} onSelect={(id) => navigate(`/tracks/${id}`, { state: { from: '/?view=map' } })} />}
+          {/* Coming back from a track keeps the map where it was; otherwise it shows every track. */}
+          {!mapView && <FitBounds bounds={bounds} fitKey={`all:${all.length}`} maxZoom={15} />}
+          <KeepView />
         </BaseMap>
         <div className="pointer-events-none absolute bottom-3 left-3 z-[1000] rounded border border-line bg-panel/95 px-3 py-2 text-xs text-muted shadow-lg">Tap a track to open it</div>
         </div>
@@ -199,7 +218,7 @@ function TrackRow({
   }
   return (
     <li className="border-b border-line">
-      <Link to={`/tracks/${c.id}`} className="flex items-center gap-3.5 px-4 py-3.5 hover:bg-raised">
+      <Link to={`/tracks/${c.id}`} state={{ from: '/' }} className="flex items-center gap-3.5 px-4 py-3.5 hover:bg-raised">
         <RouteShape geometry={c.geometry} size={68} className="shrink-0 rounded-lg bg-raised text-fg/85" />
         <div className="min-w-0 flex-1">
           {stage > 0 && <div className="font-mono text-[11px] font-bold text-accent">SS{stage}</div>}

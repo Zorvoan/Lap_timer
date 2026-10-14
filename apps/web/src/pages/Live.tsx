@@ -19,7 +19,7 @@ import { GeolocationSource, geolocationSupport } from '../lib/gps/geolocation';
 import { DEFAULT_SIMULATOR, SimulatedSource } from '../lib/gps/simulated';
 import { unlockAudio } from '../lib/audio';
 import { SAFETY_DETAIL, SAFETY_TEXT, acceptSafety, hasAcceptedSafety } from '../lib/safety';
-import { config } from '../lib/config';
+import { simulatorAllowed } from '../lib/developer';
 import { ScreenWakeLock } from '../lib/wakeLock';
 import type { ActiveSessionInfo } from '../lib/db';
 import { circuitLapNumbers, lapKey } from '../lib/lapNumbers';
@@ -90,7 +90,9 @@ function LiveSetup() {
   }, [settings.referenceMode, refParam]);
 
   const circuit = circuits?.find((c) => c.id === circuitId) ?? null;
-  const featured = useAccount().featured;
+  const acc = useAccount();
+  const featured = acc.featured;
+  const canSimulate = simulatorAllowed(acc.user?.uid);
   const isOfficial = (id: string) => featured.some((f) => f.id === id);
   const { data: sessions } = useData(async () => (circuitId ? listSessions(circuitId) : []), [circuitId]);
   const lapNumbers = useMemo(() => circuitLapNumbers(sessions ?? []), [sessions]);
@@ -215,7 +217,7 @@ function LiveSetup() {
                 </Select>
               </Field>
 
-              {config.simulatorEnabled && (
+              {canSimulate && (
                 <fieldset className="rounded border border-warn/50 p-3">
                   <legend className="px-1 text-xs font-bold uppercase tracking-wider text-warn">Position source · developer option</legend>
                   <div className="grid grid-cols-2 gap-2">
