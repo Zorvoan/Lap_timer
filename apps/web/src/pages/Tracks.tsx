@@ -3,10 +3,11 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { distanceMeters, formatDistance, formatLapTime, type Circuit } from '@laptimer/core';
 import { BaseMap, FitBounds } from '../components/map/BaseMap';
 import { TrackLines, boundsOf } from '../components/map/TrackLines';
+import { RouteShape } from '../components/map/RouteShape';
 import { LocateControl } from '../components/map/MapControls';
 import { ProfileNotice, loadBoard } from '../components/track/LeaderboardTab';
 import { Notice, Spinner } from '../components/ui/primitives';
-import { IconChevronRight, IconPin, IconPlay, IconPlus, IconRecord } from '../components/ui/icons';
+import { IconPin, IconPlay, IconPlus, IconRecord } from '../components/ui/icons';
 import { useAccount, useData } from '../hooks/useData';
 import { useSettings } from '../hooks/useSettings';
 import { circuitStats, type CircuitStats } from '../lib/circuitStats';
@@ -60,35 +61,37 @@ export function Tracks() {
     navigate(`/live?circuit=${c.id}`);
   }
 
-  const row = (c: Circuit) => <TrackRow key={c.id} circuit={c} stats={stats.get(c.id)} board={boards?.get(c.id)} official={isOfficial(c.id)} myUid={acc.user?.uid ?? null} />;
+  // Official tracks are numbered like rally stages, in their featured order.
+  const stageNo = (id: string) => (isOfficial(id) ? order(id) + 1 : 0);
+  const row = (c: Circuit) => <TrackRow key={c.id} circuit={c} stage={stageNo(c.id)} stats={stats.get(c.id)} board={boards?.get(c.id)} official={isOfficial(c.id)} myUid={acc.user?.uid ?? null} />;
 
   return (
     <div className="flex h-full flex-col md:flex-row">
       <section className={`${view === 'list' ? 'flex' : 'hidden'} min-h-0 flex-1 flex-col md:flex md:w-[26rem] md:flex-none md:border-r md:border-line`}>
         <div className="min-h-0 flex-1 overflow-auto pb-6">
-          <header className="flex items-center justify-between gap-3 px-4 pb-3 pt-5">
-            <h1 className="text-[1.7rem] font-extrabold tracking-tight">Tracks</h1>
+          <header className="flex items-end justify-between gap-3 px-4 pb-4 pt-5">
+            <div>
+              {circuits.official.length > 0 && (
+                <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#d08a4e]">{circuits.official.length} official tracks</div>
+              )}
+              <h1 className="font-display text-[2.1rem] font-black leading-none tracking-tight">Tracks</h1>
+            </div>
             <ViewSwitch view={view} onChange={(v) => setParams(v === 'map' ? { view: 'map' } : {}, { replace: true })} />
           </header>
 
           {near && (
-            <div className="mx-4 mb-3 rounded-lg border border-accent/40 bg-accent/10 p-3.5">
-              <div className="label flex items-center gap-1.5 !text-[#ff8a84]">
-                <IconPin width={14} height={14} /> At the start line
+            <div className="mx-4 mb-3 flex items-center gap-3 rounded-lg border border-line bg-raised py-2 pl-3.5 pr-2">
+              <IconPin width={16} height={16} className="shrink-0 text-[#ff8a84]" />
+              <div className="min-w-0 flex-1 text-sm">
+                <span className="text-muted">At the start of </span>
+                <span className="font-display font-extrabold">
+                  {stageNo(near.id) ? `SS${stageNo(near.id)} ` : ''}
+                  {near.name}
+                </span>
               </div>
-              <div className="mt-1.5 flex items-center gap-3">
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-xl font-extrabold">{near.name}</div>
-                  {stats.get(near.id)?.bestMs != null && (
-                    <div className="text-xs text-muted">
-                      Your best <span className="font-mono text-fg tabular">{formatLapTime(stats.get(near.id)!.bestMs)}</span>
-                    </div>
-                  )}
-                </div>
-                <button type="button" onClick={() => void drive(near)} className="flex h-11 items-center gap-2 rounded bg-accent px-4 font-bold text-white">
-                  <IconPlay width={14} height={14} /> Drive
-                </button>
-              </div>
+              <button type="button" onClick={() => void drive(near)} className="flex h-10 shrink-0 items-center gap-2 rounded bg-accent px-3.5 font-bold text-white">
+                <IconPlay width={13} height={13} /> Drive
+              </button>
             </div>
           )}
 
@@ -128,7 +131,7 @@ export function Tracks() {
 
       <section className={`${view === 'map' ? 'flex' : 'hidden'} min-h-0 flex-1 flex-col md:flex`}>
         <header className="flex items-center justify-between gap-3 border-b border-line px-4 pb-3 pt-5 md:hidden">
-          <h1 className="text-[1.7rem] font-extrabold tracking-tight">Tracks</h1>
+          <h1 className="font-display text-[2.1rem] font-black leading-none tracking-tight">Tracks</h1>
           <ViewSwitch view={view} onChange={(v) => setParams(v === 'map' ? { view: 'map' } : {}, { replace: true })} />
         </header>
         <div className="relative min-h-0 flex-1">
@@ -158,12 +161,15 @@ function ViewSwitch({ view, onChange }: { view: 'list' | 'map'; onChange: (v: 'l
 
 function TrackRow({
   circuit: c,
+  stage,
   stats,
   board,
   official,
   myUid,
 }: {
   circuit: Circuit;
+  /** Stage number of an official track, 0 for the user's own. */
+  stage: number;
   stats: CircuitStats | undefined;
   board: LeaderboardEntry[] | undefined;
   official: boolean;
@@ -172,39 +178,51 @@ function TrackRow({
   const { settings } = useSettings();
   const rank = myUid && board ? board.findIndex((e) => e.uid === myUid) + 1 : 0;
   const record = board?.[0];
+  const climb = elevationChange(c);
   let right: React.ReactNode;
   if (stats?.bestMs != null) {
     right = (
       <>
-        <div className="font-mono tabular">{formatLapTime(stats.bestMs)}</div>
+        <div className="font-mono text-[17px] font-semibold tabular">{formatLapTime(stats.bestMs)}</div>
         {rank > 0 && <div className="text-xs font-bold text-gain">P{rank} of {board!.length}</div>}
       </>
     );
   } else if (record) {
     right = (
-      <>
-        <div className="text-xs text-muted">Record</div>
+      <div className="text-muted">
+        <div className="text-xs">Record</div>
         <div className="font-mono text-sm tabular">{formatLapTime(record.timeMs)}</div>
-      </>
+      </div>
     );
   } else {
-    right = <div className="text-sm text-muted">{official && !board ? '' : 'No times yet'}</div>;
+    right = <div className="max-w-[5.5rem] text-sm text-muted">{official && !board ? '' : 'No time yet'}</div>;
   }
   return (
     <li className="border-b border-line">
-      <Link to={`/tracks/${c.id}`} className="flex min-h-[4.25rem] items-center gap-3 px-4 py-3 hover:bg-raised">
+      <Link to={`/tracks/${c.id}`} className="flex items-center gap-3.5 px-4 py-3.5 hover:bg-raised">
+        <RouteShape geometry={c.geometry} size={68} className="shrink-0 rounded-lg bg-raised text-fg/85" />
         <div className="min-w-0 flex-1">
-          <div className="truncate font-bold">{c.name}</div>
+          {stage > 0 && <div className="font-mono text-[11px] font-bold text-accent">SS{stage}</div>}
+          <div className="font-display text-[19px] font-extrabold leading-tight">{c.name}</div>
           <div className="mt-0.5 text-xs text-muted">
             {formatDistance(c.lengthM, settings.distanceUnit)}
             {c.kind === 'closed' ? ', circuit' : ''}
           </div>
+          {climb && <div className="mt-0.5 text-xs font-semibold text-[#d08a4e]">{climb}</div>}
         </div>
         <div className="shrink-0 text-right">{right}</div>
-        <IconChevronRight width={18} height={18} className="shrink-0 text-muted" />
       </Link>
     </li>
   );
+}
+
+/** "+130 m climb" or "130 m descent" from start to finish, when the track has elevation data. */
+function elevationChange(c: Circuit): string | null {
+  const e = c.elevation;
+  if (!e || e.length < 2) return null;
+  const change = Math.round(e[e.length - 1].elevation - e[0].elevation);
+  if (Math.abs(change) < 20) return null;
+  return change > 0 ? `+${change} m climb` : `${-change} m descent`;
 }
 
 /**

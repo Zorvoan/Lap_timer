@@ -69,7 +69,7 @@ export function Track() {
       <div className="mx-auto max-w-5xl px-4 md:px-6">
         <div className="flex flex-wrap items-end justify-between gap-4 pt-4">
           <div className="min-w-0">
-            <h1 className="text-2xl font-extrabold tracking-tight">{circuit.name}</h1>
+            <h1 className="font-display text-[1.75rem] font-black leading-tight tracking-tight">{circuit.name}</h1>
             <p className="mt-0.5 text-sm text-muted">
               {formatDistance(circuit.lengthM, settings.distanceUnit)}, {circuit.kind === 'closed' ? 'a closed circuit' : 'from start to finish'}
             </p>
