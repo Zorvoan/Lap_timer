@@ -212,7 +212,6 @@ export function LeaderboardTrack() {
                               <Link to={compareUrl} onClick={(ev) => ev.stopPropagation()} className="break-words hover:underline">
                                 {e.nickname}
                               </Link>{' '}
-                              {mine && <Badge tone="accent">You</Badge>}
                             </div>
                             <div className="truncate text-xs text-muted" title={`${e.car} · driven ${new Date(e.drivenAt).toLocaleDateString()}`}>
                               {e.car}
@@ -235,7 +234,10 @@ export function LeaderboardTrack() {
                           })}
                           <td className="hidden px-3 py-2 text-right font-mono tabular sm:table-cell">{formatSpeed(e.maxSpeedMs, settings.speedUnit)}</td>
                           <td className="px-3 py-2 text-right">
-                            {!mine && (
+                            {/* Your own row has nothing to race, so it is marked where the Race button would be. */}
+                            {mine ? (
+                              <Badge tone="accent">You</Badge>
+                            ) : (
                               <Button size="sm" onClick={(ev) => (ev.stopPropagation(), void drive(e.uid))} title={`Live delta against ${e.nickname}'s lap`}>
                                 Race
                               </Button>
