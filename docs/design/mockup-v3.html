@@ -1,0 +1,319 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  :root { --bg:#0d0e10; --panel:#050506; --raised:#18191c; --line:#2a2c2e; --fg:#f4f4f5; --muted:#8a8e96; --accent:#e10600; --gain:#16c768; --loss:#ff4036; --warn:#f5b414; --purple:#b36bff; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { background:#3a3b3e; font-family: Inter, "Segoe UI", Roboto, Arial, sans-serif; color:var(--fg); padding:28px; }
+  .ic { fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; flex-shrink:0; vertical-align:middle; }
+  .mono { font-family: "JetBrains Mono", "DejaVu Sans Mono", Menlo, monospace; font-variant-numeric: tabular-nums; }
+  h2.sec { color:#fff; font-size:20px; margin:4px 0 16px; }
+  h2.sec small { display:block; font-size:13px; font-weight:400; color:#cfd1d4; margin-top:4px; }
+  .grid { display:grid; grid-template-columns: repeat(3, 390px); gap:30px 28px; margin-bottom:44px; }
+  .cap { font-size:15px; font-weight:700; color:#fff; margin-bottom:10px; min-height:58px; }
+  .cap b { display:inline-block; background:var(--accent); color:#fff; border-radius:50%; width:24px; height:24px; text-align:center; line-height:24px; margin-right:8px; font-size:13px; }
+  .cap.state b { background:#6b6e74; }
+  .cap small { display:block; font-weight:400; color:#cfd1d4; font-size:12.5px; margin-top:4px; line-height:1.35; }
+  .phone { width:390px; height:740px; background:var(--bg); border-radius:28px; overflow:hidden; position:relative; border:1px solid #000; display:flex; flex-direction:column; }
+  .content { flex:1; overflow:hidden; }
+  .title { font-size:26px; font-weight:800; }
+  .label { font-size:10.5px; letter-spacing:.12em; text-transform:uppercase; color:var(--muted); font-weight:700; }
+  .muted { color:var(--muted); }
+  .btn { display:flex; align-items:center; justify-content:center; gap:8px; border-radius:8px; font-weight:700; font-size:15px; height:44px; padding:0 16px; }
+  .btn.red { background:var(--accent); color:#fff; }
+  .btn.dark { background:var(--raised); border:1px solid var(--line); color:var(--fg); }
+  .btn.off { background:var(--raised); border:1px solid var(--line); color:#5d6067; }
+  .btn.big { height:62px; font-size:20px; letter-spacing:.03em; }
+  .row { display:flex; align-items:center; gap:10px; }
+  .grow { flex:1; min-width:0; }
+  .seg { display:flex; background:var(--raised); border:1px solid var(--line); border-radius:8px; padding:3px; }
+  .seg div { flex:1; text-align:center; font-size:13px; font-weight:700; padding:7px 0; border-radius:6px; color:var(--muted); }
+  .seg .on { background:var(--panel); color:var(--fg); }
+  .list { border-top:1px solid var(--line); }
+  .li { display:flex; align-items:center; gap:12px; padding:14px 18px; border-bottom:1px solid var(--line); }
+  .li .name { font-weight:700; font-size:16px; }
+  .li .meta { font-size:12.5px; color:var(--muted); margin-top:2px; }
+  .nav { height:76px; border-top:1px solid var(--line); background:var(--panel); display:grid; grid-template-columns:1fr 1fr 1fr; }
+  .nav .it { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:5px; font-size:12px; font-weight:600; color:var(--muted); position:relative; }
+  .nav .it.on { color:var(--fg); }
+  .nav .it.on::before { content:""; position:absolute; top:0; left:28%; right:28%; height:3px; background:var(--accent); border-radius:0 0 3px 3px; }
+  .nav .drive { display:flex; align-items:center; justify-content:center; }
+  .nav .drive div { background:var(--accent); color:#fff; border-radius:12px; height:50px; width:104px; display:flex; align-items:center; justify-content:center; gap:7px; font-weight:800; font-size:15px; }
+  .sect { flex:1; border:1px solid var(--line); border-radius:8px; padding:8px 0; text-align:center; }
+  .notice { margin:0 18px 12px; padding:12px 14px; border-left:3px solid var(--accent); background:var(--panel); border-radius:0 8px 8px 0; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  td { padding:11px 6px; border-top:1px solid var(--line); }
+  .you { background:var(--raised); }
+  .ybadge { font-size:9.5px; font-weight:800; border:1px solid var(--accent); color:var(--accent); border-radius:3px; padding:2px 4px; letter-spacing:.08em; }
+  .gpsline { margin:0 18px; padding:14px; border-radius:10px; display:flex; align-items:center; gap:12px; }
+  .dot { width:9px; height:9px; border-radius:50%; display:inline-block; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute"><defs>
+<symbol id="i-map" viewBox="0 0 24 24"><path d="M14.106 5.553a2 2 0 0 0 1.788 0l3.659-1.83A1 1 0 0 1 21 4.619v12.764a1 1 0 0 1-.553.894l-4.553 2.277a2 2 0 0 1-1.788 0l-4.212-2.106a2 2 0 0 0-1.788 0l-3.659 1.83A1 1 0 0 1 3 19.381V6.618a1 1 0 0 1 .553-.894l4.553-2.277a2 2 0 0 1 1.788 0z"/><path d="M15 5.764v15"/><path d="M9 3.236v15"/></symbol>
+<symbol id="i-timer" viewBox="0 0 24 24"><line x1="10" x2="14" y1="2" y2="2"/><line x1="12" x2="15" y1="14" y2="11"/><circle cx="12" cy="14" r="8"/></symbol>
+<symbol id="i-user" viewBox="0 0 24 24"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></symbol>
+<symbol id="i-pin" viewBox="0 0 24 24"><path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/></symbol>
+<symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+<symbol id="i-wait" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></symbol>
+<symbol id="i-chev" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+<symbol id="i-back" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></symbol>
+<symbol id="i-again" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></symbol>
+<symbol id="i-play" viewBox="0 0 24 24"><polygon points="6 3 20 12 6 21 6 3" fill="currentColor" stroke="none"/></symbol>
+<symbol id="i-stop" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="1.5" fill="currentColor" stroke="none"/></symbol>
+<symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+<symbol id="i-sat" viewBox="0 0 24 24"><path d="M2 12h3"/><path d="M19 12h3"/><path d="M12 2v3"/><path d="M12 19v3"/><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2.5"/></symbol>
+<symbol id="i-alert" viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></symbol>
+<symbol id="i-cloudoff" viewBox="0 0 24 24"><path d="m2 2 20 20"/><path d="M5.782 5.782A7 7 0 0 0 9 19h8.5a4.5 4.5 0 0 0 1.307-.193"/><path d="M21.532 16.5A4.5 4.5 0 0 0 17.5 10h-1.79A7.008 7.008 0 0 0 10 5.07"/></symbol>
+</defs></svg>
+
+<h2 class="sec">Main flow<small>Approved direction (v2), cleaned up with the anti-ui-slop checks: fewer boxes, one primary action per screen, real states.</small></h2>
+<div class="grid">
+
+<!-- 1 TRACKS -->
+<div>
+  <div class="cap"><b>1</b>Tracks<small>A plain list instead of a card per track. Near a start line, that track moves to the top with its Drive button.</small></div>
+  <div class="phone"><div class="content">
+    <div class="row" style="padding:18px 18px 14px"><div class="title grow">Tracks</div><div class="seg" style="width:136px"><div class="on">List</div><div>Map</div></div></div>
+    <div style="margin:0 18px 14px;padding:14px;border-radius:10px;background:#1b0605;border:1px solid #4a1210">
+      <div class="label row" style="color:#ff8a84;gap:6px"><svg class="ic" width="14" height="14"><use href="#i-pin"/></svg>At the start line</div>
+      <div class="row" style="margin-top:8px"><div class="grow"><div style="font-size:20px;font-weight:800">Mladcová</div><div class="muted" style="font-size:12.5px;margin-top:2px">Your best <span class="mono" style="color:var(--fg)">2:04.128</span></div></div><div class="btn red" style="height:44px"><svg class="ic" width="14" height="14"><use href="#i-play"/></svg>Drive</div></div>
+    </div>
+    <div class="list">
+      <div class="li"><div class="grow"><div class="name">Mladcová</div><div class="meta">2.96 km</div></div><div style="text-align:right"><div class="mono" style="font-size:16px">2:04.128</div><div style="font-size:12px;color:var(--gain);font-weight:700">P1 of 2</div></div><svg class="ic muted" width="16" height="16"><use href="#i-chev"/></svg></div>
+      <div class="li"><div class="grow"><div class="name">Barák</div><div class="meta">4.67 km</div></div><div style="text-align:right"><div class="muted" style="font-size:13px">Record</div><div class="mono" style="font-size:14px">3:10.870</div></div><svg class="ic muted" width="16" height="16"><use href="#i-chev"/></svg></div>
+      <div class="li"><div class="grow"><div class="name">Halenkovice Hill Climb</div><div class="meta">2.00 km</div></div><div class="muted" style="font-size:13px">No times yet</div><svg class="ic muted" width="16" height="16"><use href="#i-chev"/></svg></div>
+      <div class="li"><div class="grow"><div class="name">Halenkovice Downhill</div><div class="meta">2.00 km</div></div><div class="muted" style="font-size:13px">No times yet</div><svg class="ic muted" width="16" height="16"><use href="#i-chev"/></svg></div>
+      <div class="li"><div class="grow"><div class="name">Troják</div><div class="meta">10.43 km</div></div><div class="muted" style="font-size:13px">No times yet</div><svg class="ic muted" width="16" height="16"><use href="#i-chev"/></svg></div>
+    </div>
+    <div class="row" style="justify-content:center;gap:6px;color:var(--muted);font-size:13.5px;padding:16px"><svg class="ic" width="15" height="15"><use href="#i-plus"/></svg>Add your own track</div>
+  </div><div class="nav" data-on="t"></div></div>
+</div>
+
+<!-- 2 TRACK PAGE -->
+<div>
+  <div class="cap"><b>2</b>Track<small>Map, one Drive button, then Leaderboard or My laps. Tapping a driver opens the comparison with your lap.</small></div>
+  <div class="phone"><div class="content">
+    <div style="height:190px;background:#22262b;position:relative">
+      <svg width="390" height="190" viewBox="0 0 390 190"><path d="M150 14 L175 40 L210 52 L218 80 L205 96 L214 120 L232 140 L240 160 L228 178" fill="none" stroke="#000" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" opacity=".6"/><path d="M150 14 L175 40 L210 52 L218 80 L205 96 L214 120 L232 140 L240 160 L228 178" fill="none" stroke="#e10600" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="150" cy="14" r="6" fill="#fff"/><circle cx="228" cy="178" r="6" fill="#fff" stroke="#000"/></svg>
+      <div class="btn dark" style="position:absolute;left:12px;top:12px;width:44px;padding:0"><svg class="ic" width="20" height="20"><use href="#i-back"/></svg></div>
+    </div>
+    <div style="padding:14px 18px 0"><div style="font-size:24px;font-weight:800">Mladcová</div><div class="muted" style="font-size:13px;margin-top:2px">2.96 km, from start to finish</div></div>
+    <div style="padding:14px 18px"><div class="btn red big"><svg class="ic" width="18" height="18"><use href="#i-play"/></svg>Drive</div></div>
+    <div style="padding:0 18px 6px"><div class="seg"><div class="on">Leaderboard</div><div>My laps (4)</div></div></div>
+    <div style="padding:0 12px">
+      <table>
+        <tr class="you"><td style="width:36px;color:var(--accent);font-weight:800;padding-left:8px">P1</td><td><b>Zdeněk Patík</b><div style="font-size:12px" class="muted">Golf 4</div></td><td class="mono" style="text-align:right">2:04.128</td><td style="text-align:right;width:48px"><span class="ybadge">YOU</span></td></tr>
+        <tr><td style="font-weight:800;padding-left:8px">P2</td><td><b>mára</b><div style="font-size:12px" class="muted">Škoda Octavia 1.9 TDI</div></td><td class="mono" style="text-align:right">2:21.018<div style="font-size:12px" class="muted">+16.890</div></td><td style="text-align:right" class="muted"><svg class="ic" width="16" height="16"><use href="#i-chev"/></svg></td></tr>
+      </table>
+      <div class="muted" style="font-size:13px;padding:14px 8px">Best possible time <span class="mono" style="color:var(--fg)">2:04.128</span>, the best section of each driver combined.</div>
+    </div>
+  </div><div class="nav" data-on="t"></div></div>
+</div>
+
+<!-- 3 START -->
+<div>
+  <div class="cap"><b>3</b>Before driving<small>Nothing to choose. One line says whether GPS is good enough; Start stays locked until it is.</small></div>
+  <div class="phone"><div class="content">
+    <div style="padding:18px 18px 16px"><div class="label">Track</div><div class="row" style="margin-top:4px"><div class="title grow" style="font-size:24px">Mladcová</div><div class="muted" style="font-size:13px;text-decoration:underline">Change</div></div></div>
+    <div class="gpsline" style="background:#061a0e;border:1px solid #11663a"><svg class="ic" width="26" height="26" style="color:var(--gain)"><use href="#i-check"/></svg><div class="grow"><div style="font-weight:800;color:var(--gain);font-size:16px">GPS ready</div><div style="font-size:12.5px;color:#7fd7a6;margin-top:2px">Accurate to 4 m</div></div></div>
+    <div class="list" style="margin-top:18px">
+      <div class="li"><div class="grow"><div class="label">You race</div><div style="font-weight:700;margin-top:3px">Your best lap</div></div><div class="mono" style="font-size:20px">2:04.128</div></div>
+    </div>
+    <div style="padding:18px"><div class="btn red big" style="height:76px;font-size:24px"><svg class="ic" width="20" height="20"><use href="#i-play"/></svg>Start</div></div>
+    <div class="muted" style="text-align:center;font-size:13px;padding:0 30px;line-height:1.5">Put the phone in a holder and keep the screen on. Timing starts when you cross the start line.</div>
+  </div><div class="nav" data-on=""></div></div>
+</div>
+
+<!-- 4 DRIVING -->
+<div>
+  <div class="cap"><b>4</b>Driving<small>The gap to your best lap is the biggest thing on screen. Green and a minus sign when faster.</small></div>
+  <div class="phone"><div class="content" style="padding:16px 18px">
+    <div class="row"><div class="grow row" style="gap:7px;font-size:13px;font-weight:700;color:var(--gain)"><span class="dot" style="background:var(--gain)"></span>GPS good</div><div class="muted" style="font-size:13px">Mladcová</div></div>
+    <div style="margin-top:24px;text-align:center;background:#061a0e;border:1px solid #11663a;border-radius:12px;padding:26px 0 34px">
+      <div class="label" style="color:#7fd7a6">vs best</div>
+      <div class="mono" style="font-size:104px;font-weight:800;color:var(--gain);line-height:1;margin-top:6px">−0.42</div>
+    </div>
+    <div style="text-align:center;margin-top:36px"><div class="label">Time</div><div class="mono" style="font-size:66px;font-weight:800;margin-top:4px">1:12.4</div></div>
+    <div class="row" style="margin-top:34px;gap:8px">
+      <div class="sect" style="border-color:var(--purple)"><div class="label">Part 1</div><div class="mono" style="font-size:24px;padding:4px 0;font-weight:700;color:var(--purple)">41.36</div></div>
+      <div class="sect" style="border-color:#11663a"><div class="label">Part 2</div><div class="mono" style="font-size:24px;padding:4px 0;font-weight:700;color:var(--gain)">−0.31</div></div>
+      <div class="sect"><div class="label">Part 3</div><div class="mono muted" style="font-size:24px;padding:4px 0">—</div></div>
+    </div>
+    <div style="text-align:center;margin-top:30px" class="muted"><span class="mono" style="color:var(--fg);font-size:26px">94</span> km/h</div>
+  </div>
+  <div style="padding:12px 18px 18px;border-top:1px solid var(--line)"><div class="btn dark" style="height:56px;font-size:18px"><svg class="ic" width="15" height="15"><use href="#i-stop"/></svg>Stop</div></div></div>
+</div>
+
+<!-- 5 FINISH -->
+<div>
+  <div class="cap"><b>5</b>Finish<small>Appears by itself at the finish line. The result first, then where it ranks, then what to do next.</small></div>
+  <div class="phone"><div class="content" style="padding:30px 18px">
+    <div style="text-align:center">
+      <div style="font-size:14px;font-weight:800;color:var(--purple);letter-spacing:.12em">NEW PERSONAL BEST</div>
+      <div class="mono" style="font-size:58px;font-weight:800;margin-top:10px">2:03.710</div>
+      <div style="font-size:16px;color:var(--gain);font-weight:700;margin-top:4px">0.418 s faster than before</div>
+    </div>
+    <div class="list" style="margin:26px -18px 0">
+      <div class="li"><div class="grow muted">Leaderboard</div><div style="font-size:18px;font-weight:800">P1 <span class="muted" style="font-size:14px;font-weight:600">of 2</span></div></div>
+    </div>
+    <div class="row" style="gap:8px;margin-top:18px">
+      <div class="sect"><div class="label">Part 1</div><div class="mono" style="font-size:17px;color:var(--purple);font-weight:700">41.20</div></div>
+      <div class="sect"><div class="label">Part 2</div><div class="mono" style="font-size:17px;color:var(--purple);font-weight:700">47.10</div></div>
+      <div class="sect"><div class="label">Part 3</div><div class="mono" style="font-size:17px;font-weight:700">35.41</div></div>
+    </div>
+    <div style="margin-top:26px;display:grid;gap:10px">
+      <div class="btn red big"><svg class="ic" width="20" height="20"><use href="#i-again"/></svg>Drive again</div>
+      <div class="btn dark" style="height:52px">Where did I gain time?</div>
+    </div>
+  </div><div class="nav" data-on=""></div></div>
+</div>
+
+<!-- 6 ME -->
+<div>
+  <div class="cap"><b>6</b>Me<small>Account, past drives and settings. Simulator and technical options sit under Settings, Advanced.</small></div>
+  <div class="phone"><div class="content">
+    <div class="title" style="padding:18px 18px 14px">Me</div>
+    <div class="list">
+      <div class="li"><div style="width:44px;height:44px;border-radius:50%;background:var(--raised);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:800">ZP</div><div class="grow"><div class="name">Zdeněk Patík</div><div class="meta">Golf 4, signed in</div></div><svg class="ic muted" width="16" height="16"><use href="#i-chev"/></svg></div>
+    </div>
+    <div class="label" style="padding:22px 18px 8px">My drives</div>
+    <div class="list">
+      <div class="li"><div class="grow"><div class="name" style="font-size:15px">Mladcová</div><div class="meta">Today, 2 laps</div></div><div class="mono">2:03.710</div><svg class="ic muted" width="16" height="16"><use href="#i-chev"/></svg></div>
+      <div class="li"><div class="grow"><div class="name" style="font-size:15px">Barák</div><div class="meta">12 Oct, 1 lap</div></div><div class="mono">3:15.002</div><svg class="ic muted" width="16" height="16"><use href="#i-chev"/></svg></div>
+      <div class="li muted" style="font-size:14px">All drives<div class="grow"></div><svg class="ic" width="16" height="16"><use href="#i-chev"/></svg></div>
+    </div>
+    <div style="height:22px"></div>
+    <div class="list">
+      <div class="li"><div class="grow">Settings</div><svg class="ic muted" width="16" height="16"><use href="#i-chev"/></svg></div>
+      <div class="li"><div class="grow">Install on home screen</div><svg class="ic muted" width="16" height="16"><use href="#i-chev"/></svg></div>
+      <div class="li"><div class="grow">How it works</div><svg class="ic muted" width="16" height="16"><use href="#i-chev"/></svg></div>
+    </div>
+  </div><div class="nav" data-on="m"></div></div>
+</div>
+</div>
+
+<h2 class="sec">States the screens must handle<small>What a first-time or unlucky user sees. Each one says what is happening and what to do.</small></h2>
+<div class="grid">
+
+<!-- A signed out, first use -->
+<div>
+  <div class="cap state"><b>A</b>First visit, not signed in<small>One line explains why to sign in. Driving works without an account.</small></div>
+  <div class="phone"><div class="content">
+    <div class="row" style="padding:18px 18px 14px"><div class="title grow">Tracks</div><div class="seg" style="width:136px"><div class="on">List</div><div>Map</div></div></div>
+    <div class="notice row"><div class="grow" style="font-size:13.5px;line-height:1.4">Sign in to get your times on the leaderboard.</div><div class="btn red" style="height:36px;font-size:13.5px;padding:0 12px">Sign in</div></div>
+    <div class="list">
+      <div class="li"><div class="grow"><div class="name">Mladcová</div><div class="meta">2.96 km</div></div><div style="text-align:right"><div class="muted" style="font-size:13px">Record</div><div class="mono" style="font-size:14px">2:04.128</div></div><svg class="ic muted" width="16" height="16"><use href="#i-chev"/></svg></div>
+      <div class="li"><div class="grow"><div class="name">Barák</div><div class="meta">4.67 km</div></div><div style="text-align:right"><div class="muted" style="font-size:13px">Record</div><div class="mono" style="font-size:14px">3:10.870</div></div><svg class="ic muted" width="16" height="16"><use href="#i-chev"/></svg></div>
+      <div class="li"><div class="grow"><div class="name">Halenkovice Hill Climb</div><div class="meta">2.00 km</div></div><div class="muted" style="font-size:13px">No times yet</div><svg class="ic muted" width="16" height="16"><use href="#i-chev"/></svg></div>
+      <div class="li"><div class="grow"><div class="name">Troják</div><div class="meta">10.43 km</div></div><div class="muted" style="font-size:13px">No times yet</div><svg class="ic muted" width="16" height="16"><use href="#i-chev"/></svg></div>
+    </div>
+  </div><div class="nav" data-on="t"></div></div>
+</div>
+
+<!-- B waiting for GPS -->
+<div>
+  <div class="cap state"><b>B</b>Waiting for GPS<small>Start is locked and says why. The usual wait is shown so nobody thinks it is broken.</small></div>
+  <div class="phone"><div class="content">
+    <div style="padding:18px 18px 16px"><div class="label">Track</div><div class="row" style="margin-top:4px"><div class="title grow" style="font-size:24px">Mladcová</div><div class="muted" style="font-size:13px;text-decoration:underline">Change</div></div></div>
+    <div class="gpsline" style="background:#1c1606;border:1px solid #5c4708"><svg class="ic" width="26" height="26" style="color:var(--warn)"><use href="#i-wait"/></svg><div class="grow"><div style="font-weight:800;color:var(--warn);font-size:16px">Finding GPS</div><div style="font-size:12.5px;color:#d8b860;margin-top:2px">Accurate to 38 m, needs 10 m. Usually under a minute outdoors.</div></div></div>
+    <div class="list" style="margin-top:18px">
+      <div class="li"><div class="grow"><div class="label">You race</div><div style="font-weight:700;margin-top:3px">Your best lap</div></div><div class="mono" style="font-size:20px">2:04.128</div></div>
+    </div>
+    <div style="padding:18px"><div class="btn off big" style="height:76px;font-size:20px">Waiting for GPS</div></div>
+    <div class="muted" style="text-align:center;font-size:13px;padding:0 30px;line-height:1.5">Stand outside with a clear view of the sky. Indoors GPS may never get accurate enough.</div>
+  </div><div class="nav" data-on=""></div></div>
+</div>
+
+<!-- C slower + weak GPS -->
+<div>
+  <div class="cap state"><b>C</b>Slower than your best<small>Red with a plus sign, so it reads without colour too.</small></div>
+  <div class="phone"><div class="content" style="padding:16px 18px">
+    <div class="row"><div class="grow row" style="gap:7px;font-size:13px;font-weight:700;color:var(--gain)"><span class="dot" style="background:var(--gain)"></span>GPS good</div><div class="muted" style="font-size:13px">Mladcová</div></div>
+    <div style="margin-top:24px;text-align:center;background:#200807;border:1px solid #6b1814;border-radius:12px;padding:26px 0 34px">
+      <div class="label" style="color:#ff8a84">vs best</div>
+      <div class="mono" style="font-size:104px;font-weight:800;color:var(--loss);line-height:1;margin-top:6px">+0.85</div>
+    </div>
+    <div style="text-align:center;margin-top:36px"><div class="label">Time</div><div class="mono" style="font-size:66px;font-weight:800;margin-top:4px">1:31.0</div></div>
+    <div class="row" style="margin-top:34px;gap:8px">
+      <div class="sect" style="border-color:#6b1814"><div class="label">Part 1</div><div class="mono" style="font-size:24px;padding:4px 0;font-weight:700;color:var(--loss)">+0.52</div></div>
+      <div class="sect" style="border-color:#6b1814"><div class="label">Part 2</div><div class="mono" style="font-size:24px;padding:4px 0;font-weight:700;color:var(--loss)">+0.33</div></div>
+      <div class="sect"><div class="label">Part 3</div><div class="mono muted" style="font-size:24px;padding:4px 0">—</div></div>
+    </div>
+    <div style="text-align:center;margin-top:30px" class="muted"><span class="mono" style="color:var(--fg);font-size:26px">88</span> km/h</div>
+  </div>
+  <div style="padding:12px 18px 18px;border-top:1px solid var(--line)"><div class="btn dark" style="height:56px;font-size:18px"><svg class="ic" width="15" height="15"><use href="#i-stop"/></svg>Stop</div></div></div>
+</div>
+
+<!-- D GPS lost while driving -->
+<div>
+  <div class="cap state"><b>D</b>GPS lost while driving<small>Timing keeps running. The driver is told to carry on, and the lap is marked afterwards.</small></div>
+  <div class="phone"><div class="content" style="padding:16px 18px">
+    <div class="row"><div class="grow row" style="gap:7px;font-size:13px;font-weight:700;color:var(--loss)"><span class="dot" style="background:var(--loss)"></span>No GPS signal</div><div class="muted" style="font-size:13px">Mladcová</div></div>
+    <div style="margin-top:24px;text-align:center;border:1px solid var(--line);border-radius:12px;padding:26px 18px 30px">
+      <div class="label">vs best</div>
+      <div class="mono muted" style="font-size:104px;font-weight:800;line-height:1;margin-top:6px">—</div>
+      <div class="row" style="justify-content:center;gap:8px;margin-top:12px;color:var(--warn);font-size:14px;font-weight:700"><svg class="ic" width="18" height="18"><use href="#i-alert"/></svg>Keep driving, timing continues</div>
+    </div>
+    <div style="text-align:center;margin-top:36px"><div class="label">Time</div><div class="mono" style="font-size:66px;font-weight:800;margin-top:4px">0:48.2</div></div>
+    <div class="row" style="margin-top:34px;gap:8px">
+      <div class="sect"><div class="label">Part 1</div><div class="mono" style="font-size:24px;padding:4px 0;font-weight:700;color:var(--gain)">−0.10</div></div>
+      <div class="sect"><div class="label">Part 2</div><div class="mono muted" style="font-size:24px;padding:4px 0">—</div></div>
+      <div class="sect"><div class="label">Part 3</div><div class="mono muted" style="font-size:24px;padding:4px 0">—</div></div>
+    </div>
+  </div>
+  <div style="padding:12px 18px 18px;border-top:1px solid var(--line)"><div class="btn dark" style="height:56px;font-size:18px"><svg class="ic" width="15" height="15"><use href="#i-stop"/></svg>Stop</div></div></div>
+</div>
+
+<!-- E no laps yet -->
+<div>
+  <div class="cap state"><b>E</b>No laps on a track yet<small>The empty tab offers the one useful next step.</small></div>
+  <div class="phone"><div class="content">
+    <div style="height:190px;background:#22262b;position:relative">
+      <svg width="390" height="190" viewBox="0 0 390 190"><path d="M120 150 L160 120 L200 128 L240 90 L270 60 L300 40" fill="none" stroke="#000" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" opacity=".6"/><path d="M120 150 L160 120 L200 128 L240 90 L270 60 L300 40" fill="none" stroke="#e10600" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="120" cy="150" r="6" fill="#fff"/><circle cx="300" cy="40" r="6" fill="#fff" stroke="#000"/></svg>
+      <div class="btn dark" style="position:absolute;left:12px;top:12px;width:44px;padding:0"><svg class="ic" width="20" height="20"><use href="#i-back"/></svg></div>
+    </div>
+    <div style="padding:14px 18px 0"><div style="font-size:24px;font-weight:800">Halenkovice Hill Climb</div><div class="muted" style="font-size:13px;margin-top:2px">2.00 km, from start to finish</div></div>
+    <div style="padding:14px 18px"><div class="btn red big"><svg class="ic" width="18" height="18"><use href="#i-play"/></svg>Drive</div></div>
+    <div style="padding:0 18px 6px"><div class="seg"><div>Leaderboard</div><div class="on">My laps</div></div></div>
+    <div style="padding:34px 30px;text-align:center"><div style="font-weight:700;font-size:16px">No laps here yet</div><div class="muted" style="font-size:13.5px;margin-top:6px;line-height:1.5">Drive the track once and your time, sections and replay appear here.</div></div>
+  </div><div class="nav" data-on="t"></div></div>
+</div>
+
+<!-- F saved offline -->
+<div>
+  <div class="cap state"><b>F</b>Finish without signal<small>The lap is safe on the phone. The rank appears when it can be checked.</small></div>
+  <div class="phone"><div class="content" style="padding:30px 18px">
+    <div style="text-align:center">
+      <div class="label">Lap time</div>
+      <div class="mono" style="font-size:58px;font-weight:800;margin-top:10px">2:06.402</div>
+      <div style="font-size:16px;color:var(--loss);font-weight:700;margin-top:4px">+2.274 s to your best</div>
+    </div>
+    <div class="list" style="margin:26px -18px 0">
+      <div class="li"><svg class="ic muted" width="20" height="20"><use href="#i-cloudoff"/></svg><div class="grow"><div style="font-weight:700;font-size:14.5px">Saved on this phone</div><div class="meta">Uploads to the leaderboard when you are back online.</div></div></div>
+    </div>
+    <div class="row" style="gap:8px;margin-top:18px">
+      <div class="sect"><div class="label">Part 1</div><div class="mono" style="font-size:17px;font-weight:700">42.10</div></div>
+      <div class="sect"><div class="label">Part 2</div><div class="mono" style="font-size:17px;font-weight:700">48.31</div></div>
+      <div class="sect"><div class="label">Part 3</div><div class="mono" style="font-size:17px;font-weight:700">35.99</div></div>
+    </div>
+    <div style="margin-top:26px;display:grid;gap:10px">
+      <div class="btn red big"><svg class="ic" width="20" height="20"><use href="#i-again"/></svg>Drive again</div>
+      <div class="btn dark" style="height:52px">Where did I lose time?</div>
+    </div>
+  </div><div class="nav" data-on=""></div></div>
+</div>
+
+</div>
+<script>
+  for (const n of document.querySelectorAll('.nav[data-on]')) {
+    const on = n.dataset.on;
+    n.innerHTML = `<div class="it ${on === 't' ? 'on' : ''}"><svg class="ic" width="22" height="22"><use href="#i-map"/></svg>Tracks</div>
+      <div class="drive"><div><svg class="ic" width="20" height="20"><use href="#i-timer"/></svg>Drive</div></div>
+      <div class="it ${on === 'm' ? 'on' : ''}"><svg class="ic" width="22" height="22"><use href="#i-user"/></svg>Me</div>`;
+  }
+</script>
+</body>
+</html>
