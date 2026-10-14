@@ -133,3 +133,27 @@ export const IconPin = (p: P) => (
     <circle cx="12" cy="10" r="3" />
   </Svg>
 );
+export const IconCheck = (p: P) => (
+  <Svg {...p}>
+    <path d="M20 6L9 17l-5-5" />
+  </Svg>
+);
+/** An open ring: used, spinning, while something is being looked for. */
+export const IconSpinner = (p: P) => (
+  <Svg {...p}>
+    <path d="M21 12a9 9 0 1 1-6.2-8.6" />
+  </Svg>
+);
+export const IconAlert = (p: P) => (
+  <Svg {...p}>
+    <path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" />
+    <path d="M12 9v4M12 17h.01" />
+  </Svg>
+);
+export const IconCloudOff = (p: P) => (
+  <Svg {...p}>
+    <path d="M2 2l20 20" />
+    <path d="M5.8 5.8A7 7 0 0 0 9 19h8.5a4.5 4.5 0 0 0 1.3-.2" />
+    <path d="M21.5 16.5A4.5 4.5 0 0 0 17.5 10h-1.8A7 7 0 0 0 10 5.1" />
+  </Svg>
+);

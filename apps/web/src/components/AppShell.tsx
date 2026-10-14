@@ -9,7 +9,7 @@ import { IconArrowLeft, IconMap, IconTimer, IconTrophy, IconUser, IconX } from '
 
 /** Which tab a path belongs to: tracks and everything about them, or the user's own things. */
 function tabOf(path: string): 'tracks' | 'drive' | 'me' {
-  if (path.startsWith('/live')) return 'drive';
+  if (path.startsWith('/live') || path.startsWith('/result')) return 'drive';
   if (/^\/(me|account|settings|sessions|help)(\/|$)/.test(path)) return 'me';
   return 'tracks';
 }

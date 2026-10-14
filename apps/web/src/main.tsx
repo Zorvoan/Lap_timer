@@ -17,6 +17,7 @@ const Help = lazy(() => import('./pages/Help').then((m) => ({ default: m.Help })
 const CircuitEditor = lazy(() => import('./pages/CircuitEditor').then((m) => ({ default: m.CircuitEditor })));
 const RecordCircuit = lazy(() => import('./pages/RecordCircuit').then((m) => ({ default: m.RecordCircuit })));
 const Live = lazy(() => import('./pages/Live').then((m) => ({ default: m.Live })));
+const DriveResult = lazy(() => import('./pages/DriveResult').then((m) => ({ default: m.DriveResult })));
 const Sessions = lazy(() => import('./pages/Sessions').then((m) => ({ default: m.Sessions })));
 const SessionDetail = lazy(() => import('./pages/SessionDetail').then((m) => ({ default: m.SessionDetail })));
 const LeaderboardCompare = lazy(() => import('./pages/LeaderboardCompare').then((m) => ({ default: m.LeaderboardCompare })));
@@ -50,6 +51,7 @@ createRoot(document.getElementById('root')!).render(
               <Route path="circuits/record" element={<RecordCircuit />} />
               <Route path="circuits/:id/edit" element={<CircuitEditor />} />
               <Route path="live" element={<Live />} />
+              <Route path="result/:id" element={<DriveResult />} />
               <Route path="me" element={<Me />} />
               <Route path="help" element={<Help />} />
               <Route path="sessions" element={<Sessions />} />
