@@ -148,7 +148,7 @@ export function LeaderboardTrack() {
           </>
         }
       />
-      <div className="mx-auto grid max-w-6xl gap-4 p-4 md:p-6 lg:grid-cols-[1fr_22rem]">
+      <div className="mx-auto grid max-w-7xl gap-4 p-4 md:p-6 2xl:grid-cols-[1fr_22rem]">
         <div className="min-w-0 space-y-4">
           <ProfileNotice />
           <Panel title="Leaderboard" bodyClass="p-0" actions={<Button size="sm" variant="ghost" onClick={reload}>Refresh</Button>}>
@@ -196,7 +196,6 @@ export function LeaderboardTrack() {
                         </th>
                       ))}
                       <th className="label hidden w-20 px-3 py-2 text-right font-semibold sm:table-cell">Max {speedLabel(settings.speedUnit)}</th>
-                      <th className="label hidden w-24 px-3 py-2 font-semibold 2xl:table-cell">Driven</th>
                       <th className="w-[4.75rem] px-3 py-2" />
                     </tr>
                   </thead>
@@ -215,7 +214,10 @@ export function LeaderboardTrack() {
                               </Link>{' '}
                               {mine && <Badge tone="accent">You</Badge>}
                             </div>
-                            <div className="truncate text-xs text-muted">{e.car}</div>
+                            <div className="truncate text-xs text-muted" title={`${e.car} · driven ${new Date(e.drivenAt).toLocaleDateString()}`}>
+                              {e.car}
+                              <span className="hidden sm:inline"> · {new Date(e.drivenAt).toLocaleDateString()}</span>
+                            </div>
                           </td>
                           <td className="px-3 py-2 text-right font-mono tabular">
                             {formatLapTime(e.timeMs)}
@@ -232,7 +234,6 @@ export function LeaderboardTrack() {
                             );
                           })}
                           <td className="hidden px-3 py-2 text-right font-mono tabular sm:table-cell">{formatSpeed(e.maxSpeedMs, settings.speedUnit)}</td>
-                          <td className="hidden px-3 py-2 text-xs text-muted 2xl:table-cell">{new Date(e.drivenAt).toLocaleDateString()}</td>
                           <td className="px-3 py-2 text-right">
                             {!mine && (
                               <Button size="sm" onClick={(ev) => (ev.stopPropagation(), void drive(e.uid))} title={`Live delta against ${e.nickname}'s lap`}>
@@ -253,12 +254,12 @@ export function LeaderboardTrack() {
             Drive legally: public roads are not race tracks.
           </p>
         </div>
-        <div className="h-80 overflow-hidden rounded border border-line lg:sticky lg:top-4 lg:h-[28rem]">
-          <BaseMap scrollWheelZoom={false}>
+        <div className="h-80 overflow-hidden rounded border border-line md:h-96 2xl:sticky 2xl:top-4 2xl:h-[28rem]">
+          <BaseMap scrollWheelZoom={false} zoomSnap={0.1}>
             <RouteLayer geometry={track.geometry} closed={track.kind === 'closed'} />
             <TimingLineView line={track.startLine} kind="start" label={track.kind === 'closed' ? 'Start / finish' : 'Start'} />
             {track.finishLine && <TimingLineView line={track.finishLine} kind="finish" label="Finish" />}
-            <FitBounds bounds={bounds} fitKey={track.id} />
+            <FitBounds bounds={bounds} fitKey={track.id} padding={24} />
           </BaseMap>
         </div>
       </div>

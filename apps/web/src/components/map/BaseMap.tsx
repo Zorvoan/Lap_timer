@@ -66,6 +66,7 @@ export function BaseMap({
   zoom = 13,
   scrollWheelZoom = true,
   interactive = true,
+  zoomSnap = 1,
 }: {
   children?: ReactNode;
   className?: string;
@@ -76,6 +77,8 @@ export function BaseMap({
   scrollWheelZoom?: boolean;
   /** False for static previews: no panning, zooming or zoom buttons. */
   interactive?: boolean;
+  /** Zoom steps the map settles on; fractions let a fitted route fill the map instead of the next whole level out. */
+  zoomSnap?: number;
 }) {
   const { settings } = useSettings();
   const initial = center ? { center, zoom } : lastView ?? { center: DEFAULT_CENTER, zoom };
@@ -83,6 +86,7 @@ export function BaseMap({
     <MapContainer
       center={initial.center}
       zoom={initial.zoom}
+      zoomSnap={zoomSnap}
       zoomControl={false}
       scrollWheelZoom={interactive && scrollWheelZoom}
       dragging={interactive}
@@ -118,7 +122,18 @@ export function MapOverlay({ children, className }: { children: ReactNode; class
 }
 
 /** Fits the map to bounds whenever `fitKey` changes. */
-export function FitBounds({ bounds, fitKey, maxZoom = 17 }: { bounds: LatLngBoundsExpression | null; fitKey: string; maxZoom?: number }) {
+export function FitBounds({
+  bounds,
+  fitKey,
+  maxZoom = 17,
+  padding = 40,
+}: {
+  bounds: LatLngBoundsExpression | null;
+  fitKey: string;
+  maxZoom?: number;
+  /** Space kept between the bounds and the map edge, px. */
+  padding?: number;
+}) {
   const map = useMap();
   useEffect(() => {
     if (!bounds) return;
@@ -126,7 +141,7 @@ export function FitBounds({ bounds, fitKey, maxZoom = 17 }: { bounds: LatLngBoun
     const fit = () => {
       try {
         map.invalidateSize();
-        map.fitBounds(bounds, { padding: [40, 40], maxZoom, animate: false });
+        map.fitBounds(bounds, { padding: [padding, padding], maxZoom, animate: false });
       } catch {
         /* empty bounds */
       }
