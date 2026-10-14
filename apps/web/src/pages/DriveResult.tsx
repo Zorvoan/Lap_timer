@@ -42,8 +42,9 @@ export function DriveResult() {
     }
     const partsOf = (l: LapRecord) => (lengthM > 0 ? splitTimes(l.trace, l.timeMs, lengthM, 3) : []);
     const parts = lap ? partsOf(lap) : [];
+    const prevParts = previous ? partsOf(previous) : [];
     const bestParts = [0, 1, 2].map((k) => Math.min(...pool.flatMap((s) => s.laps.filter((l) => l.valid)).map((l) => partsOf(l)[k] ?? Infinity)));
-    return { session, circuit, lap, previous, parts, bestParts, sim, laps: session.laps.length };
+    return { session, circuit, lap, previous, parts, prevParts, bestParts, sim, laps: session.laps.length };
   }, [data, settings.includeSimulatedInBests]);
 
   const official = !!result && acc.featured.some((f) => f.id === result.session.circuitId);
@@ -65,48 +66,69 @@ export function DriveResult() {
     );
   }
 
-  const { session, lap, previous, parts, bestParts, sim } = result;
+  const { session, lap, previous, parts, prevParts, bestParts, sim } = result;
   const pb = !!lap && (!previous || lap.timeMs < previous.timeMs);
   const first = !!lap && !previous;
   const gapMs = lap && previous ? lap.timeMs - previous.timeMs : null;
   const signedIn = acc.status === 'signed_in' && !!acc.profile;
+  const stage = acc.featured.findIndex((f) => f.id === session.circuitId) + 1;
 
   return (
-    <div className="mx-auto flex min-h-full max-w-xl flex-col px-4 pb-8 pt-8">
-      <div className="text-center">
-        <div className="text-sm text-muted">{session.circuitName}</div>
-        {!lap ? (
+    <div className="mx-auto flex min-h-full max-w-xl flex-col px-4 pb-8 pt-6">
+      <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#d08a4e]">Time card</div>
+      <h1 className="mt-1 font-display text-[2rem] font-black leading-tight tracking-tight">
+        {stage > 0 && `SS${stage} `}
+        {session.circuitName}
+      </h1>
+
+      <div className="relative mt-6 rounded-lg border border-line bg-panel px-5 pb-4 pt-5">
+        {lap && (pb || first) && (
+          <div
+            className={`absolute -top-4 right-3 rotate-[-7deg] rounded-md border-[3px] bg-panel px-3 py-1 text-center text-[13px] font-black uppercase leading-tight tracking-wider ${first ? 'border-[#d08a4e] text-[#d08a4e]' : 'border-[#b36bff] text-[#b36bff]'}`}
+          >
+            {first ? 'First run' : 'Personal best'}
+            {!first && gapMs !== null && <div className="font-mono text-sm tracking-normal">{formatGap(gapMs, 3)}</div>}
+          </div>
+        )}
+        <div className="label">Stage time</div>
+        {lap ? (
           <>
-            <div className="mt-3 font-display text-3xl font-black">No time this run</div>
-            <p className="mx-auto mt-2 max-w-xs text-sm text-muted">The finish line was not reached, so no lap was timed.</p>
+            <div className="mt-1 font-mono text-[clamp(2.9rem,14vw,3.6rem)] font-extrabold leading-none tabular">{formatLapTime(lap.timeMs)}</div>
+            {gapMs !== null && gapMs >= 0 && <div className="mt-2 text-sm font-semibold text-loss">{formatGap(gapMs, 3)} s to your best</div>}
+            {result.laps > 1 && <div className="mt-1 text-xs text-muted">Best of {result.laps} laps</div>}
           </>
         ) : (
           <>
-            <div className={`mt-2 text-sm font-extrabold uppercase tracking-[0.14em] ${pb && !first ? PURPLE : 'text-muted'}`}>
-              {first ? 'Your first time here' : pb ? 'New personal best' : 'Lap time'}
-            </div>
-            <div className="mt-2 font-mono text-[clamp(3.4rem,16vw,4.5rem)] font-extrabold leading-none tabular">{formatLapTime(lap.timeMs)}</div>
-            {gapMs !== null && (
-              <div className={`mt-2 text-base font-bold ${gapMs < 0 ? 'text-gain' : 'text-loss'}`}>
-                {gapMs < 0 ? `${(Math.abs(gapMs) / 1000).toFixed(3)} s faster than before` : `${formatGap(gapMs, 3)} s to your best`}
-              </div>
-            )}
-            {result.laps > 1 && <div className="mt-1 text-xs text-muted">Best of {result.laps} laps</div>}
+            <div className="mt-2 font-display text-2xl font-black">No time this run</div>
+            <p className="mt-1 text-sm text-muted">The finish line was not reached, so no lap was timed.</p>
           </>
         )}
-      </div>
 
-      {lap && (
-        <>
-          <div className="mt-7 border-y border-line">
+        {lap && parts.length === 3 && (
+          <div className="mt-4 border-t border-dashed border-line pt-2">
+            {parts.map((ms, k) => {
+              const gap = prevParts.length === 3 ? ms - prevParts[k] : null;
+              return (
+                <div key={k} className="flex items-baseline gap-3 py-1.5">
+                  <span className="flex-1 text-muted">Part {k + 1}</span>
+                  <span className={`font-mono text-lg font-bold tabular ${ms <= bestParts[k] ? PURPLE : ''}`}>{(ms / 1000).toFixed(2)}</span>
+                  {gap !== null && <span className={`w-16 text-right font-mono text-sm font-semibold tabular ${gap < 0 ? 'text-gain' : 'text-loss'}`}>{formatGap(gap)}</span>}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {lap && (sim || official) && (
+          <div className="mt-2 border-t border-dashed border-line pt-1">
             {sim ? (
               <Row muted>Simulated runs don&apos;t go on the leaderboard.</Row>
-            ) : !official ? null : !signedIn ? (
+            ) : !signedIn ? (
               <Row muted action={<LinkButton to="/account" size="sm" variant="primary">{acc.status === 'signed_in' ? 'Add' : 'Sign in'}</LinkButton>}>
                 {acc.status === 'signed_in' ? 'Add a nickname and car to get on the leaderboard.' : 'Sign in to put this time on the leaderboard.'}
               </Row>
             ) : !online || acc.sync === 'offline' ? (
-              <div className="flex items-center gap-3 py-3.5">
+              <div className="flex items-center gap-3 py-3">
                 <IconCloudOff width={20} height={20} className="shrink-0 text-muted" />
                 <div>
                   <div className="text-[15px] font-semibold">Saved on this phone</div>
@@ -114,35 +136,25 @@ export function DriveResult() {
                 </div>
               </div>
             ) : (
-              <div className="flex items-center py-3.5">
+              <div className="flex items-baseline gap-3 py-3">
                 <span className="flex-1 text-muted">Leaderboard</span>
                 {rank ? (
-                  <span className="text-lg font-extrabold">
-                    P{rank.place} <span className="text-sm font-semibold text-muted">of {rank.of}</span>
-                  </span>
+                  <>
+                    <span className="font-mono text-lg font-bold">P{rank.place}</span>
+                    <span className="w-16 text-right font-mono text-sm text-muted">of {rank.of}</span>
+                  </>
                 ) : (
                   <Spinner label="" />
                 )}
               </div>
             )}
           </div>
+        )}
+      </div>
 
-          {parts.length === 3 && (
-            <div className="mt-5 grid grid-cols-3 gap-2">
-              {parts.map((ms, k) => (
-                <div key={k} className={`rounded-lg border py-2.5 text-center ${ms <= bestParts[k] ? 'border-[#b36bff]' : 'border-line'}`}>
-                  <div className="label">Part {k + 1}</div>
-                  <div className={`mt-1 font-mono text-xl font-bold tabular ${ms <= bestParts[k] ? PURPLE : ''}`}>{(ms / 1000).toFixed(2)}</div>
-                </div>
-              ))}
-            </div>
-          )}
-        </>
-      )}
-
-      <div className="mt-8 grid gap-3">
+      <div className="mt-auto grid gap-3 pt-8">
         <LinkButton to={`/live?circuit=${session.circuitId}`} variant="primary" size="xl" className="text-xl">
-          <IconUndo width={20} height={20} /> Drive again
+          <IconUndo width={20} height={20} /> Run it again
         </LinkButton>
         {lap && (
           <LinkButton to={`/tracks/${session.circuitId}?session=${session.id}`} size="lg">
@@ -156,7 +168,7 @@ export function DriveResult() {
 
 function Row({ children, action, muted = false }: { children: React.ReactNode; action?: React.ReactNode; muted?: boolean }) {
   return (
-    <div className="flex items-center gap-3 py-3.5">
+    <div className="flex items-center gap-3 py-3">
       <span className={`flex-1 text-sm ${muted ? 'text-muted' : ''}`}>{children}</span>
       {action}
     </div>
