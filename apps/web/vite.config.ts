@@ -7,7 +7,10 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      registerType: 'autoUpdate',
+      // The app registers the worker itself and switches to new versions only when a reload
+      // is safe (src/lib/update.ts).
+      registerType: 'prompt',
+      injectRegister: false,
       includeAssets: ['icon.svg', 'favicon.ico', 'apple-touch-icon-180x180.png'],
       manifest: {
         name: 'Lap Timer',
