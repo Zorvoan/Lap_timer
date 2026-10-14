@@ -1,277 +1,353 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
-import { CircleMarker, Polyline } from 'react-leaflet';
-import L from 'leaflet';
-import { formatDelta, formatDistance, formatLapTime, formatSpeed, speedLabel, type Circuit, type SectorSplit, type Session } from '@laptimer/core';
-import { BaseMap, FitBounds, FollowPosition } from '../components/map/BaseMap';
-import { RouteLayer } from '../components/map/RouteLayer';
-import { TimingLineView } from '../components/map/TimingLines';
-import { BigTime, DeltaDisplay, GpsIndicator, StatusChip } from '../components/live/LiveDisplay';
-import { Badge, Button, ConfirmButton, Empty, Field, LinkButton, Notice, Panel, Select, Spinner } from '../components/ui/primitives';
-import { IconPause, IconPlay, IconStop, IconTrophy } from '../components/ui/icons';
-import { PageHeader } from '../components/AppShell';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { distanceMeters, formatLapTime, formatSpeed, speedLabel, type SectorSplit, type Session } from '@laptimer/core';
+import { Button, ConfirmButton, Empty, LinkButton, Notice, Spinner } from '../components/ui/primitives';
+import { IconAlert, IconCheck, IconPlay, IconSpinner, IconStop, IconTrophy } from '../components/ui/icons';
+import { loadBoard } from '../components/track/LeaderboardTab';
 import { useAccount, useData, useLive, useTicker } from '../hooks/useData';
 import { useSettings } from '../hooks/useSettings';
 import { liveController } from '../lib/liveController';
 import { getActiveSession, getCircuit, getSession, listCircuits, listSessions, saveSession, setActiveSession, deleteSession } from '../lib/repo';
 import { resolveReference, type ReferenceChoice } from '../lib/references';
-import { GeolocationSource, geolocationSupport } from '../lib/gps/geolocation';
+import { GeolocationSource } from '../lib/gps/geolocation';
+import { useGpsPreview, type GpsPreview } from '../lib/gps/preview';
 import { DEFAULT_SIMULATOR, SimulatedSource } from '../lib/gps/simulated';
 import { unlockAudio } from '../lib/audio';
 import { SAFETY_DETAIL, SAFETY_TEXT, acceptSafety, hasAcceptedSafety } from '../lib/safety';
 import { simulatorAllowed } from '../lib/developer';
-import { ScreenWakeLock } from '../lib/wakeLock';
+import { ensureLocalCircuit } from '../lib/cloud/account';
+import { formatClock, formatGap } from '../lib/runFormat';
 import type { ActiveSessionInfo } from '../lib/db';
-import { circuitLapNumbers, lapKey } from '../lib/lapNumbers';
 
+/** The Drive tab: the start screen until a run begins, then the driving screen. */
 export function Live() {
   const live = useLive();
-  if (live.status === 'idle') return <LiveSetup />;
-  return <LiveRunning />;
+  if (live.status === 'idle') return <DriveSetup />;
+  return <DriveRunning />;
 }
 
-// ---------------------------------------------------------------- setup
+// ---------------------------------------------------------------- before driving
 
-/** Tells the driver up front whether laps on this official track will reach its leaderboard. */
-function LeaderboardStatus({ simulated }: { simulated: boolean }) {
-  const acc = useAccount();
-  if (simulated) {
-    return <Notice title="Not for the leaderboard">Simulated laps never count for the leaderboard.</Notice>;
-  }
-  if (acc.status === 'signed_in' && acc.profile) {
-    return (
-      <div className="flex items-start gap-3 rounded border border-accent/60 bg-panel p-3 text-sm">
-        <span className="text-accent">
-          <IconTrophy />
-        </span>
-        <div>
-          <div className="font-semibold">Counts for the leaderboard</div>
-          <div className="text-muted">
-            Official track. Your best valid lap is published as {acc.profile.nickname} after you stop the session.
-          </div>
-        </div>
-      </div>
-    );
-  }
-  if (acc.status === 'signed_in') {
-    return (
-      <Notice tone="warn" title="Set your nickname and car to appear on the leaderboard" action={<LinkButton to="/account" variant="primary" size="sm">Profile</LinkButton>}>
-        Laps you drive now are kept and published once your profile is complete.
-      </Notice>
-    );
-  }
-  if (acc.status === 'disabled') return null;
-  return (
-    <Notice tone="warn" title="Sign in to appear on the leaderboard" action={<LinkButton to="/account" variant="primary" size="sm">Sign in</LinkButton>}>
-      Laps you drive now stay on this phone and are published when you sign in.
-    </Notice>
-  );
-}
+/** A start line within this distance picks the track by itself. */
+const NEAR_START_M = 1000;
+/** After this long without accurate GPS the driver may start anyway, warned. */
+const START_ANYWAY_AFTER_MS = 60_000;
 
-function LiveSetup() {
+/**
+ * Nothing to choose: the track comes from the link, the nearest start line or the last drive;
+ * the lap to beat is the driver's best; Start unlocks once GPS is accurate enough.
+ * URL: `?circuit=<id>`, `?ref=lb:<uid>` to race a leaderboard lap.
+ */
+function DriveSetup() {
   const { settings } = useSettings();
-  const navigate = useNavigate();
-  const [params] = useSearchParams();
-  const { data: circuits } = useData(listCircuits, []);
+  const acc = useAccount();
+  const [params, setParams] = useSearchParams();
+  const { data, loading } = useData(async () => ({ circuits: await listCircuits(), sessions: await listSessions() }), [acc.featured.length]);
   const { data: active } = useData(getActiveSession, []);
-  const [circuitId, setCircuitId] = useState<string>(params.get('circuit') ?? '');
-  const refParam = params.get('ref');
-  const [refKey, setRefKey] = useState<string>(refParam ?? settings.referenceMode);
+  const canSimulate = simulatorAllowed(acc.user?.uid);
   const [source, setSource] = useState<'gps' | 'simulated'>('gps');
   const [timeScale, setTimeScale] = useState(1);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [askSafety, setAskSafety] = useState(false);
+  const needM = settings.gpsMaxAccuracyM;
+  const gps = useGpsPreview(source === 'gps', needM);
+  useTicker(gps.state === 'searching', () => Date.now());
 
+  const order = (id: string) => acc.featured.findIndex((f) => f.id === id);
+  const circuits = useMemo(() => {
+    const all = data?.circuits ?? [];
+    const official = all.filter((c) => order(c.id) >= 0).sort((a, b) => order(a.id) - order(b.id));
+    return [...official, ...all.filter((c) => order(c.id) < 0)];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, acc.featured]);
+
+  const nearestId = useMemo(() => {
+    if (!gps.position) return null;
+    let best: { id: string; d: number } | null = null;
+    for (const c of circuits) {
+      const { a, b } = c.startLine;
+      const d = distanceMeters(gps.position, { lat: (a.lat + b.lat) / 2, lon: (a.lon + b.lon) / 2 });
+      if (d <= NEAR_START_M && (!best || d < best.d)) best = { id: c.id, d };
+    }
+    return best?.id ?? null;
+  }, [gps.position, circuits]);
+  const paramId = params.get('circuit');
+  // Without a link, the nearest start line wins once GPS knows where we are; it is then kept.
   useEffect(() => {
-    if (!circuitId && circuits?.length) setCircuitId(circuits[0].id);
-  }, [circuits, circuitId]);
-  useEffect(() => {
-    if (!refParam) setRefKey(settings.referenceMode);
-  }, [settings.referenceMode, refParam]);
+    if (!paramId && nearestId) setParams({ circuit: nearestId }, { replace: true });
+  }, [paramId, nearestId, setParams]);
+  const lastDriven = data?.sessions.find((s) => circuits.some((c) => c.id === s.circuitId))?.circuitId;
+  const circuitId = paramId ?? lastDriven ?? circuits[0]?.id ?? null;
+  const circuit = circuits.find((c) => c.id === circuitId) ?? null;
+  const official = circuit ? order(circuit.id) >= 0 : false;
 
-  const circuit = circuits?.find((c) => c.id === circuitId) ?? null;
-  const acc = useAccount();
-  const featured = acc.featured;
-  const canSimulate = simulatorAllowed(acc.user?.uid);
-  const isOfficial = (id: string) => featured.some((f) => f.id === id);
-  const { data: sessions } = useData(async () => (circuitId ? listSessions(circuitId) : []), [circuitId]);
-  const lapNumbers = useMemo(() => circuitLapNumbers(sessions ?? []), [sessions]);
-  const lapOptions = useMemo(() => {
-    const laps = (sessions ?? [])
-      .filter((s) => s.source === 'gps' || settings.includeSimulatedInBests || source === 'simulated')
-      .flatMap((s) => s.laps.filter((l) => l.valid).map((l) => ({ s, l })));
-    return laps.sort((a, b) => a.l.timeMs - b.l.timeMs).slice(0, 15);
-  }, [sessions, settings.includeSimulatedInBests, source]);
-
-  const gpsProblem = source === 'gps' ? geolocationSupport() : null;
+  const refParam = params.get('ref');
+  const simulating = source === 'simulated';
+  const best = useMemo(() => {
+    let b: { timeMs: number } | null = null;
+    for (const s of data?.sessions ?? []) {
+      if (s.circuitId !== circuitId || (s.source === 'simulated' && !simulating && !settings.includeSimulatedInBests)) continue;
+      for (const l of s.laps) if (l.valid && (!b || l.timeMs < b.timeMs)) b = l;
+    }
+    return b;
+  }, [data, circuitId, simulating, settings.includeSimulatedInBests]);
+  const { data: rival } = useData(async () => {
+    if (!refParam?.startsWith('lb:') || !circuitId) return null;
+    const uid = refParam.slice(3);
+    return (await loadBoard(circuitId, 200)).find((e) => e.uid === uid) ?? null;
+  }, [refParam, circuitId]);
 
   function choice(): ReferenceChoice {
-    if (refKey === 'personal_best' || refKey === 'session_best' || refKey === 'none') return { kind: refKey };
-    if (refKey.startsWith('lb:')) return { kind: 'leaderboard', uid: refKey.slice(3) };
-    const [sessionId, lap] = refKey.split('#');
-    return { kind: 'lap', sessionId, lap: Number(lap) };
+    if (refParam?.startsWith('lb:')) return { kind: 'leaderboard', uid: refParam.slice(3) };
+    if (refParam?.includes('#')) {
+      const [sessionId, lap] = refParam.split('#');
+      return { kind: 'lap', sessionId, lap: Number(lap) };
+    }
+    return { kind: settings.referenceMode };
   }
 
-  /** Before the first timed run on this device, the driver confirms they will drive legally. */
-  const [askSafety, setAskSafety] = useState(false);
+  const waitedLong = gps.state === 'searching' && gps.accuracyM !== null && Date.now() - gps.waitingSince > START_ANYWAY_AFTER_MS;
+  const ready = simulating || gps.state === 'ready';
 
-  async function start(confirmed = false) {
+  async function start(opts: { confirmed?: boolean } = {}) {
     if (!circuit) return;
-    if (!confirmed && source === 'gps' && !(await hasAcceptedSafety())) return setAskSafety(true);
+    if (!opts.confirmed && !simulating && !(await hasAcceptedSafety())) return setAskSafety(true);
     setBusy(true);
     setError(null);
     unlockAudio();
     try {
-      const ref = await resolveReference(circuit, choice(), settings.includeSimulatedInBests || source === 'simulated');
-      const src = source === 'simulated' ? new SimulatedSource(circuit, { ...DEFAULT_SIMULATOR, timeScale, seed: Date.now() % 100000 }) : new GeolocationSource();
+      const f = acc.featured.find((x) => x.id === circuit.id);
+      if (f) await ensureLocalCircuit(f);
+      const ref = await resolveReference(circuit, choice(), settings.includeSimulatedInBests || simulating);
+      const src = simulating ? new SimulatedSource(circuit, { ...DEFAULT_SIMULATOR, timeScale, seed: Date.now() % 100000 }) : new GeolocationSource();
       await liveController.start(circuit, src, ref, settings);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not start the session.');
+      setError(e instanceof Error ? e.message : 'Could not start.');
     } finally {
       setBusy(false);
     }
   }
 
+  if (loading && !data) return <div className="p-6"><Spinner /></div>;
+  if (!circuit) {
+    return (
+      <div className="p-6">
+        <Empty title="No roads yet" action={<LinkButton to="/" variant="primary">See the roads</LinkButton>}>
+          Pick a road to drive first.
+        </Empty>
+      </div>
+    );
+  }
+
   return (
-    <div className="pb-8">
+    <div className="mx-auto flex min-h-full max-w-xl flex-col px-4 pb-8 pt-5">
       {askSafety && (
-        <div className="fixed inset-0 z-[2000] flex items-end bg-black/60 md:items-center md:justify-center" onClick={() => setAskSafety(false)}>
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="safety-title"
-            className="w-full border-t border-line bg-panel p-4 pb-[max(1rem,env(safe-area-inset-bottom))] md:max-w-md md:rounded md:border"
-            onClick={(e) => e.stopPropagation()}
+        <SafetyDialog
+          onCancel={() => setAskSafety(false)}
+          onAgree={async () => {
+            setAskSafety(false);
+            await acceptSafety();
+            void start({ confirmed: true });
+          }}
+        />
+      )}
+      {active && <RecoveryBanner info={active} />}
+
+      <div className="label">Track</div>
+      <div className="mt-1 flex items-baseline gap-3">
+        <h1 className="min-w-0 flex-1 font-display text-[1.75rem] font-black leading-tight tracking-tight">{circuit.name}</h1>
+        <label className="relative shrink-0 cursor-pointer text-sm text-muted underline underline-offset-4">
+          Change
+          <select
+            aria-label="Change track"
+            value={circuit.id}
+            onChange={(e) => setParams({ circuit: e.target.value }, { replace: true })}
+            className="absolute inset-0 cursor-pointer opacity-0"
           >
-            <h2 id="safety-title" className="text-xl font-bold">
-              Before your first run
-            </h2>
-            <p className="mt-2 text-sm">{SAFETY_TEXT}</p>
-            <p className="mt-2 text-sm text-muted">{SAFETY_DETAIL}</p>
-            <div className="mt-4 grid grid-cols-2 gap-3">
-              <Button size="lg" onClick={() => setAskSafety(false)}>
-                Cancel
-              </Button>
-              <Button
-                size="lg"
-                variant="primary"
-                onClick={async () => {
-                  setAskSafety(false);
-                  await acceptSafety();
-                  void start(true);
-                }}
-              >
-                I agree
-              </Button>
-            </div>
+            {circuits.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      <GpsLine gps={gps} simulating={simulating} needM={needM} />
+
+      <ul className="mt-5 border-y border-line">
+        <li className="flex items-center gap-3 py-3.5">
+          <div className="min-w-0 flex-1">
+            <div className="label">You race</div>
+            <div className="mt-0.5 truncate font-semibold">{rival ? `${rival.nickname}, ${rival.car}` : best ? 'Your best lap' : 'Nobody yet'}</div>
           </div>
+          <div className="font-mono text-xl tabular">{rival ? formatLapTime(rival.timeMs) : best ? formatLapTime(best.timeMs) : ''}</div>
+        </li>
+        {!rival && !best && <li className="-mt-2 pb-3 text-xs text-muted">Your first run here sets the time to beat.</li>}
+      </ul>
+      {official && <LeaderboardLine simulating={simulating} />}
+
+      {error && (
+        <div className="mt-4">
+          <Notice tone="error">{error}</Notice>
         </div>
       )}
-      <PageHeader title="Live timing" subtitle="Choose a circuit and a reference lap, then start. Timing begins when you cross the start line." />
-      <div className="mx-auto grid max-w-5xl gap-4 p-4 md:grid-cols-[1fr_20rem] md:p-6">
-        {active && <RecoveryBanner info={active} />}
-        <Panel title="Session" className="md:row-span-2">
-          {!circuits ? (
-            <Spinner />
-          ) : circuits.length === 0 ? (
-            <Empty title="No circuits yet" action={<LinkButton to="/circuits/new" variant="primary">Create a circuit</LinkButton>}>
-              You need a circuit with a start/finish line before you can time laps.
-            </Empty>
-          ) : (
-            <div className="space-y-4">
-              <Field label="Circuit">
-                <Select value={circuitId} onChange={(e) => setCircuitId(e.target.value)}>
-                  {[
-                    { label: 'Official tracks', list: circuits.filter((c) => isOfficial(c.id)) },
-                    { label: 'My circuits', list: circuits.filter((c) => !isOfficial(c.id)) },
-                  ]
-                    .filter((g) => g.list.length)
-                    .map((g) => (
-                      <optgroup key={g.label} label={g.label}>
-                        {g.list.map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.name} · {formatDistance(c.lengthM, settings.distanceUnit)}
-                          </option>
-                        ))}
-                      </optgroup>
-                    ))}
-                </Select>
-              </Field>
-              {circuit && isOfficial(circuit.id) && <LeaderboardStatus simulated={source === 'simulated'} />}
-              <Field label="Reference lap for delta" hint="A faster lap set during the session replaces personal-best and session-best references automatically.">
-                <Select value={refKey} onChange={(e) => setRefKey(e.target.value)}>
-                  <option value="personal_best">Personal best on this circuit</option>
-                  <option value="session_best">Best lap of this session</option>
-                  <option value="none">No reference (timing only)</option>
-                  {refKey.startsWith('lb:') && <option value={refKey}>Leaderboard lap (chosen on the leaderboard)</option>}
-                  {lapOptions.length > 0 && (
-                    <optgroup label="Specific lap (fixed)">
-                      {lapOptions.map(({ s, l }) => (
-                        <option key={`${s.id}#${l.lap}`} value={`${s.id}#${l.lap}`}>
-                          {formatLapTime(l.timeMs)} · lap {lapNumbers.get(lapKey(s.id, l.lap)) ?? l.lap} · {new Date(s.startedAt).toLocaleDateString()}
-                          {s.source === 'simulated' ? ' · SIM' : ''}
-                        </option>
-                      ))}
-                    </optgroup>
-                  )}
-                </Select>
-              </Field>
+      {active && (
+        <div className="mt-4">
+          <Notice tone="warn">Finish the interrupted drive above first.</Notice>
+        </div>
+      )}
 
-              {canSimulate && (
-                <fieldset className="rounded border border-warn/50 p-3">
-                  <legend className="px-1 text-xs font-bold uppercase tracking-wider text-warn">Position source · developer option</legend>
-                  <div className="grid grid-cols-2 gap-2">
-                    <Button variant={source === 'gps' ? 'primary' : 'secondary'} onClick={() => setSource('gps')}>
-                      Real GPS
-                    </Button>
-                    <Button variant={source === 'simulated' ? 'primary' : 'secondary'} onClick={() => setSource('simulated')}>
-                      Simulator
-                    </Button>
-                  </div>
-                  {source === 'simulated' && (
-                    <div className="mt-3 space-y-2">
-                      <p className="text-xs text-warn">
-                        SIMULATION: synthetic positions along the circuit. Not real GPS. Sessions are saved and labelled as simulated.
-                      </p>
-                      <Field label="Playback speed">
-                        <Select value={timeScale} onChange={(e) => setTimeScale(Number(e.target.value))}>
-                          {[1, 2, 5, 10].map((v) => (
-                            <option key={v} value={v}>
-                              {v}× real time
-                            </option>
-                          ))}
-                        </Select>
-                      </Field>
-                    </div>
-                  )}
-                </fieldset>
-              )}
+      <Button
+        variant={ready ? 'primary' : 'secondary'}
+        size="xl" className="mt-6 !h-20 w-full !text-2xl !font-extrabold"
+        onClick={() => void start()}
+        disabled={busy || !!active || !ready}
+      >
+        {ready ? (
+          <>
+            <IconPlay width={22} height={22} /> {busy ? 'Starting…' : 'Start'}
+          </>
+        ) : gps.state === 'denied' || gps.state === 'unsupported' ? (
+          'Location is off'
+        ) : (
+          'Waiting for GPS'
+        )}
+      </Button>
+      {waitedLong && !active && (
+        <button type="button" onClick={() => void start()} className="mt-3 text-sm text-muted underline underline-offset-4">
+          Start anyway (times will be less accurate)
+        </button>
+      )}
+      <p className="mx-auto mt-4 max-w-xs text-center text-sm leading-relaxed text-muted">
+        {ready
+          ? 'Put the phone in a holder and keep the screen on. Timing starts when you cross the start line.'
+          : gps.state === 'denied'
+            ? 'Allow location for this site in your browser settings, then come back.'
+            : 'Stand outside with a clear view of the sky. Indoors GPS may never get accurate enough.'}
+      </p>
 
-              {gpsProblem && <Notice tone="error">{gpsProblem.message}</Notice>}
-              {error && <Notice tone="error">{error}</Notice>}
-              {active && <Notice tone="warn">Resolve the interrupted session above before starting a new one.</Notice>}
-
-              <Button variant="primary" size="xl" className="w-full" onClick={() => void start()} disabled={!circuit || busy || !!gpsProblem || !!active}>
-                <IconPlay /> {busy ? 'Starting…' : source === 'simulated' ? 'Start simulated session' : 'Start session'}
-              </Button>
-              {circuit && (
-                <Button variant="ghost" className="w-full" onClick={() => navigate(`/tracks/${circuit.id}`)}>
-                  View circuit on map
-                </Button>
-              )}
-            </div>
+      {canSimulate && (
+        <div className="mt-8 rounded border border-warn/40 p-3">
+          <div className="label !text-warn">Developer</div>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <Button size="sm" variant={!simulating ? 'primary' : 'secondary'} onClick={() => setSource('gps')}>
+              Real GPS
+            </Button>
+            <Button size="sm" variant={simulating ? 'primary' : 'secondary'} onClick={() => setSource('simulated')}>
+              Simulator
+            </Button>
+          </div>
+          {simulating && (
+            <select aria-label="Playback speed" value={timeScale} onChange={(e) => setTimeScale(Number(e.target.value))} className="mt-2 h-9 w-full rounded border border-line bg-raised px-2 text-sm">
+              {[1, 2, 5, 10].map((v) => (
+                <option key={v} value={v}>
+                  {v}× real time
+                </option>
+              ))}
+            </select>
           )}
-        </Panel>
-        <Panel title="Before you drive">
-          <ul className="list-disc space-y-2 pl-4 text-sm text-muted">
-            <li>Use a phone with GPS outdoors. Desktop browsers usually have no GPS receiver; their positions are too coarse for timing.</li>
-            <li>Keep this screen on and the app in front. Standard browsers may pause GPS when the screen turns off or the app goes to the background; laps are flagged when fixes are missing.</li>
-            <li>Mount the phone and don’t touch it while driving. The display is designed to be read at a glance.</li>
-            <li>Consumer GPS timing is accurate to roughly a tenth of a second, not to motorsport-transponder precision.</li>
-            <li>Only drive on closed courses or legally, within limits. Public roads are not race tracks.</li>
-          </ul>
-          <div className="mt-3 text-xs text-muted">Screen wake lock: {ScreenWakeLock.supported ? 'supported' : 'not supported in this browser'}</div>
-        </Panel>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** One line: is GPS good enough to start? */
+function GpsLine({ gps, simulating, needM }: { gps: GpsPreview; simulating: boolean; needM: number }) {
+  const box = 'mt-4 flex items-center gap-3 rounded-lg border p-3.5';
+  if (simulating) {
+    return (
+      <div className={`${box} border-warn/50 bg-warn/10`}>
+        <div className="font-bold text-warn">Simulator: no GPS needed</div>
+      </div>
+    );
+  }
+  if (gps.state === 'ready') {
+    return (
+      <div className={`${box} border-gain/40 bg-gain/10`} role="status">
+        <IconCheck width={26} height={26} className="shrink-0 text-gain" />
+        <div>
+          <div className="font-extrabold text-gain">GPS ready</div>
+          <div className="text-xs text-gain/80">Accurate to {Math.round(gps.accuracyM ?? 0)} m</div>
+        </div>
+      </div>
+    );
+  }
+  if (gps.state === 'denied' || gps.state === 'unsupported') {
+    return (
+      <div className={`${box} border-loss/50 bg-loss/10`} role="alert">
+        <IconAlert width={24} height={24} className="shrink-0 text-loss" />
+        <div>
+          <div className="font-extrabold text-loss">{gps.state === 'denied' ? 'Location is not allowed' : 'No location on this device'}</div>
+          <div className="text-xs text-loss/80">{gps.state === 'denied' ? 'Timing needs your position.' : 'Open the app on a phone with GPS.'}</div>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className={`${box} border-warn/40 bg-warn/10`} role="status">
+      <IconSpinner width={24} height={24} className="shrink-0 animate-spin text-warn" />
+      <div>
+        <div className="font-extrabold text-warn">Finding GPS</div>
+        <div className="text-xs text-warn/80">
+          {gps.accuracyM !== null ? `Accurate to ${Math.round(gps.accuracyM)} m, needs ${needM} m. ` : ''}Usually under a minute outdoors.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Whether this run will reach the leaderboard, in one line. */
+function LeaderboardLine({ simulating }: { simulating: boolean }) {
+  const acc = useAccount();
+  const line = 'mt-3 flex items-center gap-2 text-sm text-muted';
+  if (simulating) return <p className={line}>Simulated runs never count for the leaderboard.</p>;
+  if (acc.status === 'signed_in' && acc.profile) {
+    return (
+      <p className={line}>
+        <IconTrophy width={16} height={16} className="text-accent" /> Counts for the leaderboard as {acc.profile.nickname}
+      </p>
+    );
+  }
+  if (acc.status === 'disabled' || acc.status === 'loading') return null;
+  return (
+    <p className={line}>
+      <IconTrophy width={16} height={16} />
+      <span>
+        {acc.status === 'signed_in' ? 'Add a nickname and car' : 'Sign in'} to count for the leaderboard.{' '}
+        <Link to="/account" className="font-semibold text-fg underline underline-offset-4">
+          {acc.status === 'signed_in' ? 'Add' : 'Sign in'}
+        </Link>
+      </span>
+    </p>
+  );
+}
+
+function SafetyDialog({ onCancel, onAgree }: { onCancel: () => void; onAgree: () => void }) {
+  return (
+    <div className="fixed inset-0 z-[2000] flex items-end bg-black/60 md:items-center md:justify-center" onClick={onCancel}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="safety-title"
+        className="w-full border-t border-line bg-panel p-4 pb-[max(1rem,env(safe-area-inset-bottom))] md:max-w-md md:rounded md:border"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h2 id="safety-title" className="text-xl font-bold">
+          Before your first run
+        </h2>
+        <p className="mt-2 text-sm">{SAFETY_TEXT}</p>
+        <p className="mt-2 text-sm text-muted">{SAFETY_DETAIL}</p>
+        <div className="mt-4 grid grid-cols-2 gap-3">
+          <Button size="lg" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button size="lg" variant="primary" onClick={onAgree}>
+            I agree
+          </Button>
+        </div>
       </div>
     </div>
   );
@@ -303,7 +379,7 @@ function RecoveryBanner({ info }: { info: ActiveSessionInfo }) {
   async function finish() {
     if (session) await saveSession({ ...session, endedAt: session.laps.at(-1)?.endT ?? info.updatedAt } satisfies Session);
     await setActiveSession(null);
-    navigate(session ? `/sessions/${session.id}` : '/sessions');
+    navigate(session ? `/result/${session.id}` : '/me');
   }
 
   async function discard() {
@@ -313,43 +389,43 @@ function RecoveryBanner({ info }: { info: ActiveSessionInfo }) {
   }
 
   return (
-    <div className="md:col-span-2">
+    <div className="mb-5">
       <Notice
         tone="warn"
-        title="A session was interrupted"
+        title="A drive was interrupted"
         action={
-          <div className="flex flex-col gap-2 sm:flex-row">
+          <div className="flex flex-col gap-2">
             {info.source === 'gps' && (
               <Button size="sm" variant="primary" disabled={busy || !session || !circuit} onClick={() => void resume()}>
                 Resume
               </Button>
             )}
             <Button size="sm" onClick={() => void finish()}>
-              Save & finish
+              Save
             </Button>
-            <ConfirmButton size="sm" onConfirm={discard} confirmLabel="Confirm discard">
+            <ConfirmButton size="sm" onConfirm={discard} confirmLabel="Sure?">
               Discard
             </ConfirmButton>
           </div>
         }
       >
-        {circuit?.name ?? 'Unknown circuit'} · started {new Date(info.startedAt).toLocaleTimeString()} · {session?.laps.length ?? 0} laps saved.
-        {info.source === 'simulated' ? ' Simulated sessions cannot be resumed.' : ' Resuming restores completed laps; the lap that was in progress is discarded.'}
+        {circuit?.name ?? 'Unknown road'}, started {new Date(info.startedAt).toLocaleTimeString()}, {session?.laps.length ?? 0} laps saved.
+        {info.source === 'simulated' ? ' Simulated drives cannot be resumed.' : ' Resuming keeps the finished laps; the lap that was in progress is lost.'}
         {error && <span className="block text-loss">{error}</span>}
       </Notice>
     </div>
   );
 }
 
-// ---------------------------------------------------------------- running
+// ---------------------------------------------------------------- driving
 
-function LiveRunning() {
+/** Driving: the gap to the best lap first, then the time, three parts and speed. Nothing else. */
+function DriveRunning() {
   const live = useLive();
   const { settings } = useSettings();
   const navigate = useNavigate();
-  const [showMap, setShowMap] = useState(settings.showLiveMap);
   const [stopping, setStopping] = useState(false);
-  /** Stop asks first in a panel: a stray tap while driving must not end the session. */
+  /** Stop asks first in a panel: a stray tap while driving must not end the run. */
   const [confirmStop, setConfirmStop] = useState(false);
   /** Sprints stop and save themselves shortly after the finish (Settings), unless the driver keeps timing. */
   const [autoStopAt, setAutoStopAt] = useState<number | null>(null);
@@ -374,128 +450,78 @@ function LiveRunning() {
   const running = live.status === 'running';
   const now = useTicker(running && snap?.lapState !== 'waiting_start', live.clock);
 
-  // Start at the top: the delta and lap time must be visible without scrolling.
   useEffect(() => {
     document.querySelector('main')?.scrollTo(0, 0);
   }, []);
 
-  const elapsed = snap?.lapStartT != null ? Math.max(0, now - snap.lapStartT) : null;
-  const flash = live.lastLap && snap?.lapState === 'lap_completed' ? live.lastLap : null;
-
   async function stop() {
     setStopping(true);
     try {
-      const circuitId = live.circuit?.id;
       const id = await liveController.stop();
-      navigate(id && circuitId ? `/tracks/${circuitId}?session=${id}` : id ? `/sessions/${id}` : '/sessions');
+      navigate(id ? `/result/${id}` : '/me');
     } finally {
       setStopping(false);
     }
   }
 
-  if (!snap || !live.circuit) return <Spinner />;
+  if (!snap || !live.circuit) return <div className="p-6"><Spinner /></div>;
+
+  const elapsed = snap.lapStartT != null ? Math.max(0, now - snap.lapStartT) : null;
+  const flash = live.lastLap && snap.lapState === 'lap_completed' ? live.lastLap : null;
+  const sectors = live.sectorsLap === snap.lap ? live.sectors : [];
+  const gpsGone = snap.gpsState === 'lost' || snap.gpsState === 'no_fix';
 
   return (
     <div className="flex min-h-full flex-col bg-bg">
       {live.source === 'simulated' && (
         <div className="bg-warn px-3 py-1 text-center text-xs font-bold uppercase tracking-[0.2em] text-black" role="status">
-          Simulation — not real GPS
+          Simulation, not real GPS
         </div>
       )}
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-2">
-        <div className="flex items-center gap-3">
-          <StatusChip lapState={snap.lapState} gpsState={snap.gpsState} />
-          <span className="font-mono text-sm font-bold tabular" title="Lap number on this circuit, counting earlier sessions">
-            LAP {snap.lap ? live.lapOffset + snap.lap : '—'}
-          </span>
-        </div>
-        <div className="flex items-center gap-3">
-          <GpsIndicator state={snap.gpsState} accuracy={snap.accuracyM} rateHz={live.assessment.rateHz} />
-          <span className="hidden truncate text-xs text-muted sm:inline">{live.circuit.name}</span>
-        </div>
+      <div className="mx-auto flex w-full max-w-xl items-center justify-between gap-3 px-4 pt-4">
+        <GpsStatus state={snap.gpsState} />
+        <span className="truncate text-sm text-muted">{live.circuit.name}</span>
       </div>
-
-      {(live.error || live.assessment.message) && (
-        <div className="space-y-2 px-4 pt-3">
-          {live.error && <Notice tone={live.error.fatal ? 'error' : 'warn'}>{live.error.message}</Notice>}
-          {live.assessment.message && <Notice tone={live.assessment.level === 'unsuitable' ? 'error' : 'warn'}>{live.assessment.message}</Notice>}
+      {(live.error || live.assessment.level === 'unsuitable') && (
+        <div className="mx-auto w-full max-w-xl px-4 pt-3">
+          <Notice tone={live.error?.fatal ? 'error' : 'warn'}>{live.error?.message ?? live.assessment.message}</Notice>
         </div>
       )}
 
-      <div className={`grid flex-1 gap-4 p-4 ${showMap ? 'lg:grid-cols-[1fr_24rem]' : ''}`}>
-        <div className="flex flex-col justify-center gap-6">
-          {flash ? (
-            <div className="flex flex-col items-center gap-2 py-6" role="status" aria-live="assertive">
-              <div className="label">Lap {flash.lap} {flash.valid ? '' : '· invalid'}</div>
-              <div className="font-mono text-[clamp(3rem,14vw,8rem)] font-bold leading-none tabular">{formatLapTime(flash.timeMs)}</div>
-              {flash.deltaMs !== null && (
-                <div className={`font-mono text-3xl font-bold tabular ${flash.deltaMs < 0 ? 'text-gain' : 'text-loss'}`}>
-                  {flash.deltaMs < 0 ? '▼' : '▲'} {formatDelta(flash.deltaMs)} s
-                </div>
-              )}
-              {flash.newBest && <Badge tone="accent">Best lap</Badge>}
-              {live.sectorsLap + live.lapOffset === flash.lap && <SectorStrip sectors={live.sectors} />}
-            </div>
-          ) : (
-            <DeltaDisplay delta={snap.delta} hasReference={!!live.reference} referenceLabel={live.reference ? formatLapTime(live.reference.lapTimeMs) : null} />
-          )}
-
-          <BigTime ms={snap.lapState === 'waiting_start' ? null : elapsed} label={snap.lapState === 'waiting_start' ? 'Cross the start line to begin' : 'Lap time'} />
-          {!flash && snap.lapState === 'in_lap' && (
-            <SectorStrip
-              sectors={live.sectorsLap === snap.lap ? live.sectors : []}
-              highlight={live.sectorFlash && Date.now() - live.sectorFlash.at < 5000 && live.sectorsLap === snap.lap ? live.sectorFlash.sector : null}
-            />
-          )}
-
-          <div className="mx-auto grid w-full max-w-3xl grid-cols-2 gap-px overflow-hidden rounded border border-line bg-line sm:grid-cols-4">
-            <Readout label="Speed" value={formatSpeed(snap.speedMs, settings.speedUnit)} unit={speedLabel(settings.speedUnit)} />
-            <Readout label="Reference here" value={snap.delta?.reliable ? formatLapTime(snap.delta.referenceElapsedMs) : '—'} />
-            <Readout label="Projected · est." value={snap.delta?.reliable ? formatLapTime(snap.delta.projectedLapMs) : '—'} />
-            <Readout
-              label="Distance"
-              value={snap.lapDistanceM !== null ? `${formatDistance(snap.lapDistanceM, settings.distanceUnit, 2).split(' ')[0]}` : '—'}
-              unit={`/ ${formatDistance(snap.lapLengthM, settings.distanceUnit, 2)}`}
-            />
-          </div>
-
-          <div className="mx-auto grid w-full max-w-3xl grid-cols-2 gap-4 text-center">
-            <div>
-              <div className="label">Last lap</div>
-              <div className="font-mono text-2xl tabular">{formatLapTime(snap.lastLap?.timeMs)}</div>
-            </div>
-            <div>
-              <div className="label">Session best</div>
-              <div className="font-mono text-2xl tabular">{formatLapTime(snap.bestLap?.timeMs)}</div>
-            </div>
-          </div>
-          {live.reference && <div className="text-center text-xs text-muted">Reference: {live.reference.label}</div>}
+      <div className="mx-auto flex w-full max-w-xl flex-1 flex-col justify-center gap-8 px-4 py-6">
+        <GapBox
+          waiting={snap.lapState === 'waiting_start'}
+          flash={flash ? { lap: live.lapOffset + flash.lap, timeMs: flash.timeMs, deltaMs: flash.deltaMs } : null}
+          gpsGone={gpsGone}
+          hasReference={!!live.reference}
+          delta={snap.delta}
+        />
+        <div className="text-center">
+          <div className="label">Time</div>
+          <div className="mt-1 font-mono text-[clamp(3.6rem,18vw,5.5rem)] font-extrabold leading-none tabular">{formatClock(snap.lapState === 'waiting_start' ? 0 : elapsed)}</div>
         </div>
-
-        {showMap && <LiveMap circuit={live.circuit} />}
+        <Parts sectors={sectors} />
+        <div className="text-center text-muted">
+          <span className="font-mono text-[1.7rem] text-fg tabular">{formatSpeed(snap.speedMs, settings.speedUnit)}</span> {speedLabel(settings.speedUnit)}
+        </div>
       </div>
 
-      <div className="sticky bottom-0 z-10 grid grid-cols-[auto_1fr_1fr] gap-3 border-t border-line bg-panel p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-        <Button size="xl" variant="ghost" onClick={() => setShowMap((v) => !v)} aria-pressed={showMap}>
-          Map
-        </Button>
-        {live.status === 'paused' ? (
-          <Button size="xl" onClick={() => liveController.resume()}>
-            <IconPlay /> Resume
+      <div className="sticky bottom-0 z-10 border-t border-line bg-bg p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+        <div className="mx-auto flex max-w-xl gap-3">
+          {live.status === 'paused' && (
+            <Button size="xl" variant="primary" className="flex-1" onClick={() => liveController.resume()}>
+              <IconPlay /> Resume
+            </Button>
+          )}
+          <Button size="xl" className="flex-1" onClick={() => setConfirmStop(true)} disabled={stopping}>
+            <IconStop width={18} height={18} /> {stopping ? 'Saving…' : 'Stop'}
           </Button>
-        ) : (
-          <Button size="xl" onClick={() => liveController.pause()} disabled={live.status !== 'running'} title="Pausing discards the lap in progress">
-            <IconPause /> Pause
-          </Button>
-        )}
-        <Button size="xl" variant="primary" className="whitespace-nowrap" onClick={() => setConfirmStop(true)} disabled={stopping}>
-          <IconStop /> {stopping ? 'Saving…' : 'Stop'}
-        </Button>
+        </div>
       </div>
 
       {autoStopAt !== null && (
         <div role="status" className="fixed inset-x-0 bottom-0 z-[1500] border-t border-accent bg-panel p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
-          <div className="flex items-center justify-between gap-3">
+          <div className="mx-auto flex max-w-xl items-center justify-between gap-3">
             <div className="min-w-0">
               <div className="text-lg font-bold">Finish!{live.lastLap && ` ${formatLapTime(live.lastLap.timeMs)}`}</div>
               <div className="text-sm text-muted">Saving the run…</div>
@@ -520,17 +546,15 @@ function LiveRunning() {
               Stop and save?
             </h2>
             <p className="mt-1 text-sm text-muted">
-              {snap.completedLaps === 0
-                ? 'No lap is completed yet; the session is saved without laps.'
-                : `${snap.completedLaps} lap${snap.completedLaps > 1 ? 's' : ''} will be saved.`}
-              {snap.lapState === 'in_lap' && ' The lap in progress is not counted.'}
+              {snap.completedLaps === 0 ? 'No lap is finished yet, so this run has no time.' : `${snap.completedLaps} lap${snap.completedLaps > 1 ? 's' : ''} will be saved.`}
+              {snap.lapState === 'in_lap' && snap.completedLaps > 0 && ' The lap in progress is not counted.'}
             </p>
             <div className="mt-4 grid grid-cols-2 gap-3">
               <Button size="xl" onClick={() => setConfirmStop(false)}>
                 Keep timing
               </Button>
               <Button size="xl" variant="primary" className="whitespace-nowrap" disabled={stopping} onClick={() => (setConfirmStop(false), void stop())}>
-                <IconStop /> Stop & save
+                <IconStop /> Stop
               </Button>
             </div>
           </div>
@@ -540,23 +564,103 @@ function LiveRunning() {
   );
 }
 
-/**
- * The lap's three sectors (thirds by distance): time when done, coloured purple for a personal
- * best sector, green/red against the reference; the sector just finished is enlarged.
- */
-function SectorStrip({ sectors, highlight = null }: { sectors: SectorSplit[]; highlight?: number | null }) {
+function GpsStatus({ state }: { state: string }) {
+  const [color, text] = state === 'good' ? ['bg-gain text-gain', 'GPS good'] : state === 'weak' ? ['bg-warn text-warn', 'GPS weak'] : ['bg-loss text-loss', 'No GPS signal'];
   return (
-    <div className="mx-auto grid w-full max-w-3xl grid-cols-3 gap-2" aria-label="Sectors">
+    <span className={`flex items-center gap-2 text-sm font-bold ${color.split(' ')[1]}`}>
+      <span className={`h-2.5 w-2.5 rounded-full ${color.split(' ')[0]}`} aria-hidden="true" />
+      {text}
+    </span>
+  );
+}
+
+/**
+ * The biggest thing on the screen: the gap to the lap being raced. Green with a minus sign when
+ * faster, red with a plus sign when slower. Before the start line, after a lap, without GPS or
+ * without a lap to race, it says so instead.
+ */
+function GapBox({
+  waiting,
+  flash,
+  gpsGone,
+  hasReference,
+  delta,
+}: {
+  waiting: boolean;
+  flash: { lap: number; timeMs: number; deltaMs: number | null } | null;
+  gpsGone: boolean;
+  hasReference: boolean;
+  delta: { deltaMs: number; reliable: boolean } | null;
+}) {
+  const box = 'rounded-xl border px-4 pb-7 pt-5 text-center';
+  if (waiting) {
+    return (
+      <div className={`${box} border-line`}>
+        <div className="label">Ready</div>
+        <div className="mt-2 font-display text-3xl font-black leading-tight">Cross the start line</div>
+        <div className="mt-2 text-sm text-muted">Timing starts by itself.</div>
+      </div>
+    );
+  }
+  if (flash) {
+    const faster = flash.deltaMs !== null && flash.deltaMs < 0;
+    return (
+      <div className={`${box} ${flash.deltaMs === null ? 'border-line' : faster ? 'border-gain/50 bg-gain/10' : 'border-loss/50 bg-loss/10'}`} role="status" aria-live="assertive">
+        <div className="label">Lap {flash.lap}</div>
+        <div className="mt-2 font-mono text-6xl font-extrabold leading-none tabular">{formatClock(flash.timeMs)}</div>
+        {flash.deltaMs !== null && <div className={`mt-3 font-mono text-2xl font-bold tabular ${faster ? 'text-gain' : 'text-loss'}`}>{formatGap(flash.deltaMs)}</div>}
+      </div>
+    );
+  }
+  if (gpsGone) {
+    return (
+      <div className={`${box} border-line`}>
+        <div className="label">vs best</div>
+        <div className="mt-2 font-mono text-[6.5rem] font-extrabold leading-none text-muted">—</div>
+        <div className="mt-3 flex items-center justify-center gap-2 font-bold text-warn">
+          <IconAlert width={18} height={18} /> Keep driving, timing continues
+        </div>
+      </div>
+    );
+  }
+  if (!hasReference || !delta) {
+    return (
+      <div className={`${box} border-line`}>
+        <div className="label">vs best</div>
+        <div className="mt-2 font-mono text-[6.5rem] font-extrabold leading-none text-muted">—</div>
+        {!hasReference && <div className="mt-3 text-sm text-muted">First run here: this one sets the time to beat.</div>}
+      </div>
+    );
+  }
+  const faster = delta.deltaMs < 0;
+  const tone = !delta.reliable ? 'border-line' : faster ? 'border-gain/50 bg-gain/10' : 'border-loss/50 bg-loss/10';
+  const text = !delta.reliable ? 'text-muted' : faster ? 'text-gain' : 'text-loss';
+  return (
+    <div className={`${box} ${tone}`} role="timer" aria-label="Gap to your best lap">
+      <div className={`label ${delta.reliable ? (faster ? '!text-gain/80' : '!text-loss/80') : ''}`}>vs best</div>
+      <div className={`mt-2 font-mono text-[clamp(4.5rem,25vw,7rem)] font-extrabold leading-none tabular ${text}`}>{formatGap(delta.deltaMs)}</div>
+      {!delta.reliable && <div className="mt-2 text-sm text-muted">GPS uncertain here</div>}
+    </div>
+  );
+}
+
+/**
+ * The lap's three parts (thirds by distance), filled in as they are driven: a part faster than any
+ * before is purple with its time; otherwise the gap to the lap being raced, green or red.
+ */
+function Parts({ sectors }: { sectors: SectorSplit[] }) {
+  return (
+    <div className="grid grid-cols-3 gap-2" aria-label="Parts">
       {[0, 1, 2].map((k) => {
         const s = sectors.find((x) => x.sector === k);
-        const tone = !s ? 'border-line text-muted' : s.personalBest ? 'border-[#b36bff] bg-[#b36bff]/20 text-fg' : s.refDeltaMs === null ? 'border-line text-fg' : s.refDeltaMs < 0 ? 'border-gain/70 text-fg' : 'border-loss/70 text-fg';
+        const purple = !!s?.personalBest;
+        const gap = s && !purple && s.refDeltaMs !== null ? s.refDeltaMs : null;
+        const tone = !s ? 'border-line' : purple ? 'border-[#b36bff]' : gap === null ? 'border-line' : gap < 0 ? 'border-gain/50' : 'border-loss/50';
+        const text = !s ? 'text-muted' : purple ? 'text-[#b36bff]' : gap === null ? 'text-fg' : gap < 0 ? 'text-gain' : 'text-loss';
         return (
-          <div key={k} className={`rounded border px-2 py-1.5 text-center transition-transform ${tone} ${highlight === k ? 'scale-110 ring-2 ring-fg' : ''}`}>
-            <div className="label">S{k + 1}</div>
-            <div className="font-mono text-lg font-semibold tabular">{s ? (s.timeMs / 1000).toFixed(2) : '—'}</div>
-            {s?.refDeltaMs != null && (
-              <div className={`font-mono text-sm font-bold tabular ${s.refDeltaMs < 0 ? 'text-gain' : 'text-loss'}`}>{formatDelta(s.refDeltaMs, 2)}</div>
-            )}
+          <div key={k} className={`rounded-lg border py-2.5 text-center ${tone}`}>
+            <div className="label">Part {k + 1}</div>
+            <div className={`mt-1 font-mono text-2xl font-bold tabular ${text}`}>{!s ? '—' : gap !== null ? formatGap(gap) : (s.timeMs / 1000).toFixed(2)}</div>
           </div>
         );
       })}
@@ -564,38 +668,3 @@ function SectorStrip({ sectors, highlight = null }: { sectors: SectorSplit[]; hi
   );
 }
 
-function Readout({ label, value, unit }: { label: string; value: string; unit?: string }) {
-  return (
-    <div className="bg-panel px-3 py-3 text-center">
-      <div className="label">{label}</div>
-      <div className="mt-1 font-mono text-2xl font-semibold tabular">
-        {value}
-        {unit && <span className="ml-1 text-xs font-normal text-muted">{unit}</span>}
-      </div>
-    </div>
-  );
-}
-
-function LiveMap({ circuit }: { circuit: Circuit }) {
-  const live = useLive();
-  // On the road when the fix matches the circuit; the raw fix (off the route) otherwise.
-  const pos = live.snapshot?.trackPosition ?? live.snapshot?.position;
-  const bounds = useMemo(() => L.latLngBounds(circuit.geometry.map(([lon, lat]) => [lat, lon] as [number, number])), [circuit]);
-  const [follow, setFollow] = useState(false);
-  return (
-    <div className="relative h-72 overflow-hidden rounded border border-line lg:h-auto">
-      <BaseMap>
-        <RouteLayer geometry={circuit.geometry} closed={circuit.kind === 'closed'} weight={4} arrows={false} />
-        <TimingLineView line={circuit.startLine} kind="start" label="Start / finish" />
-        {circuit.finishLine && <TimingLineView line={circuit.finishLine} kind="finish" label="Finish" />}
-        {live.trail.length > 1 && <Polyline positions={live.trail.map((p) => [p.lat, p.lon] as [number, number])} pathOptions={{ color: '#f4f4f5', weight: 2, opacity: 0.6 }} />}
-        {pos && <CircleMarker center={[pos.lat, pos.lon]} radius={8} pathOptions={{ color: '#fff', weight: 3, fillColor: '#e10600', fillOpacity: 1 }} />}
-        <FitBounds bounds={bounds} fitKey={circuit.id} />
-        <FollowPosition position={pos ? [pos.lat, pos.lon] : null} enabled={follow} />
-      </BaseMap>
-      <button type="button" className="absolute left-2 top-2 z-[1000] rounded border border-line bg-panel px-2 py-1 text-xs" onClick={() => setFollow((f) => !f)} aria-pressed={follow}>
-        {follow ? 'Following' : 'Follow'}
-      </button>
-    </div>
-  );
-}

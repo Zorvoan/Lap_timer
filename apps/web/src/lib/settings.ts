@@ -10,6 +10,7 @@ export const settingsSchema = z.object({
   audioLapBeep: z.boolean(),
   voiceAnnouncements: z.boolean(),
   keepScreenOn: z.boolean(),
+  /** No longer shown: the driving screen has no map. Kept so stored settings stay valid. */
   showLiveMap: z.boolean(),
   /** A sprint session stops and saves itself a few seconds after the finish line. */
   autoStopSprint: z.boolean(),
