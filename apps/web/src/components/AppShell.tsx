@@ -3,6 +3,7 @@ import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { formatDelta, formatLapTime } from '@laptimer/core';
 import { useAccount, useData, useLive } from '../hooks/useData';
 import { getActiveSession } from '../lib/repo';
+import { applyUpdateIfReady } from '../lib/update';
 import { buttonClass } from './ui/primitives';
 import { IconArrowLeft, IconHome, IconList, IconMap, IconSettings, IconTimer, IconTrophy, IconX } from './ui/icons';
 
@@ -21,6 +22,8 @@ export function AppShell() {
   const sessionActive = live.status === 'running' || live.status === 'paused';
   // Live timing gets the full screen while recording: no navigation to tap by accident.
   const immersive = sessionActive && loc.pathname.startsWith('/live');
+  // Moving to another page is a natural moment to switch to a newly deployed version.
+  useEffect(() => applyUpdateIfReady(), [loc.pathname]);
 
   return (
     <div className="flex h-full flex-col md:flex-row">

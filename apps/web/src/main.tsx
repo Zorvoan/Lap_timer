@@ -1,7 +1,6 @@
 import { StrictMode, Suspense, lazy } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Route, Routes } from 'react-router-dom';
-import { registerSW } from 'virtual:pwa-register';
 import './index.css';
 import { AppShell } from './components/AppShell';
 import { SettingsProvider } from './hooks/useSettings';
@@ -9,6 +8,7 @@ import { Spinner } from './components/ui/primitives';
 import { Dashboard } from './pages/Dashboard';
 import { initAccount } from './lib/cloud/account';
 import { initInstall } from './lib/install';
+import { initUpdates } from './lib/update';
 
 const Circuits = lazy(() => import('./pages/Circuits').then((m) => ({ default: m.Circuits })));
 const CircuitDetail = lazy(() => import('./pages/CircuitDetail').then((m) => ({ default: m.CircuitDetail })));
@@ -23,7 +23,7 @@ const LeaderboardCompare = lazy(() => import('./pages/LeaderboardCompare').then(
 const Account = lazy(() => import('./pages/Account').then((m) => ({ default: m.Account })));
 const SettingsPage = lazy(() => import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage })));
 
-registerSW({ immediate: true });
+initUpdates();
 initInstall();
 initAccount();
 
