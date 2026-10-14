@@ -31,7 +31,7 @@ interface Option {
 /**
  * Telemetry of a leaderboard lap compared with another lap: the user's own laps or other
  * drivers' leaderboard laps, with the same charts, gain/loss map and replay as the circuit page.
- * URL: `?a=<key>&b=<key>` (see {@link Option.key}).
+ * URL: `?a=<key>&b=<key>` (see {@link Option.key}); without `a`, A is the user's own best lap.
  */
 export function LeaderboardCompare() {
   const { id = '' } = useParams();
@@ -56,7 +56,10 @@ export function LeaderboardCompare() {
   const { data: sessions } = useData(() => listSessions(id), [id]);
 
   const options = useMemo(() => buildOptions(board ?? [], sessions ?? [], acc.user?.uid ?? null, settings.includeSimulatedInBests), [board, sessions, acc.user?.uid, settings.includeSimulatedInBests]);
-  const keyA = params.get('a') ?? options.drivers[0]?.key ?? null;
+  // A is the user's own lap unless the URL says otherwise; a lap opened from the leaderboard
+  // (`?b=`) only becomes A when the user has no lap of their own on this track.
+  const ownKey = ownLapKey(options, acc.user?.uid ?? null);
+  const keyA = params.get('a') ?? ownKey ?? params.get('b') ?? options.drivers[0]?.key ?? null;
   const keyB = params.get('b') ?? defaultB(keyA, options, acc.user?.uid ?? null);
   const optA = findOption(options, keyA);
   const optB = keyB && keyB !== keyA ? findOption(options, keyB) : null;
@@ -260,13 +263,20 @@ function findOption(options: { drivers: Option[]; mine: Option[] }, key: string 
   return options.drivers.find((o) => o.key === key) ?? options.mine.find((o) => o.key === key) ?? null;
 }
 
+/** The user's best lap here: a lap on this device, else their published leaderboard lap. */
+function ownLapKey(options: { drivers: Option[]; mine: Option[] }, myUid: string | null): string | null {
+  if (options.mine[0]) return options.mine[0].key;
+  if (myUid && options.drivers.some((o) => o.key === `lb:${myUid}`)) return `lb:${myUid}`;
+  return null;
+}
+
 /** B defaults to "you" when comparing someone else, and to the leader when looking at your own lap. */
 function defaultB(keyA: string | null, options: { drivers: Option[]; mine: Option[] }, myUid: string | null): string | null {
   if (!keyA) return null;
   const aIsMine = keyA.startsWith('me:') || (myUid !== null && keyA === `lb:${myUid}`);
   if (!aIsMine) {
-    if (options.mine[0]) return options.mine[0].key;
-    if (myUid && options.drivers.some((o) => o.key === `lb:${myUid}`)) return `lb:${myUid}`;
+    const own = ownLapKey(options, myUid);
+    if (own) return own;
   }
   return options.drivers.find((o) => o.key !== keyA)?.key ?? null;
 }

@@ -203,7 +203,8 @@ export function LeaderboardTrack() {
                   <tbody className="divide-y divide-line">
                     {board?.map((e, i) => {
                       const mine = e.uid === me;
-                      const compareUrl = `/leaderboard/${track.id}/compare?a=${encodeURIComponent(`lb:${e.uid}`)}`;
+                      // Someone else's lap opens as B against your own lap (A); your own row opens as A.
+                      const compareUrl = `/leaderboard/${track.id}/compare?${mine ? 'a' : 'b'}=${encodeURIComponent(`lb:${e.uid}`)}`;
                       return (
                         <tr key={e.uid} onClick={() => navigate(compareUrl)} className={`cursor-pointer hover:bg-raised ${mine ? 'bg-raised' : ''}`}>
                           <td className="px-3 py-2 font-mono font-bold tabular">{i === 0 ? <span className="text-accent">P1</span> : `P${i + 1}`}</td>
