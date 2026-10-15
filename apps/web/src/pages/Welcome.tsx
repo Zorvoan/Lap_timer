@@ -26,7 +26,7 @@ export function Welcome() {
   const official = acc.featured.length;
 
   return (
-    <div className="h-full overflow-auto bg-bg pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
+    <div className="h-full overflow-y-auto overflow-x-hidden bg-bg pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
       <div className="mx-auto flex min-h-full max-w-md flex-col px-5 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-[max(1.5rem,env(safe-area-inset-top))]">
         <Step i={0}>
           <Wordmark />

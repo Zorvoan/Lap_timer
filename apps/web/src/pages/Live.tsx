@@ -159,13 +159,13 @@ function DriveSetup() {
       <div className="label">Track</div>
       <div className="mt-1 flex items-baseline gap-3">
         <h1 className="min-w-0 flex-1 font-display text-[clamp(1.35rem,6.5vw,1.75rem)] font-black leading-tight tracking-tight">{circuit.name}</h1>
-        <label className="relative shrink-0 cursor-pointer text-sm text-muted underline underline-offset-4">
+        <label className="relative shrink-0 cursor-pointer overflow-hidden text-sm text-muted underline underline-offset-4">
           Change
           <select
             aria-label="Change track"
             value={circuit.id}
             onChange={(e) => setParams({ circuit: e.target.value }, { replace: true })}
-            className="absolute inset-0 cursor-pointer opacity-0"
+            className="absolute inset-0 h-full w-full cursor-pointer appearance-none opacity-0"
           >
             {circuits.map((c) => (
               <option key={c.id} value={c.id}>
@@ -487,7 +487,7 @@ function DriveRunning() {
       )}
 
       {/* Sizes follow the screen's height as well as its width, so it all fits on small phones. */}
-      <div className="mx-auto flex w-full max-w-xl flex-1 flex-col justify-center gap-[clamp(0.75rem,3.5dvh,2rem)] px-4 py-[clamp(0.75rem,3dvh,1.5rem)] land:grid land:max-w-4xl land:grid-cols-2 land:items-center land:gap-4">
+      <div className="mx-auto flex w-full max-w-xl flex-1 flex-col justify-center gap-[clamp(0.75rem,3.5dvh,2rem)] px-4 py-[clamp(0.75rem,3dvh,1.5rem)] tiny:gap-2 tiny:py-2 land:grid land:max-w-4xl land:grid-cols-2 land:items-center land:gap-4">
         <GapBox
           waiting={snap.lapState === 'waiting_start'}
           flash={flash ? { lap: live.lapOffset + flash.lap, timeMs: flash.timeMs, deltaMs: flash.deltaMs } : null}
@@ -496,7 +496,7 @@ function DriveRunning() {
           delta={snap.delta}
         />
         {/* Sideways phone: the gap on the left, time, parts and speed on the right. */}
-        <div className="flex flex-col gap-[clamp(0.75rem,3.5dvh,2rem)] land:gap-3">
+        <div className="flex flex-col gap-[clamp(0.75rem,3.5dvh,2rem)] tiny:gap-2 land:gap-3">
         <div className="text-center">
           <div className="label">Time</div>
           <div className="mt-1 font-mono text-[clamp(2.75rem,min(18vw,9dvh),5.5rem)] font-extrabold leading-none tabular">{formatClock(snap.lapState === 'waiting_start' ? 0 : elapsed)}</div>
@@ -620,7 +620,7 @@ function GapBox({
       <div className={`${box} border-line`}>
         <div className="label">vs best</div>
         <div className="mt-2 font-mono text-[clamp(3.5rem,min(25vw,12dvh),6.5rem)] font-extrabold leading-none text-muted">—</div>
-        {!hasReference && <div className="mt-3 text-sm text-muted">First run here: this one sets the time to beat.</div>}
+        {!hasReference && <div className="mt-3 text-sm text-muted">First run: this one sets the time to beat.</div>}
       </div>
     );
   }

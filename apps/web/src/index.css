@@ -69,6 +69,11 @@ body {
   }
 }
 
+/* iOS sizes a select by its longest option; never let one push the page wider. */
+select {
+  max-width: 100%;
+}
+
 .tabular {
   font-variant-numeric: tabular-nums;
 }
