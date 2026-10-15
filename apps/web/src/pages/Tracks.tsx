@@ -7,8 +7,8 @@ import { TrackLines, boundsOf, type TrackKind } from '../components/map/TrackLin
 import { RouteShape } from '../components/map/RouteShape';
 import { LocateControl } from '../components/map/MapControls';
 import { ProfileNotice, loadBoard } from '../components/track/LeaderboardTab';
-import { Button, LinkButton, Notice, Segmented, Sheet, Spinner } from '../components/ui/primitives';
-import { IconChevronRight, IconPin, IconPlay, IconPlus, IconRecord } from '../components/ui/icons';
+import { LinkButton, Notice, Segmented, Sheet, Spinner } from '../components/ui/primitives';
+import { IconChevronRight, IconPin, IconPlay, IconPlus, IconRecord, IconShare } from '../components/ui/icons';
 import { useAccount, useData } from '../hooks/useData';
 import { useSettings } from '../hooks/useSettings';
 import { circuitStats, type CircuitStats } from '../lib/circuitStats';
@@ -194,8 +194,8 @@ export function Tracks() {
                       <p className="mt-1 text-sm text-muted">
                         {circuits.community.length ? 'Make one of yours public too' : 'Roads other drivers made public show up here. Make one of yours public'} and everyone can race it on its own leaderboard. {myPublic} of {PUBLIC_ROAD_LIMIT} used.
                       </p>
-                      <button type="button" onClick={() => setSharing(true)} className="press mt-3 h-10 rounded bg-accent px-4 text-sm font-bold text-white">
-                        Share a road
+                      <button type="button" onClick={() => setSharing(true)} className="press mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-[#d08a4e] font-extrabold text-black">
+                        <IconShare width={18} height={18} /> Share a road
                       </button>
                     </div>
                   )}
@@ -205,7 +205,21 @@ export function Tracks() {
               {group === 'own' && (
                 <>
                   {circuits.own.length > 0 ? (
-                    <ul className="border-t border-line">{circuits.own.map(row)}</ul>
+                    <ul className="border-t border-line">
+                      {circuits.own.map((c) => (
+                        <TrackRow
+                          key={c.id}
+                          circuit={c}
+                          stage={0}
+                          stats={stats.get(c.id)}
+                          board={undefined}
+                          official={false}
+                          from="/?group=own"
+                          myUid={acc.user?.uid ?? null}
+                          action={canShare ? <MakePublicChip busy={shareBusy === c.id} disabled={!!shareBusy} onClick={() => void share(c)} /> : undefined}
+                        />
+                      ))}
+                    </ul>
                   ) : (
                     <p className="px-4 pb-1 pt-2 text-sm text-muted">Roads you add or record show up here. Make them public to race others on them.</p>
                   )}
@@ -273,9 +287,7 @@ export function Tracks() {
                     <ClimbSuffix circuit={c} />
                   </span>
                 </span>
-                <Button size="sm" variant="primary" disabled={!!shareBusy} onClick={() => void share(c)}>
-                  {shareBusy === c.id ? 'Sharing…' : 'Make public'}
-                </Button>
+                <MakePublicChip busy={shareBusy === c.id} disabled={!!shareBusy} onClick={() => void share(c)} />
               </li>
             ))}
           </ul>
@@ -347,6 +359,7 @@ function TrackRow({
   by,
   from,
   myUid,
+  action,
 }: {
   circuit: Circuit;
   /** Stage number of an official track, 0 for the user's own. */
@@ -360,6 +373,8 @@ function TrackRow({
   /** Where the track page's back arrow returns to. */
   from: string;
   myUid: string | null;
+  /** A button next to the row (e.g. Make public on your own roads). */
+  action?: React.ReactNode;
 }) {
   const { settings } = useSettings();
   const rank = myUid && board ? board.findIndex((e) => e.uid === myUid) + 1 : 0;
@@ -384,8 +399,8 @@ function TrackRow({
     right = <div className="max-w-[5.5rem] text-sm text-muted">{official && !board ? '' : 'No time yet'}</div>;
   }
   return (
-    <li className="border-b border-line">
-      <Link to={`/tracks/${c.id}`} state={{ from }} className="flex items-center gap-3.5 px-4 py-3.5 hover:bg-raised active:bg-raised">
+    <li className="flex items-center border-b border-line">
+      <Link to={`/tracks/${c.id}`} state={{ from }} className="flex min-w-0 flex-1 items-center gap-3.5 px-4 py-3.5 hover:bg-raised active:bg-raised">
         <RouteShape geometry={c.geometry} size={68} className="shrink-0 rounded-lg bg-raised text-fg/85" />
         <div className="min-w-0 flex-1">
           {stage > 0 && <div className="font-mono text-[11px] font-bold text-accent">SS{stage}</div>}
@@ -397,8 +412,9 @@ function TrackRow({
           </div>
           {climb && <div className="mt-0.5 text-xs font-semibold text-[#d08a4e]">{climb}</div>}
         </div>
-        <div className="shrink-0 text-right">{right}</div>
+        {!action && <div className="shrink-0 text-right">{right}</div>}
       </Link>
+      {action && <div className="shrink-0 pr-4">{action}</div>}
     </li>
   );
 }
@@ -439,4 +455,13 @@ function useNearestStart(circuits: Circuit[]): Circuit | null {
     }
     return best?.c ?? null;
   }, [pos, circuits]);
+}
+
+/** The amber "Make public" button used wherever a road can be shared. */
+function MakePublicChip({ busy, disabled, onClick }: { busy: boolean; disabled: boolean; onClick: () => void }) {
+  return (
+    <button type="button" disabled={disabled} onClick={onClick} className="press flex h-10 items-center gap-1.5 rounded-lg bg-[#d08a4e] px-3 text-sm font-extrabold text-black disabled:opacity-40">
+      <IconShare width={15} height={15} /> {busy ? 'Sharing…' : 'Make public'}
+    </button>
+  );
 }

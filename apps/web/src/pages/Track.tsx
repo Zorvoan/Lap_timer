@@ -8,7 +8,7 @@ import { TimingLineView } from '../components/map/TimingLines';
 import { LeaderboardTab } from '../components/track/LeaderboardTab';
 import { MyLapsTab } from '../components/track/MyLapsTab';
 import { Button, ConfirmButton, LinkButton, Notice, Segmented, Spinner } from '../components/ui/primitives';
-import { IconArrowLeft, IconPlay } from '../components/ui/icons';
+import { IconArrowLeft, IconPlay, IconShare } from '../components/ui/icons';
 import { useAccount, useData } from '../hooks/useData';
 import { useSettings } from '../hooks/useSettings';
 import { describeError, ensureLocalCircuit, leaderboardTracks, publishRoad, refreshCommunity, refreshFeatured, unpublishRoad } from '../lib/cloud/account';
@@ -130,14 +130,18 @@ export function Track() {
           <div className="mt-4 rounded-lg border border-[#d08a4e]/50 bg-[#d08a4e]/10 p-4">
             <h2 className="font-display text-lg font-black leading-tight">Share this road</h2>
             <p className="mt-1 text-sm text-muted">Make it public: everyone sees it on the map and races it on its own leaderboard. Once public it can&apos;t be edited; unpublish it to change it.</p>
-            <div className="mt-3 flex flex-wrap items-center gap-3">
-              <Button variant="primary" size="sm" disabled={shareBusy || myPublicCount >= PUBLIC_ROAD_LIMIT} onClick={() => void makePublic(data.circuit!)}>
-                {shareBusy ? 'Publishing…' : 'Make public'}
-              </Button>
-              <span className="text-xs text-muted">
-                {myPublicCount} of {PUBLIC_ROAD_LIMIT} public roads used{myPublicCount >= PUBLIC_ROAD_LIMIT ? '. Unpublish one to share this.' : ''}
-              </span>
-            </div>
+            {/* Big and in the road's colour for public roads: the one thing to do here after Drive. */}
+            <button
+              type="button"
+              disabled={shareBusy || myPublicCount >= PUBLIC_ROAD_LIMIT}
+              onClick={() => void makePublic(data.circuit!)}
+              className="press mt-3 flex h-14 w-full items-center justify-center gap-2 rounded-lg bg-[#d08a4e] text-lg font-extrabold text-black disabled:opacity-40"
+            >
+              <IconShare width={20} height={20} /> {shareBusy ? 'Publishing…' : 'Make public'}
+            </button>
+            <p className="mt-2 text-center text-xs text-muted">
+              {myPublicCount} of {PUBLIC_ROAD_LIMIT} public roads used{myPublicCount >= PUBLIC_ROAD_LIMIT ? '. Unpublish one to share this.' : ''}
+            </p>
             {shareError && <p role="alert" className="anim-shake mt-2 text-sm text-loss">{shareError}</p>}
           </div>
         )}
