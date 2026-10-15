@@ -8,6 +8,11 @@ on:
   schedule:
     - cron: '*/10 * * * *'
   workflow_dispatch:
+    inputs:
+      test:
+        description: Only send a test notification to the developer's devices
+        type: boolean
+        default: false
   push:
     branches: [main]
     paths:
@@ -34,4 +39,6 @@ jobs:
       - name: Notify overtaken drivers
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          # The developer's account (also in apps/web/src/lib/developer.ts); only used for a test run.
+          NOTIFY_TEST_UID: ${{ inputs.test && '3sWFupdTN9W2n6tAgnCJSU6awtz1' || '' }}
         run: npx -y tsx@4.19.2 scripts/notify-overtakes.ts
