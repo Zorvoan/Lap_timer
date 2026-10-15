@@ -1,5 +1,7 @@
-# Sends "someone beat your time" push notifications (scripts/notify-overtakes.ts). Runs every
-# 10 minutes; GitHub may start scheduled runs a few minutes late. Needs the FIREBASE_SERVICE_ACCOUNT
+# Sends "someone beat your time" push notifications (scripts/notify-overtakes.ts). GitHub starts
+# the schedule below only every few hours for this repository, so cron-job.org starts it every
+# 10 minutes through the API (workflow_dispatch, a fine-grained token with Actions: write that is
+# stored only at cron-job.org); the schedule stays as a fallback. Needs the FIREBASE_SERVICE_ACCOUNT
 # secret with the "Cloud Datastore User" and "Firebase Cloud Messaging API Admin" roles.
 # The log only prints counts, never drivers or devices: logs of this public repository are public.
 name: Overtake notifications

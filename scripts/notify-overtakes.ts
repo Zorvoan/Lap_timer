@@ -151,8 +151,9 @@ export function overtakes(track: Track, before: Record<string, number>, entries:
     const where = `${track.stage > 0 ? `SS${track.stage} ` : ''}${track.name}`;
     notes.push({
       uid: e.uid,
-      title: `${by.nickname} beat your time`,
-      body: `${where}: you're now P${now}${now !== was ? ` (was P${was})` : ''}. ${lapTime(by.timeMs)} vs your ${lapTime(e.timeMs)}.`,
+      // iPhones show "from Lap Timer" after the title, so the title is the road and the driver goes in the text.
+      title: where,
+      body: `${by.nickname} beat your time: you're now P${now}${now !== was ? ` (was P${was})` : ''}. ${lapTime(by.timeMs)} vs your ${lapTime(e.timeMs)}.`,
       url: `/tracks/${track.id}`,
       tag: `overtake-${track.id}`,
     });
