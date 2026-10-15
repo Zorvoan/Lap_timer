@@ -42,7 +42,7 @@ export function Welcome() {
               <p className="mt-3 text-muted">Your nickname and car stand next to your times on the leaderboard.</p>
             </Step>
             <Step i={3} className="mt-8">
-              <ProfileForm submitLabel="Continue" wide />
+              <ProfileForm submitLabel="Continue" wide requireLegal />
               <button type="button" onClick={() => void logout(false)} className="mt-6 text-sm text-muted underline underline-offset-4 hover:text-fg">
                 Sign out{acc.user?.email ? ` (${acc.user.email})` : ''}
               </button>
