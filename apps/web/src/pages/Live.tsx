@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { distanceMeters, formatLapTime, formatSpeed, speedLabel, type SectorSplit, type Session } from '@laptimer/core';
-import { Button, ConfirmButton, Empty, LinkButton, Notice, Sheet, Spinner } from '../components/ui/primitives';
-import { IconAlert, IconCheck, IconPlay, IconSpinner, IconStop, IconTrophy } from '../components/ui/icons';
+import { distanceMeters, formatLapTime, formatSpeed, speedLabel, type Circuit, type LatLon, type SectorSplit, type Session } from '@laptimer/core';
+import { Button, ConfirmButton, Empty, LinkButton, Notice, Sheet, Spinner, buttonClass } from '../components/ui/primitives';
+import { IconAlert, IconCheck, IconChevronRight, IconPin, IconPlay, IconSpinner, IconStop, IconTrophy, IconX } from '../components/ui/icons';
 import { loadBoard } from '../components/track/LeaderboardTab';
 import { useAccount, useData, useLive, useTicker } from '../hooks/useData';
 import { useSettings } from '../hooks/useSettings';
@@ -17,6 +17,9 @@ import { SAFETY_DETAIL, SAFETY_TEXT, acceptSafety, hasAcceptedSafety } from '../
 import { simulatorAllowed } from '../lib/developer';
 import { ensureLocalCircuit, leaderboardTracks } from '../lib/cloud/account';
 import { formatClock, formatGap } from '../lib/runFormat';
+import { climbText, useElevation } from '../lib/climb';
+import { circuitLapNumbers, lapKey } from '../lib/lapNumbers';
+import type { LeaderboardEntry } from '../lib/cloud/leaderboard';
 import type { ActiveSessionInfo } from '../lib/db';
 
 /** The Drive tab: the start screen until a run begins, then the driving screen. */
@@ -28,15 +31,16 @@ export function Live() {
 
 // ---------------------------------------------------------------- before driving
 
-/** A start line within this distance picks the track by itself. */
+/** Within this distance of a start line the road counts as "near you" and needs no directions. */
 const NEAR_START_M = 1000;
 /** After this long without accurate GPS the driver may start anyway, warned. */
 const START_ANYWAY_AFTER_MS = 60_000;
 
 /**
- * Nothing to choose: the track comes from the link, the nearest start line or the last drive;
- * the lap to beat is the driver's best; Start unlocks once GPS is accurate enough.
- * URL: `?circuit=<id>`, `?ref=lb:<uid>` to race a leaderboard lap.
+ * Where to drive and against what. The road comes from the link or, once GPS knows where we are,
+ * the nearest start line (the last drive until then); other roads nearby are listed with a way to
+ * get to their start. The lap to beat can be changed: own laps, the leaderboard, or none.
+ * URL: `?circuit=<id>&ref=<pb | session | none | lb:<uid> | <sessionId>#<lap>>`.
  */
 function DriveSetup() {
   const { settings } = useSettings();
@@ -50,6 +54,7 @@ function DriveSetup() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [askSafety, setAskSafety] = useState(false);
+  const [pickRef, setPickRef] = useState(false);
   const needM = settings.gpsMaxAccuracyM;
   const gps = useGpsPreview(source === 'gps', needM);
   useTicker(gps.state === 'searching', () => Date.now());
@@ -62,16 +67,12 @@ function DriveSetup() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, acc.featured]);
 
-  const nearestId = useMemo(() => {
-    if (!gps.position) return null;
-    let best: { id: string; d: number } | null = null;
-    for (const c of circuits) {
-      const { a, b } = c.startLine;
-      const d = distanceMeters(gps.position, { lat: (a.lat + b.lat) / 2, lon: (a.lon + b.lon) / 2 });
-      if (d <= NEAR_START_M && (!best || d < best.d)) best = { id: c.id, d };
-    }
-    return best?.id ?? null;
+  // Every road by distance from here to its start line.
+  const nearby = useMemo(() => {
+    if (!gps.position) return [];
+    return circuits.map((c) => ({ c, d: distanceMeters(gps.position!, startPoint(c)) })).sort((a, b) => a.d - b.d);
   }, [gps.position, circuits]);
+  const nearestId = nearby[0]?.c.id ?? null;
   const paramId = params.get('circuit');
   // Without a link, the nearest start line wins once GPS knows where we are; it is then kept.
   useEffect(() => {
@@ -80,32 +81,55 @@ function DriveSetup() {
   const lastDriven = data?.sessions.find((s) => circuits.some((c) => c.id === s.circuitId))?.circuitId;
   const circuitId = paramId ?? lastDriven ?? circuits[0]?.id ?? null;
   const circuit = circuits.find((c) => c.id === circuitId) ?? null;
+  const here = nearby.find((n) => n.c.id === circuitId)?.d ?? null;
+  const others = nearby.filter((n) => n.c.id !== circuitId).slice(0, 3);
+  const climb = climbText(useElevation(circuit));
   // Official tracks and public roads count for a leaderboard.
   const official = circuit ? leaderboardTracks(acc).some((f) => f.id === circuit.id) : false;
-
-  const refParam = params.get('ref');
   const simulating = source === 'simulated';
-  const best = useMemo(() => {
-    let b: { timeMs: number } | null = null;
-    for (const s of data?.sessions ?? []) {
-      if (s.circuitId !== circuitId || (s.source === 'simulated' && !simulating && !settings.includeSimulatedInBests)) continue;
-      for (const l of s.laps) if (l.valid && (!b || l.timeMs < b.timeMs)) b = l;
-    }
-    return b;
+  const pick = (id: string) => setParams({ circuit: id }, { replace: true });
+
+  // This road's own laps, fastest first.
+  const laps = useMemo(() => {
+    const mine = (data?.sessions ?? []).filter((s) => s.circuitId === circuitId && (s.source !== 'simulated' || simulating || settings.includeSimulatedInBests));
+    const nums = circuitLapNumbers(mine);
+    return mine
+      .flatMap((s) => s.laps.filter((l) => l.valid).map((l) => ({ key: lapKey(s.id, l.lap), timeMs: l.timeMs, n: nums.get(lapKey(s.id, l.lap)) ?? l.lap, at: s.startedAt })))
+      .sort((a, b) => a.timeMs - b.timeMs);
   }, [data, circuitId, simulating, settings.includeSimulatedInBests]);
-  const { data: rival } = useData(async () => {
-    if (!refParam?.startsWith('lb:') || !circuitId) return null;
-    const uid = refParam.slice(3);
-    return (await loadBoard(circuitId, 200)).find((e) => e.uid === uid) ?? null;
-  }, [refParam, circuitId]);
+  const best = laps[0] ?? null;
+  const { data: board } = useData(async () => (official && circuitId ? loadBoard(circuitId, 200) : null), [official, circuitId]);
+  const me = acc.user?.uid;
+  const place = board && me ? board.findIndex((e) => e.uid === me) + 1 : 0;
+
+  const refParam = params.get('ref') ?? REF_PARAM[settings.referenceMode];
+  const setRef = (ref: string) => {
+    setPickRef(false);
+    if (circuitId) setParams({ circuit: circuitId, ref }, { replace: true });
+  };
+  const rival = refParam.startsWith('lb:') ? (board?.find((e) => e.uid === refParam.slice(3)) ?? null) : null;
+  const ownLap = refParam.includes('#') ? (laps.find((l) => l.key === refParam) ?? null) : null;
+  const racing: { label: string; detail?: string; timeMs?: number } = refParam.startsWith('lb:')
+    ? { label: rival ? `${rival.nickname}, ${rival.car}` : 'Leaderboard lap', timeMs: rival?.timeMs }
+    : ownLap
+      ? { label: `Your lap ${ownLap.n}`, detail: lapDate(ownLap.at), timeMs: ownLap.timeMs }
+      : refParam === 'session'
+        ? { label: 'Best lap of this drive', detail: 'Each new best becomes the one to beat.' }
+        : refParam === 'none'
+          ? { label: 'Just the clock', detail: 'No live gap to another lap.' }
+          : best
+            ? { label: 'Your best lap', timeMs: best.timeMs }
+            : { label: 'Nobody yet', detail: 'Your first run here sets the time to beat.' };
 
   function choice(): ReferenceChoice {
-    if (refParam?.startsWith('lb:')) return { kind: 'leaderboard', uid: refParam.slice(3) };
-    if (refParam?.includes('#')) {
+    if (refParam.startsWith('lb:')) return { kind: 'leaderboard', uid: refParam.slice(3) };
+    if (refParam.includes('#')) {
       const [sessionId, lap] = refParam.split('#');
       return { kind: 'lap', sessionId, lap: Number(lap) };
     }
-    return { kind: settings.referenceMode };
+    if (refParam === 'session') return { kind: 'session_best' };
+    if (refParam === 'none') return { kind: 'none' };
+    return { kind: 'personal_best' };
   }
 
   const waitedLong = gps.state === 'searching' && gps.accuracyM !== null && Date.now() - gps.waitingSince > START_ANYWAY_AFTER_MS;
@@ -141,6 +165,7 @@ function DriveSetup() {
     );
   }
 
+  const atStart = here !== null && here <= NEAR_START_M;
   return (
     <div className="mx-auto flex min-h-full max-w-xl flex-col px-4 pb-8 pt-5 short:pb-3 short:pt-3 land:max-w-4xl">
       <SafetyDialog
@@ -152,20 +177,28 @@ function DriveSetup() {
           void start({ confirmed: true });
         }}
       />
+      <ReferenceSheet
+        open={pickRef}
+        onClose={() => setPickRef(false)}
+        current={refParam}
+        laps={laps}
+        board={(board ?? []).map((e, i) => ({ ...e, pos: i + 1 })).filter((e) => e.uid !== me)}
+        onPick={setRef}
+      />
       {active && <RecoveryBanner info={active} />}
 
       {/* Sideways phone: what you drive on the left, Start on the right. */}
       <div className="land:grid land:grid-cols-2 land:items-center land:gap-6">
       <div>
-      <div className="label">Track</div>
+      <div className="label">{atStart ? 'Near you' : 'Road'}</div>
       <div className="mt-1 flex items-baseline gap-3">
         <h1 className="min-w-0 flex-1 font-display text-[clamp(1.35rem,6.5vw,1.75rem)] font-black leading-tight tracking-tight">{circuit.name}</h1>
         <label className="relative shrink-0 cursor-pointer overflow-hidden text-sm text-muted underline underline-offset-4">
           Change
           <select
-            aria-label="Change track"
+            aria-label="Change road"
             value={circuit.id}
-            onChange={(e) => setParams({ circuit: e.target.value }, { replace: true })}
+            onChange={(e) => pick(e.target.value)}
             className="absolute inset-0 h-full w-full cursor-pointer appearance-none opacity-0"
           >
             {circuits.map((c) => (
@@ -176,19 +209,40 @@ function DriveSetup() {
           </select>
         </label>
       </div>
+      {(here !== null || climb || place > 0) && (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {here !== null && (
+            <span className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${atStart ? 'bg-gain/15 text-gain' : 'bg-raised text-muted'}`}>
+              {here <= AT_START_M ? "You're at the start" : atStart ? `${formatDistance(here)} to the start` : `${formatDistance(here)} away`}
+            </span>
+          )}
+          {climb && <span className="rounded-full bg-raised px-2.5 py-0.5 text-xs font-bold text-muted">{climb}</span>}
+          {place > 0 && board && (
+            <span className="rounded-full bg-raised px-2.5 py-0.5 text-xs font-bold text-muted">
+              #{place} of {board.length}
+            </span>
+          )}
+        </div>
+      )}
 
       <GpsLine gps={gps} simulating={simulating} needM={needM} />
 
-      <ul className="mt-5 border-y border-line short:mt-3">
-        <li className="flex items-center gap-3 py-3.5 short:py-2.5">
-          <div className="min-w-0 flex-1">
-            <div className="label">You race</div>
-            <div className="mt-0.5 truncate font-semibold">{rival ? `${rival.nickname}, ${rival.car}` : best ? 'Your best lap' : 'Nobody yet'}</div>
-          </div>
-          <div className="font-mono text-xl tabular">{rival ? formatLapTime(rival.timeMs) : best ? formatLapTime(best.timeMs) : ''}</div>
-        </li>
-        {!rival && !best && <li className="-mt-2 pb-3 text-xs text-muted">Your first run here sets the time to beat.</li>}
-      </ul>
+      <button
+        type="button"
+        onClick={() => setPickRef(true)}
+        aria-label={`You race ${racing.label}. Change the lap to beat`}
+        className="press mt-5 flex w-full items-center gap-3 border-y border-line py-3.5 text-left short:mt-3 short:py-2.5"
+      >
+        <div className="min-w-0 flex-1">
+          <div className="label">You race</div>
+          <div className="mt-0.5 truncate font-semibold">{racing.label}</div>
+          {racing.detail && <div className="truncate text-xs text-muted">{racing.detail}</div>}
+        </div>
+        {racing.timeMs !== undefined && <div className="font-mono text-lg tabular min-[360px]:text-xl">{formatLapTime(racing.timeMs)}</div>}
+        <span className="flex shrink-0 items-center text-sm text-muted">
+          <span className="hidden min-[360px]:inline">Change</span> <IconChevronRight width={16} height={16} />
+        </span>
+      </button>
       {official && <LeaderboardLine simulating={simulating} />}
 
       {error && (
@@ -220,6 +274,11 @@ function DriveSetup() {
           'Waiting for GPS'
         )}
       </Button>
+      {here !== null && !atStart && (
+        <a href={navigateUrl(startPoint(circuit))} target="_blank" rel="noopener noreferrer" className={buttonClass('secondary', 'lg', 'mt-3 w-full')}>
+          <IconPin width={18} height={18} /> Navigate to the start
+        </a>
+      )}
       {waitedLong && !active && (
         <button type="button" onClick={() => void start()} className="mt-3 text-sm text-muted underline underline-offset-4">
           Start anyway (times will be less accurate)
@@ -232,6 +291,31 @@ function DriveSetup() {
             ? 'Allow location for this site in your browser settings, then come back.'
             : 'Stand outside with a clear view of the sky. Indoors GPS may never get accurate enough.'}
       </p>
+
+      {others.length > 0 && (
+        <div className="mt-6 short:mt-4">
+          <div className="label">Other roads nearby</div>
+          <ul className="mt-1 divide-y divide-line">
+            {others.map(({ c, d }) => (
+              <li key={c.id} className="flex items-center gap-3 py-2.5">
+                <button type="button" onClick={() => pick(c.id)} className="press min-w-0 flex-1 text-left">
+                  <div className="truncate font-semibold">{c.name}</div>
+                  <div className="text-xs text-muted">{d <= AT_START_M ? 'Starts here' : `${formatDistance(d)} to the start`}</div>
+                </button>
+                {d <= NEAR_START_M ? (
+                  <Button size="sm" onClick={() => pick(c.id)}>
+                    Drive this
+                  </Button>
+                ) : (
+                  <a href={navigateUrl(startPoint(c))} target="_blank" rel="noopener noreferrer" className={buttonClass('secondary', 'sm')}>
+                    Navigate
+                  </a>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {canSimulate && (
         <div className="mt-8 rounded border border-warn/40 p-3 short:mt-5 short:p-2.5">
@@ -258,6 +342,85 @@ function DriveSetup() {
       </div>
       </div>
     </div>
+  );
+}
+
+/** Within this distance of a start line, "you're at the start". */
+const AT_START_M = 150;
+/** The `ref` link value for each default in the settings. */
+const REF_PARAM: Record<'personal_best' | 'session_best' | 'none', string> = { personal_best: 'pb', session_best: 'session', none: 'none' };
+
+const startPoint = (c: Circuit): LatLon => ({ lat: (c.startLine.a.lat + c.startLine.b.lat) / 2, lon: (c.startLine.a.lon + c.startLine.b.lon) / 2 });
+const formatDistance = (m: number) => (m < 1000 ? `${Math.max(10, Math.round(m / 10) * 10)} m` : `${(m / 1000).toFixed(m < 10_000 ? 1 : 0)} km`);
+const lapDate = (t: number) => new Date(t).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+
+/** Driving directions to a point: Apple Maps on Apple devices, Google Maps elsewhere. */
+function navigateUrl(p: LatLon): string {
+  const at = `${p.lat.toFixed(6)},${p.lon.toFixed(6)}`;
+  return /iPhone|iPad|iPod|Macintosh/.test(navigator.userAgent)
+    ? `https://maps.apple.com/?daddr=${at}&dirflg=d`
+    : `https://www.google.com/maps/dir/?api=1&destination=${at}&travelmode=driving`;
+}
+
+/** Choose the lap to beat: own laps, the leaderboard, the best of this drive, or none. */
+function ReferenceSheet({
+  open,
+  onClose,
+  current,
+  laps,
+  board,
+  onPick,
+}: {
+  open: boolean;
+  onClose: () => void;
+  current: string;
+  laps: readonly { key: string; timeMs: number; n: number; at: number }[];
+  board: readonly (LeaderboardEntry & { pos: number })[];
+  onPick: (ref: string) => void;
+}) {
+  const row = (ref: string, label: string, detail: string | null, timeMs?: number) => (
+    <li key={ref}>
+      <button
+        type="button"
+        onClick={() => onPick(ref)}
+        aria-pressed={current === ref}
+        className={`press flex w-full items-center gap-3 rounded px-3 py-2.5 text-left ${current === ref ? 'bg-accent/15 ring-1 ring-accent/60' : ''}`}
+      >
+        <div className="min-w-0 flex-1">
+          <div className="truncate font-semibold">{label}</div>
+          {detail && <div className="truncate text-xs text-muted">{detail}</div>}
+        </div>
+        {timeMs !== undefined && <div className="font-mono tabular">{formatLapTime(timeMs)}</div>}
+        {current === ref && <IconCheck width={18} height={18} className="shrink-0 text-accent" />}
+      </button>
+    </li>
+  );
+  return (
+    <Sheet open={open} onClose={onClose} labelledBy="ref-title" center>
+      <div className="flex items-center justify-between">
+        <h2 id="ref-title" className="text-xl font-bold">
+          Race against
+        </h2>
+        <button type="button" onClick={onClose} aria-label="Close" className="press -mr-2 p-2 text-muted">
+          <IconX width={20} height={20} />
+        </button>
+      </div>
+      <div className="-mx-1 mt-2 max-h-[min(70dvh,34rem)] overflow-y-auto px-1">
+        <div className="label mt-2">You</div>
+        <ul className="mt-1">
+          {row('pb', 'Your best lap', laps[0] ? null : 'None yet', laps[0]?.timeMs)}
+          {laps.slice(1, 4).map((l) => row(l.key, `Your lap ${l.n}`, lapDate(l.at), l.timeMs))}
+          {row('session', 'Best lap of this drive', 'Each new best becomes the one to beat.')}
+          {row('none', 'Just the clock', 'No live gap to another lap.')}
+        </ul>
+        {board.length > 0 && (
+          <>
+            <div className="label mt-4">Leaderboard</div>
+            <ul className="mt-1">{board.slice(0, 20).map((e) => row(`lb:${e.uid}`, `${e.pos}. ${e.nickname}`, e.car, e.timeMs))}</ul>
+          </>
+        )}
+      </div>
+    </Sheet>
   );
 }
 
