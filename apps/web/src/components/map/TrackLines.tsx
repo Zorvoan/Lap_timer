@@ -1,5 +1,6 @@
 import { Fragment, useMemo } from 'react';
-import { Polyline } from 'react-leaflet';
+import { Polyline, useMap } from 'react-leaflet';
+import type { LatLng } from 'leaflet';
 import type { Circuit } from '@laptimer/core';
 import { RouteLayer } from './RouteLayer';
 import { TimingLineView } from './TimingLines';
@@ -30,10 +31,22 @@ export function boundsOf(circuits: readonly Circuit[]): [[number, number], [numb
   return s <= n ? [[s, w], [n, e]] : null;
 }
 
+/** A finger is about this wide: tracks passing within it of a tap all count as tapped. */
+const TAP_PX = 22;
+
+function distToSegment(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const len2 = dx * dx + dy * dy;
+  const t = len2 ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / len2)) : 0;
+  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+}
+
 /**
  * Every circuit drawn in its colour. With `onSelect` the tracks are clickable (a wide invisible
  * line makes them easy to hit with a finger); the selected one is drawn on top with direction
- * arrows and its timing lines.
+ * arrows and its timing lines. Where tracks share a road (a hill climb and its downhill), a tap
+ * there hits all of them and `onSelect` gets every one, so the page can ask which.
  */
 export function TrackLines({
   circuits,
@@ -44,10 +57,22 @@ export function TrackLines({
   circuits: readonly Circuit[];
   isOfficial: (id: string) => boolean;
   selectedId?: string | null;
-  onSelect?: (id: string) => void;
+  onSelect?: (ids: string[]) => void;
 }) {
+  const map = useMap();
   const selected = circuits.find((c) => c.id === selectedId) ?? null;
   const latLngs = useMemo(() => new Map(circuits.map((c) => [c.id, toLatLngs(c)])), [circuits]);
+
+  /** Every track passing within a finger's width of where the map was tapped. */
+  function tapped(at: LatLng, hit: string): string[] {
+    const p = map.latLngToContainerPoint(at);
+    const near = circuits.filter((c) => {
+      const pts = (latLngs.get(c.id) ?? []).map((ll) => map.latLngToContainerPoint(ll));
+      for (let i = 1; i < pts.length; i++) if (distToSegment(p.x, p.y, pts[i - 1].x, pts[i - 1].y, pts[i].x, pts[i].y) <= TAP_PX) return true;
+      return pts.length === 1 && Math.hypot(p.x - pts[0].x, p.y - pts[0].y) <= TAP_PX;
+    });
+    return near.length ? near.map((c) => c.id) : [hit];
+  }
   return (
     <>
       {circuits
@@ -78,7 +103,7 @@ export function TrackLines({
             key={`hit-${c.id}`}
             positions={latLngs.get(c.id) ?? []}
             pathOptions={{ color: '#000', weight: 22, opacity: 0, bubblingMouseEvents: false }}
-            eventHandlers={{ click: () => onSelect(c.id) }}
+            eventHandlers={{ click: (e) => onSelect(tapped(e.latlng, c.id)) }}
           />
         ))}
     </>

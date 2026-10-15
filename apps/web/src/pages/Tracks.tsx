@@ -7,8 +7,8 @@ import { TrackLines, boundsOf } from '../components/map/TrackLines';
 import { RouteShape } from '../components/map/RouteShape';
 import { LocateControl } from '../components/map/MapControls';
 import { ProfileNotice, loadBoard } from '../components/track/LeaderboardTab';
-import { Notice, Segmented, Spinner } from '../components/ui/primitives';
-import { IconPin, IconPlay, IconPlus, IconRecord } from '../components/ui/icons';
+import { Notice, Segmented, Sheet, Spinner } from '../components/ui/primitives';
+import { IconChevronRight, IconPin, IconPlay, IconPlus, IconRecord } from '../components/ui/icons';
 import { useAccount, useData } from '../hooks/useData';
 import { useSettings } from '../hooks/useSettings';
 import { circuitStats, type CircuitStats } from '../lib/circuitStats';
@@ -71,6 +71,9 @@ export function Tracks() {
   // Read once per visit: the map opens where the user left it during this app session.
   const [mapView] = useState(() => lastMapView);
   const bounds = useMemo(() => boundsOf(all), [all]);
+
+  const [choice, setChoice] = useState<string[] | null>(null);
+  const openFromMap = (id: string) => navigate(`/tracks/${id}`, { state: { from: '/?view=map' } });
 
   async function drive(c: Circuit) {
     const f = acc.featured.find((x) => x.id === c.id);
@@ -154,7 +157,7 @@ export function Tracks() {
         <div className="relative min-h-0 flex-1">
         <BaseMap center={mapView?.center} zoom={mapView?.zoom}>
           <LocateControl />
-          {all.length > 0 && <TrackLines circuits={all} isOfficial={isOfficial} onSelect={(id) => navigate(`/tracks/${id}`, { state: { from: '/?view=map' } })} />}
+          {all.length > 0 && <TrackLines circuits={all} isOfficial={isOfficial} onSelect={(ids) => (ids.length === 1 ? openFromMap(ids[0]) : setChoice(ids))} />}
           {/* Coming back from a track keeps the map where it was; otherwise it shows every track. */}
           {!mapView && <FitBounds bounds={bounds} fitKey={`all:${all.length}`} maxZoom={15} />}
           <KeepView />
@@ -162,6 +165,38 @@ export function Tracks() {
         <div className="pointer-events-none absolute bottom-3 left-3 z-[1000] rounded border border-line bg-panel/95 px-3 py-2 text-xs text-muted shadow-lg">Tap a track to open it</div>
         </div>
       </section>
+
+      {/* Tracks sharing a road (a hill climb and its downhill) are tapped together: pick one. */}
+      <Sheet open={!!choice} onClose={() => setChoice(null)} labelledBy="choose-road" center>
+        <h2 id="choose-road" className="font-display text-xl font-black">
+          {(choice?.length ?? 0) === 2 ? 'Two roads here' : 'Several roads here'}
+        </h2>
+        <p className="mt-0.5 text-sm text-muted">They share this stretch. Which one?</p>
+        <ul className="mt-3 divide-y divide-line border-y border-line">
+          {(choice ?? [])
+            .map((id) => all.find((c) => c.id === id))
+            .filter((c): c is Circuit => !!c)
+            .map((c) => {
+              const elev = elevationChange(c);
+              return (
+                <li key={c.id}>
+                  <button type="button" onClick={() => (setChoice(null), openFromMap(c.id))} className="flex w-full items-center gap-3.5 py-3 text-left active:bg-raised">
+                    <RouteShape geometry={c.geometry} size={56} className="shrink-0 rounded-lg bg-raised text-fg/85" />
+                    <span className="min-w-0 flex-1">
+                      {stageNo(c.id) > 0 && <span className="block font-mono text-[11px] font-bold text-accent">SS{stageNo(c.id)}</span>}
+                      <span className="block truncate font-display text-lg font-extrabold leading-tight">{c.name}</span>
+                      <span className="block text-xs text-muted">
+                        {formatDistance(c.lengthM, settings.distanceUnit)}
+                        {elev && `, ${elev}`}
+                      </span>
+                    </span>
+                    <IconChevronRight width={18} height={18} className="shrink-0 text-muted" />
+                  </button>
+                </li>
+              );
+            })}
+        </ul>
+      </Sheet>
     </div>
   );
 }
