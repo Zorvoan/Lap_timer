@@ -12,12 +12,12 @@ it ranks. Every screen has one obvious next action. Nothing needs configuring be
 
 ## Structure
 
-- Bottom bar with three destinations: **Tracks**, **Drive** (a red button in the bar, not a floating
+- Bottom bar with three destinations: **Roads**, **Drive** (a red button in the bar, not a floating
   circle) and **Me**. The active tab is marked with a red bar at the top of the item.
 - **Sign in first**: everyone signs in (or creates an account with nickname and car) before the
   app opens; an account without a nickname and car is asked for them. A run already being timed is
   never interrupted by this.
-- **Tracks**: one plain list (dividers, no card per track). Each row: name, length, your best time and
+- **Roads** (the tracks list): one plain list (dividers, no card per track). Each row: name, length, your best time and
   rank, or the track record when you have no time. A List / Map switch shows the same tracks on a
   map. Near a start line, that track is offered at the top with its Drive button.
 - **Track**: one page per track (replaces the circuit card, circuit detail and leaderboard pages):
