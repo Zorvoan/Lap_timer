@@ -141,7 +141,7 @@ function DriveSetup() {
   }
 
   return (
-    <div className="mx-auto flex min-h-full max-w-xl flex-col px-4 pb-8 pt-5">
+    <div className="mx-auto flex min-h-full max-w-xl flex-col px-4 pb-8 pt-5 short:pb-3 short:pt-3">
       <SafetyDialog
         open={askSafety}
         onCancel={() => setAskSafety(false)}
@@ -155,7 +155,7 @@ function DriveSetup() {
 
       <div className="label">Track</div>
       <div className="mt-1 flex items-baseline gap-3">
-        <h1 className="min-w-0 flex-1 font-display text-[1.75rem] font-black leading-tight tracking-tight">{circuit.name}</h1>
+        <h1 className="min-w-0 flex-1 font-display text-[clamp(1.35rem,6.5vw,1.75rem)] font-black leading-tight tracking-tight">{circuit.name}</h1>
         <label className="relative shrink-0 cursor-pointer text-sm text-muted underline underline-offset-4">
           Change
           <select
@@ -175,8 +175,8 @@ function DriveSetup() {
 
       <GpsLine gps={gps} simulating={simulating} needM={needM} />
 
-      <ul className="mt-5 border-y border-line">
-        <li className="flex items-center gap-3 py-3.5">
+      <ul className="mt-5 border-y border-line short:mt-3">
+        <li className="flex items-center gap-3 py-3.5 short:py-2.5">
           <div className="min-w-0 flex-1">
             <div className="label">You race</div>
             <div className="mt-0.5 truncate font-semibold">{rival ? `${rival.nickname}, ${rival.car}` : best ? 'Your best lap' : 'Nobody yet'}</div>
@@ -200,7 +200,7 @@ function DriveSetup() {
 
       <Button
         variant={ready ? 'primary' : 'secondary'}
-        size="xl" className="mt-6 !h-20 w-full !text-2xl !font-extrabold"
+        size="xl" className="mt-6 !h-[clamp(3.5rem,10dvh,5rem)] w-full !text-[clamp(1.25rem,6vw,1.5rem)] !font-extrabold short:mt-4"
         onClick={() => void start()}
         disabled={busy || !!active || !ready}
       >
@@ -219,7 +219,7 @@ function DriveSetup() {
           Start anyway (times will be less accurate)
         </button>
       )}
-      <p className="mx-auto mt-4 max-w-xs text-center text-sm leading-relaxed text-muted">
+      <p className="mx-auto mt-4 max-w-xs text-center text-sm leading-relaxed text-muted short:mt-3 short:text-xs">
         {ready
           ? 'Put the phone in a holder and keep the screen on. Timing starts when you cross the start line.'
           : gps.state === 'denied'
@@ -228,7 +228,7 @@ function DriveSetup() {
       </p>
 
       {canSimulate && (
-        <div className="mt-8 rounded border border-warn/40 p-3">
+        <div className="mt-8 rounded border border-warn/40 p-3 short:mt-5 short:p-2.5">
           <div className="label !text-warn">Developer</div>
           <div className="mt-2 grid grid-cols-2 gap-2">
             <Button size="sm" variant={!simulating ? 'primary' : 'secondary'} onClick={() => setSource('gps')}>
@@ -255,7 +255,7 @@ function DriveSetup() {
 
 /** One line: is GPS good enough to start? */
 function GpsLine({ gps, simulating, needM }: { gps: GpsPreview; simulating: boolean; needM: number }) {
-  const box = 'tint mt-4 flex items-center gap-3 rounded-lg border p-3.5';
+  const box = 'tint mt-4 flex items-center gap-3 rounded-lg border p-3.5 short:mt-3 short:p-2.5';
   if (simulating) {
     return (
       <div className={`${box} border-warn/50 bg-warn/10`}>
@@ -469,7 +469,7 @@ function DriveRunning() {
           Simulation, not real GPS
         </div>
       )}
-      <div className="mx-auto flex w-full max-w-xl items-center justify-between gap-3 px-4 pt-4">
+      <div className="mx-auto flex w-full max-w-xl items-center justify-between gap-3 px-4 pt-4 short:pt-3">
         <GpsStatus state={snap.gpsState} />
         <span className="truncate text-sm text-muted">{live.circuit.name}</span>
       </div>
@@ -479,7 +479,8 @@ function DriveRunning() {
         </div>
       )}
 
-      <div className="mx-auto flex w-full max-w-xl flex-1 flex-col justify-center gap-8 px-4 py-6">
+      {/* Sizes follow the screen's height as well as its width, so it all fits on small phones. */}
+      <div className="mx-auto flex w-full max-w-xl flex-1 flex-col justify-center gap-[clamp(0.75rem,3.5dvh,2rem)] px-4 py-[clamp(0.75rem,3dvh,1.5rem)]">
         <GapBox
           waiting={snap.lapState === 'waiting_start'}
           flash={flash ? { lap: live.lapOffset + flash.lap, timeMs: flash.timeMs, deltaMs: flash.deltaMs } : null}
@@ -489,22 +490,22 @@ function DriveRunning() {
         />
         <div className="text-center">
           <div className="label">Time</div>
-          <div className="mt-1 font-mono text-[clamp(3.6rem,18vw,5.5rem)] font-extrabold leading-none tabular">{formatClock(snap.lapState === 'waiting_start' ? 0 : elapsed)}</div>
+          <div className="mt-1 font-mono text-[clamp(2.75rem,min(18vw,9dvh),5.5rem)] font-extrabold leading-none tabular">{formatClock(snap.lapState === 'waiting_start' ? 0 : elapsed)}</div>
         </div>
         <Parts sectors={sectors} />
         <div className="text-center text-muted">
-          <span className="font-mono text-[1.7rem] text-fg tabular">{formatSpeed(snap.speedMs, settings.speedUnit)}</span> {speedLabel(settings.speedUnit)}
+          <span className="font-mono text-[clamp(1.3rem,4dvh,1.7rem)] text-fg tabular">{formatSpeed(snap.speedMs, settings.speedUnit)}</span> {speedLabel(settings.speedUnit)}
         </div>
       </div>
 
-      <div className="sticky bottom-0 z-10 border-t border-line bg-bg p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+      <div className="sticky bottom-0 z-10 border-t border-line bg-bg p-4 pb-[max(1rem,env(safe-area-inset-bottom))] short:p-3 short:pb-[max(0.75rem,env(safe-area-inset-bottom))]">
         <div className="mx-auto flex max-w-xl gap-3">
           {live.status === 'paused' && (
-            <Button size="xl" variant="primary" className="flex-1" onClick={() => liveController.resume()}>
+            <Button size="xl" variant="primary" className="flex-1 short:!h-14" onClick={() => liveController.resume()}>
               <IconPlay /> Resume
             </Button>
           )}
-          <Button size="xl" className="flex-1" onClick={() => setConfirmStop(true)} disabled={stopping}>
+          <Button size="xl" className="flex-1 short:!h-14" onClick={() => setConfirmStop(true)} disabled={stopping}>
             <IconStop width={18} height={18} /> {stopping ? 'Saving…' : 'Stop'}
           </Button>
         </div>
@@ -573,12 +574,12 @@ function GapBox({
   hasReference: boolean;
   delta: { deltaMs: number; reliable: boolean } | null;
 }) {
-  const box = 'tint rounded-xl border px-4 pb-7 pt-5 text-center';
+  const box = 'tint rounded-xl border px-4 pb-[clamp(1rem,3.5dvh,1.75rem)] pt-[clamp(0.75rem,2.5dvh,1.25rem)] text-center';
   if (waiting) {
     return (
       <div className={`${box} border-line`}>
         <div className="label">Ready</div>
-        <div className="mt-2 font-display text-3xl font-black leading-tight">Cross the start line</div>
+        <div className="mt-2 font-display text-[clamp(1.5rem,7vw,1.875rem)] font-black leading-tight">Cross the start line</div>
         <div className="mt-2 text-sm text-muted">Timing starts by itself.</div>
       </div>
     );
@@ -588,7 +589,7 @@ function GapBox({
     return (
       <div key={`lap-${flash.lap}`} className={`${box} anim-pop ${flash.deltaMs === null ? 'border-line' : faster ? 'border-gain/50 bg-gain/10' : 'border-loss/50 bg-loss/10'}`} role="status" aria-live="assertive">
         <div className="label">Lap {flash.lap}</div>
-        <div className="mt-2 font-mono text-6xl font-extrabold leading-none tabular">{formatClock(flash.timeMs)}</div>
+        <div className="mt-2 font-mono text-[clamp(2.75rem,min(15vw,8dvh),3.75rem)] font-extrabold leading-none tabular">{formatClock(flash.timeMs)}</div>
         {flash.deltaMs !== null && <div className={`mt-3 font-mono text-2xl font-bold tabular ${faster ? 'text-gain' : 'text-loss'}`}>{formatGap(flash.deltaMs)}</div>}
       </div>
     );
@@ -597,7 +598,7 @@ function GapBox({
     return (
       <div className={`${box} border-line`}>
         <div className="label">vs best</div>
-        <div className="mt-2 font-mono text-[6.5rem] font-extrabold leading-none text-muted">—</div>
+        <div className="mt-2 font-mono text-[clamp(3.5rem,min(25vw,12dvh),6.5rem)] font-extrabold leading-none text-muted">—</div>
         <div className="mt-3 flex items-center justify-center gap-2 font-bold text-warn">
           <IconAlert width={18} height={18} /> Keep driving, timing continues
         </div>
@@ -608,7 +609,7 @@ function GapBox({
     return (
       <div className={`${box} border-line`}>
         <div className="label">vs best</div>
-        <div className="mt-2 font-mono text-[6.5rem] font-extrabold leading-none text-muted">—</div>
+        <div className="mt-2 font-mono text-[clamp(3.5rem,min(25vw,12dvh),6.5rem)] font-extrabold leading-none text-muted">—</div>
         {!hasReference && <div className="mt-3 text-sm text-muted">First run here: this one sets the time to beat.</div>}
       </div>
     );
@@ -619,7 +620,7 @@ function GapBox({
   return (
     <div className={`${box} ${tone}`} role="timer" aria-label="Gap to your best lap">
       <div className={`label ${delta.reliable ? (faster ? '!text-gain/80' : '!text-loss/80') : ''}`}>vs best</div>
-      <div className={`tint mt-2 font-mono text-[clamp(4.5rem,25vw,7rem)] font-extrabold leading-none tabular ${text}`}>{formatGap(delta.deltaMs)}</div>
+      <div className={`tint mt-2 font-mono text-[clamp(3.5rem,min(25vw,12dvh),7rem)] font-extrabold leading-none tabular ${text}`}>{formatGap(delta.deltaMs)}</div>
       {!delta.reliable && <div className="mt-2 text-sm text-muted">GPS uncertain here</div>}
     </div>
   );
@@ -639,10 +640,10 @@ function Parts({ sectors }: { sectors: SectorSplit[] }) {
         const tone = !s ? 'border-line' : purple ? 'border-[#b36bff]' : gap === null ? 'border-line' : gap < 0 ? 'border-gain/50' : 'border-loss/50';
         const text = !s ? 'text-muted' : purple ? 'text-[#b36bff]' : gap === null ? 'text-fg' : gap < 0 ? 'text-gain' : 'text-loss';
         return (
-          <div key={k} className={`tint rounded-lg border py-2.5 text-center ${tone}`}>
+          <div key={k} className={`tint rounded-lg border py-2.5 text-center short:py-1.5 ${tone}`}>
             <div className="label">Part {k + 1}</div>
             {/* A part's result arrives once, when it is driven; it lands rather than appearing. */}
-            <div key={s ? s.timeMs : 'empty'} className={`mt-1 font-mono text-2xl font-bold tabular ${text}`}>
+            <div key={s ? s.timeMs : 'empty'} className={`mt-1 font-mono text-[clamp(1.2rem,6vw,1.5rem)] font-bold tabular ${text}`}>
               <span className={s ? 'anim-num' : ''}>{!s ? '—' : gap !== null ? formatGap(gap) : (s.timeMs / 1000).toFixed(2)}</span>
             </div>
           </div>
