@@ -89,7 +89,8 @@ export function AppShell() {
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {!loc.pathname.startsWith('/live') && <SessionBanner />}
-        <main className="relative min-h-0 min-w-0 flex-1 overflow-auto">
+        {/* Pages scroll up and down only; anything too wide scrolls in its own box (tables) instead. */}
+        <main className="relative min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden">
           {/* Each new page fades up into place. The time card has its own entrance. */}
           <div key={loc.pathname} className={`h-full ${loc.pathname.startsWith('/result') ? '' : 'anim-page'}`}>
             <Outlet />
