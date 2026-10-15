@@ -2,7 +2,6 @@ import { useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { formatDelta, formatLapTime, formatSpeed, idealLap, speedLabel, splitTimes } from '@laptimer/core';
 import { Badge, Button, Empty, LinkButton, Notice, Spinner } from '../ui/primitives';
-import { IconChevronRight } from '../ui/icons';
 import { useAccount, useData } from '../../hooks/useData';
 import { useSettings } from '../../hooks/useSettings';
 import { ensureLocalCircuit } from '../../lib/cloud/account';
@@ -114,12 +113,10 @@ export function LeaderboardTab({ track }: { track: FeaturedCircuit }) {
                   {mine ? (
                     <Badge tone="accent">You</Badge>
                   ) : (
-                    <>
-                      <Button size="sm" className="hidden sm:inline-flex" onClick={(ev) => (ev.stopPropagation(), void race(e.uid))} title={`Live gap against ${e.nickname}'s lap`}>
-                        Race
-                      </Button>
-                      <IconChevronRight width={18} height={18} className="ml-auto text-muted sm:hidden" />
-                    </>
+                    // On every screen: race this driver's time live (the rest of the row opens the comparison).
+                    <Button size="sm" variant="primary" className="!px-2.5" onClick={(ev) => (ev.stopPropagation(), void race(e.uid))} title={`Live gap against ${e.nickname}'s lap`}>
+                      Race
+                    </Button>
                   )}
                 </td>
               </tr>

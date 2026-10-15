@@ -1,14 +1,14 @@
 import { useEffect, useMemo } from 'react';
-import { useParams, useSearchParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { formatDelta, formatDistance, formatLapTime, formatSpeed, speedLabel, splitTimes, type LapRecord, type Session } from '@laptimer/core';
 import { PageHeader } from '../components/AppShell';
 import { Button, Notice, Panel, Select, Spinner } from '../components/ui/primitives';
-import { IconSwap } from '../components/ui/icons';
+import { IconPlay, IconSwap } from '../components/ui/icons';
 import { ComparisonCharts, ReplayPanel, useComparisonRows } from '../components/laps/LapComparison';
 import { COLOR_A, COLOR_B } from '../components/charts/Charts';
 import { useAccount, useData } from '../hooks/useData';
 import { useSettings } from '../hooks/useSettings';
-import { leaderboardTracks, refreshFeatured } from '../lib/cloud/account';
+import { ensureLocalCircuit, leaderboardTracks, refreshFeatured } from '../lib/cloud/account';
 import { lapFromPublished, type LeaderboardEntry } from '../lib/cloud/leaderboard';
 import type { FeaturedCircuit } from '../lib/cloud/community';
 import { circuitLapNumbers, lapKey } from '../lib/lapNumbers';
@@ -38,6 +38,7 @@ export function LeaderboardCompare() {
   const acc = useAccount();
   const { settings } = useSettings();
   const [params, setParams] = useSearchParams();
+  const navigate = useNavigate();
   useEffect(() => {
     if (!acc.featured.length) void refreshFeatured();
   }, [acc.featured.length]);
@@ -84,6 +85,14 @@ export function LeaderboardCompare() {
     return <div className="p-6">{acc.featured.length ? <Notice tone="error">This track is not on the leaderboard.</Notice> : <Spinner />}</div>;
   }
 
+  // Lap B from someone else on the leaderboard can be raced live: it becomes the lap to beat.
+  const raceUid = keyB?.startsWith('lb:') && keyB !== `lb:${acc.user?.uid}` ? keyB.slice(3) : null;
+  async function race() {
+    if (!track || !raceUid) return;
+    await ensureLocalCircuit(track);
+    navigate(`/live?circuit=${track.id}&ref=${encodeURIComponent(`lb:${raceUid}`)}`);
+  }
+
   const labelA = optA ? shortLabel(optA) : 'A';
   const labelB = optB ? shortLabel(optB) : null;
   const sectorCount = splitsA.length && splitsA.length === splitsB.length ? splitsA.length : 0;
@@ -110,6 +119,12 @@ export function LeaderboardCompare() {
             <p className="mt-3 text-sm text-muted">Drive this track with real GPS and your laps appear here to compare against the leaderboard.</p>
           )}
         </Panel>
+
+        {raceUid && (
+          <Button variant="primary" size="xl" className="w-full" onClick={() => void race()}>
+            <IconPlay width={20} height={20} /> Race {board?.find((e) => e.uid === raceUid)?.nickname ?? 'this time'}
+          </Button>
+        )}
 
         {a.loading || b.loading ? (
           <Spinner label="Loading telemetry" />
