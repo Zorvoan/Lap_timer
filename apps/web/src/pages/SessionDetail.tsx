@@ -56,10 +56,9 @@ function SessionView({ session, circuit, onDeleted, speedUnit, distanceUnit }: {
   }
 
   const best = summary.bestLap;
-  // Sector line times when every lap has them; otherwise thirds of the lap by distance.
-  const lineSectors = session.laps.length && session.laps.every((l) => l.sectorTimesMs.length === session.laps[0].sectorTimesMs.length) ? session.laps[0].sectorTimesMs.length : 0;
-  const splits = new Map(session.laps.map((l) => [l.lap, lineSectors ? l.sectorTimesMs : splitTimes(l.trace, l.timeMs, lengthM, 3)]));
-  const sectorCount = lineSectors || (lengthM > 0 ? 3 : 0);
+  // Three parts by distance, like everywhere else (older tracks' own sector lines are not used).
+  const splits = new Map(session.laps.map((l) => [l.lap, splitTimes(l.trace, l.timeMs, lengthM, 3)]));
+  const sectorCount = lengthM > 0 ? 3 : 0;
   const theoretical = idealLap(valid.map((l) => splits.get(l.lap) ?? []));
   const bestSectors = theoretical?.sectorsMs ?? [];
 
@@ -113,7 +112,7 @@ function SessionView({ session, circuit, onDeleted, speedUnit, distanceUnit }: {
           <Stat
             label="Theoretical best"
             value={formatLapTime(theoretical?.timeMs)}
-            hint={theoretical && best ? (theoretical.timeMs < best.timeMs - 0.5 ? `${formatDelta(theoretical.timeMs - best.timeMs)} s · best sectors` : 'best sectors') : 'needs a valid lap'}
+            hint={theoretical && best ? (theoretical.timeMs < best.timeMs - 0.5 ? `${formatDelta(theoretical.timeMs - best.timeMs)} s · best parts` : 'best parts') : 'needs a valid lap'}
           />
           <Stat label="Distance" value={formatDistance(summary.totalDistanceM, distanceUnit)} />
           <Stat label="Max speed" value={formatSpeed(summary.maxSpeedMs, speedUnit)} unit={speedLabel(speedUnit)} />
@@ -135,7 +134,7 @@ function SessionView({ session, circuit, onDeleted, speedUnit, distanceUnit }: {
                     <th className="label px-3 py-2 text-right font-semibold">Δ best</th>
                     {Array.from({ length: sectorCount }, (_, i) => (
                       <th key={i} className="label px-3 py-2 text-right font-semibold">
-                        S{i + 1}
+                        Part {i + 1}
                       </th>
                     ))}
                     <th className="label px-3 py-2 text-right font-semibold">Avg</th>

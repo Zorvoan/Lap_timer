@@ -73,14 +73,9 @@ export function MyLapsTab({ circuit, sessions }: { circuit: Circuit; sessions: S
   const lengthM = useLapLength(circuit, NO_LAPS);
   const cmpRows = useComparisonRows(A?.lap ?? null, B?.lap ?? null, lengthM);
 
-  // Sector times from the circuit's sector lines when every lap has them; otherwise the lap is
-  // split into thirds by distance (works for every lap, as it only needs the trace).
-  const lineSectors = visible.length && visible.every((e) => e.lap.sectorTimesMs.length === visible[0].lap.sectorTimesMs.length) ? visible[0].lap.sectorTimesMs.length : 0;
-  const splitsByKey = useMemo(
-    () => new Map(visible.map((e) => [e.key, lineSectors ? e.lap.sectorTimesMs : splitTimes(e.lap.trace, e.lap.timeMs, lengthM, 3)])),
-    [visible, lineSectors, lengthM],
-  );
-  const sectorCount = lineSectors || (lengthM > 0 ? 3 : 0);
+  // Every lap is split into three parts by distance (only needs the trace, so it works for every lap).
+  const splitsByKey = useMemo(() => new Map(visible.map((e) => [e.key, splitTimes(e.lap.trace, e.lap.timeMs, lengthM, 3)])), [visible, lengthM]);
+  const sectorCount = lengthM > 0 ? 3 : 0;
   const ideal = useMemo(() => idealLap(visible.filter((e) => e.lap.valid).map((e) => splitsByKey.get(e.key) ?? [])), [visible, splitsByKey]);
   const bestSectors = ideal?.sectorsMs ?? [];
   const sessionCount = new Set(visible.map((e) => e.session.id)).size;
@@ -151,7 +146,7 @@ export function MyLapsTab({ circuit, sessions }: { circuit: Circuit; sessions: S
                         <th className="label px-3 py-2 text-right font-semibold">Δ PB</th>
                         <th className="label px-3 py-2 font-semibold">Driven</th>
                         {Array.from({ length: sectorCount }, (_, i) => (
-                          <th key={i} className="label px-3 py-2 text-right font-semibold" title={lineSectors ? 'Sector line times' : 'Thirds of the lap by distance'}>
+                          <th key={i} className="label px-3 py-2 text-right font-semibold" title="Thirds of the lap by distance">
                             Part {i + 1}
                           </th>
                         ))}
