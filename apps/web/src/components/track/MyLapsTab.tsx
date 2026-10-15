@@ -137,21 +137,25 @@ export function MyLapsTab({ circuit, sessions }: { circuit: Circuit; sessions: S
                 <p className="p-4 text-sm text-muted">No laps match the filters.</p>
               ) : (
                 <div className="overflow-x-auto">
-                  <table className="w-full min-w-[640px] text-sm">
+                  {/* On a phone: compare, time (with when) and the three parts, so nothing scrolls sideways. */}
+                  <table className="lap-table w-full text-sm sm:min-w-[640px]">
                     <thead>
                       <tr className="border-b border-line text-left">
-                        <th className="label px-3 py-2 font-semibold">Compare</th>
-                        <th className="label px-3 py-2 font-semibold" title="Rank by lap time">Rank</th>
-                        <th className="label px-3 py-2 text-right font-semibold">Time</th>
-                        <th className="label px-3 py-2 text-right font-semibold">Δ PB</th>
-                        <th className="label px-3 py-2 font-semibold">Driven</th>
+                        <th className="label px-2 py-2 font-semibold sm:px-3">
+                          <span className="sm:hidden">A / B</span>
+                          <span className="hidden sm:inline">Compare</span>
+                        </th>
+                        <th className="label hidden sm:table-cell px-3 py-2 font-semibold" title="Rank by lap time">Rank</th>
+                        <th className="label px-1.5 py-2 text-right font-semibold sm:px-3">Time</th>
+                        <th className="label hidden sm:table-cell px-3 py-2 text-right font-semibold">Δ PB</th>
+                        <th className="label hidden sm:table-cell px-3 py-2 font-semibold">Driven</th>
                         {Array.from({ length: sectorCount }, (_, i) => (
-                          <th key={i} className="label px-3 py-2 text-right font-semibold" title="Thirds of the lap by distance">
+                          <th key={i} className="label px-1.5 py-2 text-right font-semibold !tracking-normal sm:px-3 sm:!tracking-[0.12em]" title="Thirds of the lap by distance">
                             Part {i + 1}
                           </th>
                         ))}
-                        <th className="label px-3 py-2 text-right font-semibold">Max {speedLabel(settings.speedUnit)}</th>
-                        <th className="label px-3 py-2 font-semibold">GPS</th>
+                        <th className="label hidden sm:table-cell px-3 py-2 text-right font-semibold">Max {speedLabel(settings.speedUnit)}</th>
+                        <th className="label hidden sm:table-cell px-3 py-2 font-semibold">GPS</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-line">
@@ -160,17 +164,25 @@ export function MyLapsTab({ circuit, sessions }: { circuit: Circuit; sessions: S
                         const isPb = e.key === best?.key;
                         return (
                           <tr key={e.key} className={`${e.key === keyA ? 'bg-raised' : ''} ${!e.lap.valid ? 'text-muted' : ''}`}>
-                            <td className="px-3 py-2">
+                            <td className="px-2 py-2 sm:px-3">
                               <ABButtons isA={e.key === keyA} isB={e.key === keyB} onA={() => setKeyA(e.key)} onB={() => setKeyB(e.key === keyB ? null : e.key)} />
                             </td>
-                            <td className="px-3 py-2 font-mono tabular">{rank > 0 ? rank : '—'}</td>
-                            <td className="whitespace-nowrap px-3 py-2 text-right font-mono tabular">
-                              {formatLapTime(e.lap.timeMs)} {isPb && <Badge tone="accent">PB</Badge>} {!e.lap.valid && <Badge tone="loss">Invalid</Badge>}
+                            <td className="hidden sm:table-cell px-3 py-2 font-mono tabular">{rank > 0 ? rank : '—'}</td>
+                            <td className="whitespace-nowrap px-1.5 py-2 text-right font-mono tabular sm:px-3">
+                              {formatLapTime(e.lap.timeMs)}
+                              <span className="hidden sm:inline">
+                                {' '}
+                                {isPb && <Badge tone="accent">PB</Badge>} {!e.lap.valid && <Badge tone="loss">Invalid</Badge>}
+                              </span>
+                              <Link to={`/sessions/${e.session.id}`} className="block whitespace-normal font-sans text-[11px] text-muted sm:hidden">
+                                {isPb ? <span className="font-semibold text-accent">PB, </span> : !e.lap.valid ? 'Invalid, ' : ''}
+                                {new Date(e.session.startedAt).toLocaleDateString([], { day: 'numeric', month: 'numeric' })}, lap {e.n}
+                              </Link>
                             </td>
-                            <td className={`px-3 py-2 text-right font-mono tabular ${best && e.lap.valid && !isPb ? 'text-loss' : ''}`}>
+                            <td className={`hidden sm:table-cell px-3 py-2 text-right font-mono tabular ${best && e.lap.valid && !isPb ? 'text-loss' : ''}`}>
                               {best && e.lap.valid && !isPb ? formatDelta(e.lap.timeMs - best.lap.timeMs) : '—'}
                             </td>
-                            <td className="whitespace-nowrap px-3 py-2">
+                            <td className="hidden sm:table-cell whitespace-nowrap px-3 py-2">
                               <Link to={`/sessions/${e.session.id}`} className="hover:underline">
                                 {new Date(e.session.startedAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
                               </Link>{' '}
@@ -179,8 +191,8 @@ export function MyLapsTab({ circuit, sessions }: { circuit: Circuit; sessions: S
                             {Array.from({ length: sectorCount }, (_, i) => (
                               <SectorCell key={i} ms={splitsByKey.get(e.key)?.[i]} best={e.lap.valid && splitsByKey.get(e.key)?.[i] === bestSectors[i]} />
                             ))}
-                            <td className="px-3 py-2 text-right font-mono tabular">{formatSpeed(e.lap.maxSpeedMs, settings.speedUnit)}</td>
-                            <td className="px-3 py-2">
+                            <td className="hidden sm:table-cell px-3 py-2 text-right font-mono tabular">{formatSpeed(e.lap.maxSpeedMs, settings.speedUnit)}</td>
+                            <td className="hidden sm:table-cell px-3 py-2">
                               <GpsQuality lap={e.lap} />
                             </td>
                           </tr>
