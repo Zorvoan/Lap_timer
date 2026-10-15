@@ -3,6 +3,8 @@ import { useParams } from 'react-router-dom';
 import { formatLapTime, splitTimes, type LapRecord } from '@laptimer/core';
 import { loadBoard } from '../components/track/LeaderboardTab';
 import { LinkButton, Notice, Spinner } from '../components/ui/primitives';
+import { NotifySwitch } from '../components/NotifySwitch';
+import { pushOn } from '../lib/pushState';
 import { IconCloudOff, IconUndo } from '../components/ui/icons';
 import { useAccount, useData } from '../hooks/useData';
 import { useSettings } from '../hooks/useSettings';
@@ -160,6 +162,13 @@ export function DriveResult() {
           </div>
         )}
       </div>
+
+      {/* Right after a leaderboard time is when "tell me if someone beats it" makes sense. */}
+      {lap && official && !sim && signedIn && !pushOn(acc.user?.uid) && (
+        <div className="mt-4 rounded-lg border border-line px-4 py-3">
+          <NotifySwitch />
+        </div>
+      )}
 
       <div className="mt-auto grid gap-3 pt-8">
         <LinkButton to={`/live?circuit=${session.circuitId}`} variant="primary" size="xl" className="text-xl">

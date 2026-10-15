@@ -26,11 +26,13 @@ const app = initializeApp({
   authDomain: config.firebase.authDomain,
   projectId: config.firebase.projectId,
   appId: config.firebase.appId,
+  messagingSenderId: config.firebase.messagingSenderId || undefined,
 });
 
 // Stay signed in across restarts (IndexedDB-backed).
 const auth = initializeAuth(app, { persistence: browserLocalPersistence, popupRedirectResolver: browserPopupRedirectResolver });
 export const db = getFirestore(app);
+export { app };
 
 if (config.firebase.emulators) {
   connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });

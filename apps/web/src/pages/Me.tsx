@@ -2,6 +2,7 @@ import { useState, useSyncExternalStore } from 'react';
 import { Link } from 'react-router-dom';
 import { formatLapTime, summarizeSession } from '@laptimer/core';
 import { InstallCard } from '../components/InstallCard';
+import { NotifySwitch } from '../components/NotifySwitch';
 import { SimBadge, Spinner } from '../components/ui/primitives';
 import { IconChevronRight, IconUser } from '../components/ui/icons';
 import { useAccount, useData } from '../hooks/useData';
@@ -82,6 +83,12 @@ export function Me() {
           </li>
         )}
       </ul>
+
+      {signedIn && (
+        <div className="mt-6 border-y border-line px-4 py-3.5">
+          <NotifySwitch />
+        </div>
+      )}
 
       <ul className="mt-6 border-y border-line">
         <MeRow to="/settings" label="Settings" />

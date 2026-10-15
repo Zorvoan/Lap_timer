@@ -39,6 +39,8 @@ export default defineConfig({
         navigateFallback: '/index.html',
         // Firebase's sign-in helper pages (Google / Apple) must come from the server, not the app shell.
         navigateFallbackDenylist: [/^\/__\//],
+        // Shows "someone beat your time" notifications (see public/push-sw.js).
+        importScripts: ['/push-sw.js'],
         runtimeCaching: [
           {
             // Tiles you have viewed stay available offline for a week. No bulk prefetching:

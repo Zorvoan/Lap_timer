@@ -1,0 +1,37 @@
+# Sends "someone beat your time" push notifications (scripts/notify-overtakes.ts). Runs every
+# 10 minutes; GitHub may start scheduled runs a few minutes late. Needs the FIREBASE_SERVICE_ACCOUNT
+# secret with the "Cloud Datastore User" and "Firebase Cloud Messaging API Admin" roles.
+# The log only prints counts, never drivers or devices: logs of this public repository are public.
+name: Overtake notifications
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - scripts/notify-overtakes.ts
+      - .github/workflows/overtake-notifications.yml
+
+concurrency:
+  group: overtake-notifications
+  cancel-in-progress: false
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Notify overtaken drivers
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: npx -y tsx@4.19.2 scripts/notify-overtakes.ts

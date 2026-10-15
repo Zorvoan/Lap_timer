@@ -19,6 +19,8 @@ export const config = {
     authDomain: str(env.VITE_FIREBASE_AUTH_DOMAIN, ''),
     projectId: str(env.VITE_FIREBASE_PROJECT_ID, ''),
     appId: str(env.VITE_FIREBASE_APP_ID, ''),
+    /** Needed for push notifications (Firebase Cloud Messaging). */
+    messagingSenderId: str(env.VITE_FIREBASE_MESSAGING_SENDER_ID, ''),
     /** Use the local Firebase emulators (development only). */
     emulators: env.VITE_FIREBASE_EMULATORS === 'true',
   },
