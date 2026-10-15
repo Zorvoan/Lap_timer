@@ -6,6 +6,8 @@ export default {
   darkMode: ['class', '[data-theme="dark"]'],
   theme: {
     extend: {
+      // Phones whose visible screen is short (iPhone mini / SE with the tab bar): tighter spacing.
+      screens: { short: { raw: '(max-height: 760px)' } },
       colors: {
         bg: 'rgb(var(--c-bg) / <alpha-value>)',
         panel: 'rgb(var(--c-panel) / <alpha-value>)',
