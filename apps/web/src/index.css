@@ -257,3 +257,11 @@ body {
 @media (max-width: 767px), (max-height: 559px) {
   .anim-view { animation: lt-fade-in 180ms var(--ease-enter) backwards; }
 }
+
+/* Lap tables on the narrowest phones (320 px, e.g. iPhone with Display Zoom): tighter cells so
+   the compact columns still fit without scrolling sideways. */
+@media (max-width: 359px) {
+  .lap-table { font-size: 12px; }
+  .lap-table th,
+  .lap-table td { padding-left: 4px; padding-right: 4px; }
+}

@@ -125,44 +125,54 @@ function SessionView({ session, circuit, onDeleted, speedUnit, distanceUnit }: {
         ) : (
           <>
             <Panel title="Laps" bodyClass="overflow-x-auto p-0">
-              <table className="w-full min-w-[720px] text-sm">
+              {/* On a phone: compare, time (with the lap number) and the three parts, so nothing scrolls sideways. */}
+              <table className="lap-table w-full text-sm sm:min-w-[720px]">
                 <thead>
                   <tr className="border-b border-line text-left">
-                    <th className="label px-3 py-2 font-semibold">Compare</th>
-                    <th className="label px-3 py-2 font-semibold">Lap</th>
-                    <th className="label px-3 py-2 text-right font-semibold">Time</th>
-                    <th className="label px-3 py-2 text-right font-semibold">Δ best</th>
+                    <th className="label px-2 py-2 font-semibold sm:px-3">
+                          <span className="sm:hidden">A / B</span>
+                          <span className="hidden sm:inline">Compare</span>
+                        </th>
+                    <th className="label hidden sm:table-cell px-3 py-2 font-semibold">Lap</th>
+                    <th className="label px-1.5 py-2 text-right font-semibold sm:px-3">Time</th>
+                    <th className="label hidden sm:table-cell px-3 py-2 text-right font-semibold">Δ best</th>
                     {Array.from({ length: sectorCount }, (_, i) => (
-                      <th key={i} className="label px-3 py-2 text-right font-semibold">
+                      <th key={i} className="label px-1.5 py-2 text-right font-semibold !tracking-normal sm:px-3 sm:!tracking-[0.12em]">
                         Part {i + 1}
                       </th>
                     ))}
-                    <th className="label px-3 py-2 text-right font-semibold">Avg</th>
-                    <th className="label px-3 py-2 text-right font-semibold">Max</th>
-                    <th className="label px-3 py-2 text-right font-semibold">Dist</th>
-                    <th className="label px-3 py-2 font-semibold">GPS</th>
+                    <th className="label hidden sm:table-cell px-3 py-2 text-right font-semibold">Avg</th>
+                    <th className="label hidden sm:table-cell px-3 py-2 text-right font-semibold">Max</th>
+                    <th className="label hidden sm:table-cell px-3 py-2 text-right font-semibold">Dist</th>
+                    <th className="label hidden sm:table-cell px-3 py-2 font-semibold">GPS</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-line">
                   {session.laps.map((l) => (
                     <tr key={l.lap} className={`${l.lap === lapA ? 'bg-raised' : ''} ${!l.valid ? 'text-muted' : ''}`}>
-                      <td className="px-3 py-2">
+                      <td className="px-2 py-2 sm:px-3">
                         <ABButtons isA={l.lap === lapA} isB={l.lap === lapB} onA={() => setLapA(l.lap)} onB={() => setLapB(l.lap === lapB ? null : l.lap)} />
                       </td>
-                      <td className="px-3 py-2 font-mono tabular">
+                      <td className="hidden sm:table-cell px-3 py-2 font-mono tabular">
                         {num(l.lap)} {best?.lap === l.lap && <Badge tone="accent">Best</Badge>} {!l.valid && <Badge tone="loss">Invalid</Badge>}
                       </td>
-                      <td className="px-3 py-2 text-right font-mono tabular">{formatLapTime(l.timeMs)}</td>
-                      <td className={`px-3 py-2 text-right font-mono tabular ${best && l.valid && l.lap !== best.lap ? 'text-loss' : ''}`}>
+                      <td className="whitespace-nowrap px-1.5 py-2 text-right font-mono tabular sm:px-3">
+                        {formatLapTime(l.timeMs)}
+                        <span className="block whitespace-normal font-sans text-[11px] text-muted sm:hidden">
+                          Lap {num(l.lap)}
+                          {best?.lap === l.lap ? ', best' : !l.valid ? ', invalid' : best && l.valid ? `, ${formatDelta(l.timeMs - best.timeMs)}` : ''}
+                        </span>
+                      </td>
+                      <td className={`hidden sm:table-cell px-3 py-2 text-right font-mono tabular ${best && l.valid && l.lap !== best.lap ? 'text-loss' : ''}`}>
                         {best && l.valid && l.lap !== best.lap ? formatDelta(l.timeMs - best.timeMs) : '—'}
                       </td>
                       {Array.from({ length: sectorCount }, (_, i) => (
                         <SectorCell key={i} ms={splits.get(l.lap)?.[i]} best={l.valid && splits.get(l.lap)?.[i] === bestSectors[i]} />
                       ))}
-                      <td className="px-3 py-2 text-right font-mono tabular">{formatSpeed(l.avgSpeedMs, speedUnit)}</td>
-                      <td className="px-3 py-2 text-right font-mono tabular">{formatSpeed(l.maxSpeedMs, speedUnit)}</td>
-                      <td className="px-3 py-2 text-right font-mono tabular">{formatDistance(l.distanceM, distanceUnit, 3)}</td>
-                      <td className="px-3 py-2">
+                      <td className="hidden sm:table-cell px-3 py-2 text-right font-mono tabular">{formatSpeed(l.avgSpeedMs, speedUnit)}</td>
+                      <td className="hidden sm:table-cell px-3 py-2 text-right font-mono tabular">{formatSpeed(l.maxSpeedMs, speedUnit)}</td>
+                      <td className="hidden sm:table-cell px-3 py-2 text-right font-mono tabular">{formatDistance(l.distanceM, distanceUnit, 3)}</td>
+                      <td className="hidden sm:table-cell px-3 py-2">
                         <GpsQuality lap={l} />
                       </td>
                     </tr>
