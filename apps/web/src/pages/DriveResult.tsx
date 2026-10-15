@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { formatLapTime, splitTimes, type LapRecord } from '@laptimer/core';
 import { loadBoard } from '../components/track/LeaderboardTab';
@@ -12,6 +12,9 @@ import { formatGap } from '../lib/runFormat';
 
 const PURPLE = 'text-[#b36bff]';
 
+/** Runs whose card has already been revealed; coming back to one shows it without the show. */
+const revealed = new Set<string>();
+
 /**
  * Shown by itself when a run ends: the time first, then how it compares with the driver's best
  * and where it ranks, then what to do next.
@@ -20,6 +23,10 @@ export function DriveResult() {
   const { id = '' } = useParams();
   const acc = useAccount();
   const { settings } = useSettings();
+  const [reveal] = useState(() => !revealed.has(id));
+  useEffect(() => {
+    revealed.add(id);
+  }, [id]);
   const { data, loading } = useData(async () => {
     const session = await getSession(id);
     if (!session) return null;
@@ -81,10 +88,10 @@ export function DriveResult() {
         {session.circuitName}
       </h1>
 
-      <div className="relative mt-6 rounded-lg border border-line bg-panel px-5 pb-4 pt-5">
+      <div className={`relative mt-6 rounded-lg border border-line bg-panel px-5 pb-4 pt-5 ${reveal ? 'tc-card' : ''}`}>
         {lap && (pb || first) && (
           <div
-            className={`absolute -top-4 right-3 rotate-[-7deg] rounded-md border-[3px] bg-panel px-3 py-1 text-center text-[13px] font-black uppercase leading-tight tracking-wider ${first ? 'border-[#d08a4e] text-[#d08a4e]' : 'border-[#b36bff] text-[#b36bff]'}`}
+            className={`absolute -top-4 right-3 rotate-[-7deg] rounded-md ${reveal ? 'tc-stamp' : ''} border-[3px] bg-panel px-3 py-1 text-center text-[13px] font-black uppercase leading-tight tracking-wider ${first ? 'border-[#d08a4e] text-[#d08a4e]' : 'border-[#b36bff] text-[#b36bff]'}`}
           >
             {first ? 'First run' : 'Personal best'}
             {!first && gapMs !== null && <div className="font-mono text-sm tracking-normal">{formatGap(gapMs, 3)}</div>}
@@ -93,7 +100,9 @@ export function DriveResult() {
         <div className="label">Stage time</div>
         {lap ? (
           <>
-            <div className="mt-1 font-mono text-[clamp(2.9rem,14vw,3.6rem)] font-extrabold leading-none tabular">{formatLapTime(lap.timeMs)}</div>
+            <div className="mt-1 font-mono text-[clamp(2.9rem,14vw,3.6rem)] font-extrabold leading-none tabular">
+              {reveal ? <LandingDigits text={formatLapTime(lap.timeMs)} /> : formatLapTime(lap.timeMs)}
+            </div>
             {gapMs !== null && gapMs >= 0 && <div className="mt-2 text-sm font-semibold text-loss">{formatGap(gapMs, 3)} s to your best</div>}
             {result.laps > 1 && <div className="mt-1 text-xs text-muted">Best of {result.laps} laps</div>}
           </>
@@ -140,7 +149,7 @@ export function DriveResult() {
                 <span className="flex-1 text-muted">Leaderboard</span>
                 {rank ? (
                   <>
-                    <span className="font-mono text-lg font-bold">P{rank.place}</span>
+                    <span className="anim-num font-mono text-lg font-bold">P{rank.place}</span>
                     <span className="w-16 text-right font-mono text-sm text-muted">of {rank.of}</span>
                   </>
                 ) : (
@@ -163,6 +172,22 @@ export function DriveResult() {
         )}
       </div>
     </div>
+  );
+}
+
+/** The stage time, its characters landing one after another (the card's one flourish). */
+function LandingDigits({ text }: { text: string }) {
+  return (
+    <>
+      <span className="sr-only">{text}</span>
+      <span aria-hidden="true">
+        {[...text].map((ch, i) => (
+          <span key={i} className="tc-digit" style={{ animationDelay: `${180 + i * 35}ms` }}>
+            {ch}
+          </span>
+        ))}
+      </span>
+    </>
   );
 }
 

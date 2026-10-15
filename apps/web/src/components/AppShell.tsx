@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Suspense, lazy, useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { formatDelta, formatLapTime } from '@laptimer/core';
 import { useAccount, useData, useLive } from '../hooks/useData';
@@ -6,6 +6,36 @@ import { getActiveSession } from '../lib/repo';
 import { applyUpdateIfReady } from '../lib/update';
 import { buttonClass } from './ui/primitives';
 import { IconArrowLeft, IconMap, IconTimer, IconTrophy, IconUser, IconX } from './ui/icons';
+
+const Welcome = lazy(() => import('../pages/Welcome').then((m) => ({ default: m.Welcome })));
+const SIGNED_IN_HINT = 'lt-was-signed-in';
+
+/**
+ * Whether the app needs the sign-in screen first: signed out, or signed in without a nickname and
+ * car. While the sign-in service is still starting, someone who was signed in last time goes
+ * straight in instead of seeing a splash on every launch.
+ */
+function useNeedsAccount(): boolean {
+  const acc = useAccount();
+  useEffect(() => {
+    try {
+      if (acc.status === 'signed_in') localStorage.setItem(SIGNED_IN_HINT, '1');
+      else if (acc.status === 'signed_out') localStorage.removeItem(SIGNED_IN_HINT);
+    } catch {
+      // Storage blocked: the splash simply shows while signing in.
+    }
+  }, [acc.status]);
+  if (acc.status === 'signed_out') return true;
+  if (acc.status === 'signed_in') return acc.profile === null;
+  if (acc.status === 'loading') {
+    try {
+      return localStorage.getItem(SIGNED_IN_HINT) !== '1';
+    } catch {
+      return true;
+    }
+  }
+  return false;
+}
 
 /** Which tab a path belongs to: tracks and everything about them, or the user's own things. */
 function tabOf(path: string): 'tracks' | 'drive' | 'me' {
@@ -23,6 +53,16 @@ export function AppShell() {
   const tab = tabOf(loc.pathname);
   // Moving to another page is a natural moment to switch to a newly deployed version.
   useEffect(() => applyUpdateIfReady(), [loc.pathname]);
+  const needsAccount = useNeedsAccount();
+
+  // Everyone signs in before using the app; a run already being timed is never interrupted.
+  if (needsAccount && !sessionActive) {
+    return (
+      <Suspense fallback={<div className="h-full bg-bg" />}>
+        <Welcome />
+      </Suspense>
+    );
+  }
 
   return (
     <div className="flex h-full flex-col md:flex-row">
@@ -37,7 +77,7 @@ export function AppShell() {
             <SideItem to="/me" label="Me" icon={IconUser} active={tab === 'me'} />
           </ul>
           <div className="px-2">
-            <Link to="/live" className={`flex h-11 items-center justify-center gap-2 rounded-lg font-bold text-white ${tab === 'drive' ? 'bg-accent ring-2 ring-fg/60' : 'bg-accent hover:brightness-110'}`}>
+            <Link to="/live" className={`press flex h-11 items-center justify-center gap-2 rounded-lg font-bold text-white ${tab === 'drive' ? 'bg-accent ring-2 ring-fg/60' : 'bg-accent hover:brightness-110'}`}>
               <IconTimer /> Drive
             </Link>
           </div>
@@ -48,7 +88,10 @@ export function AppShell() {
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {!loc.pathname.startsWith('/live') && <SessionBanner />}
         <main className="relative min-h-0 min-w-0 flex-1 overflow-auto">
-          <Outlet />
+          {/* Each new page fades up into place. The time card has its own entrance. */}
+          <div key={loc.pathname} className={`h-full ${loc.pathname.startsWith('/result') ? '' : 'anim-page'}`}>
+            <Outlet />
+          </div>
         </main>
       </div>
       {!immersive && <LeaderboardToast />}
@@ -57,7 +100,7 @@ export function AppShell() {
         <nav aria-label="Main" className="grid shrink-0 grid-cols-3 border-t border-line bg-panel pb-[env(safe-area-inset-bottom)] md:hidden">
           <TabItem to="/" label="Tracks" icon={IconMap} active={tab === 'tracks'} />
           <div className="flex items-center justify-center">
-            <Link to="/live" aria-current={tab === 'drive' ? 'page' : undefined} className="flex h-12 w-[6.5rem] items-center justify-center gap-2 rounded-xl bg-accent text-[15px] font-extrabold text-white">
+            <Link to="/live" aria-current={tab === 'drive' ? 'page' : undefined} className="press flex h-12 w-[6.5rem] items-center justify-center gap-2 rounded-xl bg-accent text-[15px] font-extrabold text-white">
               <IconTimer /> Drive
             </Link>
           </div>
@@ -76,8 +119,8 @@ type NavIcon = (p: React.SVGProps<SVGSVGElement>) => React.ReactElement;
 
 function TabItem({ to, label, icon: Icon, active }: { to: string; label: string; icon: NavIcon; active: boolean }) {
   return (
-    <Link to={to} aria-current={active ? 'page' : undefined} className={`relative flex h-[4.25rem] flex-col items-center justify-center gap-1 text-xs font-semibold ${active ? 'text-fg' : 'text-muted'}`}>
-      {active && <span className="absolute inset-x-[28%] top-0 h-[3px] rounded-b bg-accent" aria-hidden="true" />}
+    <Link to={to} aria-current={active ? 'page' : undefined} className={`press relative flex h-[4.25rem] flex-col items-center justify-center gap-1 text-xs font-semibold ${active ? 'text-fg' : 'text-muted'}`}>
+      {active && <span className="anim-bar absolute inset-x-[28%] top-0 h-[3px] rounded-b bg-accent" aria-hidden="true" />}
       <Icon width={22} height={22} />
       {label}
     </Link>
@@ -141,7 +184,7 @@ function LeaderboardToast() {
   }, [visible, latest]);
   if (!visible) return null;
   return (
-    <div role="status" className="fixed inset-x-3 bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-[2000] mx-auto max-w-md rounded border border-accent bg-panel p-4 shadow-2xl md:bottom-6 md:left-auto md:right-6 md:mx-0 md:w-96">
+    <div role="status" className="anim-toast fixed inset-x-3 bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-[2000] mx-auto max-w-md rounded border border-accent bg-panel p-4 shadow-2xl md:bottom-6 md:left-auto md:right-6 md:mx-0 md:w-96">
       <div className="flex items-start gap-3">
         <span className="mt-0.5 text-accent">
           <IconTrophy />
@@ -175,7 +218,7 @@ function LeaderboardToast() {
             </div>
           ))}
         </div>
-        <button type="button" onClick={() => setDismissedAt(latest)} aria-label="Dismiss" className="-mr-2 -mt-2 flex h-9 w-9 items-center justify-center rounded text-muted hover:bg-raised hover:text-fg">
+        <button type="button" onClick={() => setDismissedAt(latest)} aria-label="Dismiss" className="-mr-2 -mt-2 flex h-9 w-9 items-center justify-center rounded text-muted hover:bg-raised active:bg-raised hover:text-fg">
           <IconX width={18} height={18} />
         </button>
       </div>

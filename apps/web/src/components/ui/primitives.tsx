@@ -7,7 +7,7 @@ type Size = 'sm' | 'md' | 'lg' | 'xl';
 const variants: Record<Variant, string> = {
   primary: 'bg-accent text-white hover:brightness-110 border border-accent',
   secondary: 'bg-raised text-fg border border-line hover:border-muted',
-  ghost: 'bg-transparent text-fg border border-transparent hover:bg-raised',
+  ghost: 'bg-transparent text-fg border border-transparent hover:bg-raised active:bg-raised',
   danger: 'bg-transparent text-loss border border-loss/50 hover:bg-loss/10',
 };
 
@@ -19,7 +19,7 @@ const sizes: Record<Size, string> = {
 };
 
 export function buttonClass(variant: Variant = 'secondary', size: Size = 'md', extra = ''): string {
-  return `inline-flex select-none items-center justify-center rounded font-semibold tracking-wide transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${variants[variant]} ${sizes[size]} ${extra}`;
+  return `inline-flex select-none items-center justify-center rounded font-semibold tracking-wide press disabled:cursor-not-allowed disabled:opacity-40 ${variants[variant]} ${sizes[size]} ${extra}`;
 }
 
 export function Button({
@@ -176,7 +176,7 @@ export function Toggle({ checked, onChange, label, hint }: { checked: boolean; o
       <input type="checkbox" className="peer sr-only" checked={checked} onChange={(e) => onChange(e.target.checked)} />
       <span
         aria-hidden="true"
-        className="relative mt-0.5 h-6 w-11 shrink-0 rounded-full border border-line bg-raised transition-colors after:absolute after:left-0.5 after:top-0.5 after:h-[18px] after:w-[18px] after:rounded-full after:bg-muted after:transition-transform peer-checked:border-accent peer-checked:bg-accent peer-checked:after:translate-x-5 peer-checked:after:bg-white peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-accent"
+        className="relative mt-0.5 h-6 w-11 shrink-0 rounded-full border border-line bg-raised transition-colors after:absolute after:left-0.5 after:top-0.5 after:h-[18px] after:w-[18px] after:rounded-full after:bg-muted after:transition-transform motion-reduce:after:transition-none peer-checked:border-accent peer-checked:bg-accent peer-checked:after:translate-x-5 peer-checked:after:bg-white peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-accent"
       />
     </label>
   );
@@ -198,5 +198,93 @@ export function Spinner({ label = 'Loading' }: { label?: string }) {
       <span className="h-3 w-3 animate-spin rounded-full border-2 border-muted border-t-transparent" aria-hidden="true" />
       {label}
     </span>
+  );
+}
+
+/**
+ * Two or three choices in one control (List / Map, Leaderboard / My laps). The highlight slides
+ * to the chosen one, so it is clear what changed.
+ */
+export function Segmented<T extends string>({
+  options,
+  value,
+  onChange,
+  label,
+  className = '',
+  itemClass = 'h-9',
+}: {
+  options: { value: T; label: ReactNode }[];
+  value: T;
+  onChange: (v: T) => void;
+  label: string;
+  className?: string;
+  itemClass?: string;
+}) {
+  const i = Math.max(0, options.findIndex((o) => o.value === value));
+  return (
+    <div role="tablist" aria-label={label} className={`relative grid rounded border border-line bg-raised p-1 text-sm font-semibold ${className}`} style={{ gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` }}>
+      <span
+        aria-hidden="true"
+        className="absolute bottom-1 left-1 top-1 rounded bg-panel shadow transition-transform duration-[250ms] ease-[cubic-bezier(0.25,1,0.5,1)] motion-reduce:transition-none"
+        style={{ width: `calc((100% - 0.5rem) / ${options.length})`, transform: `translateX(${i * 100}%)` }}
+      />
+      {options.map((o) => (
+        <button
+          key={o.value}
+          type="button"
+          role="tab"
+          aria-selected={o.value === value}
+          onClick={() => onChange(o.value)}
+          className={`relative rounded px-2 transition-colors duration-200 [touch-action:manipulation] ${itemClass} ${o.value === value ? 'text-fg' : 'text-muted hover:text-fg'}`}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** Keeps something mounted for `exitMs` after `open` turns false, so it can animate out. */
+export function usePresence(open: boolean, exitMs = 200): { mounted: boolean; closing: boolean } {
+  const [mounted, setMounted] = useState(open);
+  useEffect(() => {
+    if (open) return setMounted(true);
+    const t = setTimeout(() => setMounted(false), exitMs);
+    return () => clearTimeout(t);
+  }, [open, exitMs]);
+  return { mounted: open || mounted, closing: !open && mounted };
+}
+
+/** A sheet that slides up from the bottom (a centred dialog on desktop with `center`). */
+export function Sheet({
+  open,
+  onClose,
+  labelledBy,
+  center = false,
+  children,
+}: {
+  open: boolean;
+  onClose: () => void;
+  labelledBy: string;
+  center?: boolean;
+  children: ReactNode;
+}) {
+  const { mounted, closing } = usePresence(open);
+  if (!mounted) return null;
+  return (
+    <div className={`fixed inset-0 z-[2000] flex items-end ${center ? 'md:items-center md:justify-center' : ''}`} onClick={closing ? undefined : onClose}>
+      <div className="sheet-backdrop absolute inset-0 bg-black/60" data-closing={closing || undefined} aria-hidden="true" />
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={labelledBy}
+        data-closing={closing || undefined}
+        data-center={center || undefined}
+        className={`sheet relative w-full border-t border-line bg-panel p-4 pb-[max(1rem,env(safe-area-inset-bottom))] ${center ? 'md:max-w-md md:rounded md:border' : ''}`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {children}
+      </div>
+    </div>
   );
 }

@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { PageHeader } from '../components/AppShell';
 import { SAFETY_DETAIL, SAFETY_TEXT, acceptSafety } from '../lib/safety';
-import { Button, ConfirmButton, Field, Input, Notice, Panel, Spinner } from '../components/ui/primitives';
+import { Button, ConfirmButton, Field, Input, Notice, Panel, Segmented, Spinner } from '../components/ui/primitives';
 import { useAccount } from '../hooks/useData';
 import { describeError, login, logout, register, resetPassword, syncNow, updateProfile } from '../lib/cloud/account';
 import { validateCar, validateNickname } from '../lib/cloud/leaderboard';
@@ -32,7 +32,7 @@ export function Account() {
   );
 }
 
-function SignInForm() {
+export function SignInForm() {
   const [mode, setMode] = useState<Mode>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -41,7 +41,13 @@ function SignInForm() {
   const [nickname, setNickname] = useState('');
   const [car, setCar] = useState('');
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setErrorText] = useState<string | null>(null);
+  // Counts failed attempts so the message shakes again even when the text is the same.
+  const [attempt, setAttempt] = useState(0);
+  function setError(m: string | null) {
+    setErrorText(m);
+    if (m) setAttempt((n) => n + 1);
+  }
   const [info, setInfo] = useState<string | null>(null);
 
   async function submit(e: FormEvent) {
@@ -74,31 +80,22 @@ function SignInForm() {
     }
   }
 
-  const tabs: { id: Mode; label: string }[] = [
-    { id: 'login', label: 'Sign in' },
-    { id: 'register', label: 'Create account' },
-  ];
-
   return (
-    <Panel bodyClass="p-0">
+    <div>
       {mode !== 'reset' && (
-        <div className="grid grid-cols-2 border-b border-line" role="tablist">
-          {tabs.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              role="tab"
-              aria-selected={mode === t.id}
-              onClick={() => (setMode(t.id), setError(null), setInfo(null))}
-              className={`h-12 text-sm font-semibold uppercase tracking-wider ${mode === t.id ? 'border-b-2 border-accent text-fg' : 'text-muted'}`}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
+        <Segmented
+          label="Account"
+          itemClass="h-10"
+          value={mode}
+          onChange={(m) => (setMode(m), setError(null), setInfo(null))}
+          options={[
+            { value: 'login', label: 'Sign in' },
+            { value: 'register', label: 'Create account' },
+          ]}
+        />
       )}
-      <form onSubmit={submit} className="space-y-4 p-4" noValidate>
-        {mode === 'reset' && <p className="text-sm text-muted">Enter your e-mail and we'll send you a link to set a new password.</p>}
+      <form onSubmit={submit} className="space-y-4 pt-5" noValidate>
+        {mode === 'reset' && <p className="anim-reveal text-sm text-muted">Enter your e-mail and we'll send you a link to set a new password.</p>}
         <Field label="E-mail">
           <Input type="email" autoComplete="email" inputMode="email" value={email} onChange={(e) => setEmail(e.target.value)} maxLength={200} required />
         </Field>
@@ -108,7 +105,7 @@ function SignInForm() {
           </Field>
         )}
         {mode === 'register' && (
-          <>
+          <div className="anim-reveal space-y-4">
             <Field label="Confirm password">
               <Input type="password" autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} maxLength={200} required />
             </Field>
@@ -124,15 +121,15 @@ function SignInForm() {
                 {SAFETY_TEXT} <span className="text-muted">{SAFETY_DETAIL}</span>
               </span>
             </label>
-          </>
+          </div>
         )}
         {error && (
-          <p role="alert" className="text-sm text-loss">
+          <p key={attempt} role="alert" className="anim-shake text-sm text-loss">
             {error}
           </p>
         )}
         {info && <Notice>{info}</Notice>}
-        <Button type="submit" variant="primary" size="lg" className="w-full" disabled={busy}>
+        <Button type="submit" variant="primary" size="xl" className="w-full !text-xl !font-extrabold" disabled={busy}>
           {busy ? 'Please wait…' : mode === 'login' ? 'Sign in' : mode === 'register' ? 'Create account' : 'Send reset link'}
         </Button>
         <div className="text-center text-sm">
@@ -154,7 +151,7 @@ function SignInForm() {
           </p>
         )}
       </form>
-    </Panel>
+    </div>
   );
 }
 
@@ -255,7 +252,7 @@ function relativeTime(t: number): string {
   return new Date(t).toLocaleString();
 }
 
-function ProfileForm({ submitLabel, onDone }: { submitLabel: string; onDone?: () => void }) {
+export function ProfileForm({ submitLabel, onDone, wide = false }: { submitLabel: string; onDone?: () => void; wide?: boolean }) {
   const acc = useAccount();
   const [nickname, setNickname] = useState(acc.profile?.nickname ?? '');
   const [car, setCar] = useState(acc.profile?.car ?? '');
@@ -287,11 +284,11 @@ function ProfileForm({ submitLabel, onDone }: { submitLabel: string; onDone?: ()
         <Input value={car} onChange={(e) => setCar(e.target.value)} maxLength={60} placeholder="e.g. Škoda Octavia RS 2.0 TSI" />
       </Field>
       {error && (
-        <p role="alert" className="text-sm text-loss">
+        <p role="alert" className="anim-shake text-sm text-loss">
           {error}
         </p>
       )}
-      <Button type="submit" variant="primary" disabled={busy}>
+      <Button type="submit" variant="primary" size={wide ? 'xl' : 'md'} className={wide ? 'w-full !text-xl !font-extrabold' : ''} disabled={busy}>
         {busy ? 'Saving…' : submitLabel}
       </Button>
     </form>

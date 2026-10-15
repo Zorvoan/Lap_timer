@@ -14,6 +14,9 @@ it ranks. Every screen has one obvious next action. Nothing needs configuring be
 
 - Bottom bar with three destinations: **Tracks**, **Drive** (a red button in the bar, not a floating
   circle) and **Me**. The active tab is marked with a red bar at the top of the item.
+- **Sign in first**: everyone signs in (or creates an account with nickname and car) before the
+  app opens; an account without a nickname and car is asked for them. A run already being timed is
+  never interrupted by this.
 - **Tracks**: one plain list (dividers, no card per track). Each row: name, length, your best time and
   rank, or the track record when you have no time. A List / Map switch shows the same tracks on a
   map. Near a start line, that track is offered at the top with its Drive button.
@@ -38,9 +41,21 @@ it ranks. Every screen has one obvious next action. Nothing needs configuring be
 - Spacing and dividers group things before borders or boxes do. No gradients, no nested panels.
 - English UI, plain words: "vs best", "Best possible time", "Part 1-3", "Finding GPS".
 
+## Motion
+
+Follows `.claude/skills/ui-animation`; tokens and classes live at the end of `index.css`.
+- Only `transform` and `opacity` move; colours fade (`.tint`). No `transition: all`.
+- Feedback: buttons and tabs press to 0.97 instantly (`.press`); switches slide their highlight.
+- Orientation: pages rise 6 px and fade in 220 ms; sheets slide up from the bottom and slide back.
+- Numbers that arrive on their own (parts, rank) land with a short blur-in; the running clock and
+  gap never animate.
+- Delight is spent on rare moments only: the sign-in screen and the time card (card rises, digits
+  land, stamp slams on).
+- Reduced motion: nothing travels or scales, things only fade.
+
 ## States each screen must handle
 
-First visit and signed out (one-line sign-in notice; driving works without an account), finding GPS
+First visit and signed out (the sign-in screen), finding GPS
 (Start locked, says why and how long it usually takes), slower than best, GPS lost while driving
 (timing continues, the driver is told to carry on), no laps on a track yet, finish without a
 connection (saved on the phone, uploads later), plus loading and error for every network list.

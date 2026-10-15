@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import L from 'leaflet';
 import { formatDistance, type Circuit } from '@laptimer/core';
@@ -7,7 +7,7 @@ import { RouteLayer } from '../components/map/RouteLayer';
 import { TimingLineView } from '../components/map/TimingLines';
 import { LeaderboardTab } from '../components/track/LeaderboardTab';
 import { MyLapsTab } from '../components/track/MyLapsTab';
-import { Button, ConfirmButton, LinkButton, Notice, Spinner } from '../components/ui/primitives';
+import { Button, ConfirmButton, LinkButton, Notice, Segmented, Spinner } from '../components/ui/primitives';
 import { IconArrowLeft, IconPlay } from '../components/ui/icons';
 import { useAccount, useData } from '../hooks/useData';
 import { useSettings } from '../hooks/useSettings';
@@ -37,6 +37,8 @@ export function Track() {
   const circuit: Circuit | null = data?.circuit ?? featured;
   const sessions = data?.sessions ?? [];
   const lapCount = sessions.reduce((n, s) => n + s.laps.length, 0);
+  // The page itself fades in on arrival; the tab content animates only when the user switches.
+  const [tabSwitched, setTabSwitched] = useState(false);
   const tab = featured && params.get('tab') !== 'laps' && !params.get('session') ? 'leaderboard' : 'laps';
   const bounds = useMemo(() => (circuit ? L.latLngBounds(circuit.geometry.map(([lon, lat]) => [lat, lon] as [number, number])) : null), [circuit]);
 
@@ -83,25 +85,21 @@ export function Track() {
         </div>
 
         {featured ? (
-          <div role="tablist" aria-label="Track" className="mt-5 grid grid-cols-2 gap-1 rounded border border-line bg-raised p-1 text-sm font-semibold md:max-w-sm">
-            {(['leaderboard', 'laps'] as const).map((t) => (
-              <button
-                key={t}
-                type="button"
-                role="tab"
-                aria-selected={tab === t}
-                onClick={() => setParams(t === 'laps' ? { tab: 'laps' } : {}, { replace: true, state: { from } })}
-                className={`h-9 rounded ${tab === t ? 'bg-panel text-fg shadow' : 'text-muted hover:text-fg'}`}
-              >
-                {t === 'leaderboard' ? 'Leaderboard' : `My laps${lapCount ? ` (${lapCount})` : ''}`}
-              </button>
-            ))}
-          </div>
+          <Segmented
+            label="Track"
+            className="mt-5 md:max-w-sm"
+            value={tab}
+            onChange={(t) => (setTabSwitched(true), setParams(t === 'laps' ? { tab: 'laps' } : {}, { replace: true, state: { from } }))}
+            options={[
+              { value: 'leaderboard', label: 'Leaderboard' },
+              { value: 'laps', label: `My laps${lapCount ? ` (${lapCount})` : ''}` },
+            ]}
+          />
         ) : (
           <h2 className="label mt-6">My laps</h2>
         )}
 
-        <div className="mt-3">
+        <div key={tab} className={`mt-3 ${tabSwitched ? 'anim-page' : ''}`}>
           {tab === 'leaderboard' && featured ? <LeaderboardTab track={featured} /> : data ? <MyLapsTab circuit={circuit} sessions={sessions} /> : <Spinner />}
         </div>
 
