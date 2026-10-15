@@ -179,6 +179,9 @@ export async function syncNow(): Promise<void> {
   return syncing;
 }
 
+/** True while a new account is being created, before its profile is saved. */
+let registering = false;
+
 /** Creates an account with its public profile (nickname must be unique). */
 export async function register(email: string, password: string, nickname: string, car: string): Promise<void> {
   const problem = validateNickname(nickname) ?? validateCar(car);
@@ -186,10 +189,15 @@ export async function register(email: string, password: string, nickname: string
   const a = await loadApi();
   const c = await community();
   if (!(await c.isNicknameAvailable(nickname))) throw new c.NicknameTakenError();
-  await a.register(email.trim(), password);
-  const uid = state.user?.uid ?? (await waitForUser());
-  await c.saveProfile(uid, { nickname, car }, state.featured.map((f) => f.id));
-  set({ profile: { nickname: nickname.trim(), car: car.trim() } });
+  registering = true;
+  try {
+    await a.register(email.trim(), password);
+    const uid = state.user?.uid ?? (await waitForUser());
+    await c.saveProfile(uid, { nickname, car }, state.featured.map((f) => f.id));
+    set({ profile: { nickname: nickname.trim(), car: car.trim() } });
+  } finally {
+    registering = false;
+  }
 }
 
 function waitForUser(): Promise<string> {
@@ -206,7 +214,8 @@ function waitForUser(): Promise<string> {
 async function loadProfile(uid: string) {
   try {
     const p = await (await community()).getProfile(uid);
-    if (state.user?.uid === uid) set({ profile: p });
+    // A brand-new account has no profile until register() saves it; "none" then is not news.
+    if (state.user?.uid === uid && !(p === null && registering)) set({ profile: p });
   } catch (e) {
     log.warn('profile could not be loaded', { error: String(e) });
   }

@@ -7,7 +7,7 @@ import { TrackLines, boundsOf } from '../components/map/TrackLines';
 import { RouteShape } from '../components/map/RouteShape';
 import { LocateControl } from '../components/map/MapControls';
 import { ProfileNotice, loadBoard } from '../components/track/LeaderboardTab';
-import { Notice, Spinner } from '../components/ui/primitives';
+import { Notice, Segmented, Spinner } from '../components/ui/primitives';
 import { IconPin, IconPlay, IconPlus, IconRecord } from '../components/ui/icons';
 import { useAccount, useData } from '../hooks/useData';
 import { useSettings } from '../hooks/useSettings';
@@ -84,7 +84,7 @@ export function Tracks() {
 
   return (
     <div className="flex h-full flex-col md:flex-row">
-      <section className={`${view === 'list' ? 'flex' : 'hidden'} min-h-0 flex-1 flex-col md:flex md:w-[26rem] md:flex-none md:border-r md:border-line`}>
+      <section className={`${view === 'list' ? 'flex' : 'hidden'} anim-view min-h-0 flex-1 flex-col md:flex md:w-[26rem] md:flex-none md:border-r md:border-line`}>
         <div className="min-h-0 flex-1 overflow-auto pb-6">
           <header className="flex items-end justify-between gap-3 px-4 pb-4 pt-5">
             <div>
@@ -106,7 +106,7 @@ export function Tracks() {
                   {near.name}
                 </span>
               </div>
-              <button type="button" onClick={() => void drive(near)} className="flex h-10 shrink-0 items-center gap-2 rounded bg-accent px-3.5 font-bold text-white">
+              <button type="button" onClick={() => void drive(near)} className="press flex h-10 shrink-0 items-center gap-2 rounded bg-accent px-3.5 font-bold text-white">
                 <IconPlay width={13} height={13} /> Drive
               </button>
             </div>
@@ -146,7 +146,7 @@ export function Tracks() {
         </div>
       </section>
 
-      <section className={`${view === 'map' ? 'flex' : 'hidden'} min-h-0 flex-1 flex-col md:flex`}>
+      <section className={`${view === 'map' ? 'flex' : 'hidden'} anim-view min-h-0 flex-1 flex-col md:flex`}>
         <header className="flex items-center justify-between gap-3 border-b border-line px-4 pb-3 pt-5 md:hidden">
           <h1 className="font-display text-[2.1rem] font-black leading-none tracking-tight">Roads</h1>
           <ViewSwitch view={view} onChange={(v) => setParams(v === 'map' ? { view: 'map' } : {}, { replace: true })} />
@@ -168,13 +168,17 @@ export function Tracks() {
 
 function ViewSwitch({ view, onChange }: { view: 'list' | 'map'; onChange: (v: 'list' | 'map') => void }) {
   return (
-    <div role="tablist" aria-label="View" className="grid w-36 grid-cols-2 gap-1 rounded border border-line bg-raised p-1 text-sm font-semibold md:hidden">
-      {(['list', 'map'] as const).map((v) => (
-        <button key={v} type="button" role="tab" aria-selected={view === v} onClick={() => onChange(v)} className={`h-8 rounded ${view === v ? 'bg-panel text-fg shadow' : 'text-muted'}`}>
-          {v === 'list' ? 'List' : 'Map'}
-        </button>
-      ))}
-    </div>
+    <Segmented
+      label="View"
+      className="w-36 md:hidden"
+      itemClass="h-8"
+      value={view}
+      onChange={onChange}
+      options={[
+        { value: 'list', label: 'List' },
+        { value: 'map', label: 'Map' },
+      ]}
+    />
   );
 }
 
@@ -218,7 +222,7 @@ function TrackRow({
   }
   return (
     <li className="border-b border-line">
-      <Link to={`/tracks/${c.id}`} state={{ from: '/' }} className="flex items-center gap-3.5 px-4 py-3.5 hover:bg-raised">
+      <Link to={`/tracks/${c.id}`} state={{ from: '/' }} className="flex items-center gap-3.5 px-4 py-3.5 hover:bg-raised active:bg-raised">
         <RouteShape geometry={c.geometry} size={68} className="shrink-0 rounded-lg bg-raised text-fg/85" />
         <div className="min-w-0 flex-1">
           {stage > 0 && <div className="font-mono text-[11px] font-bold text-accent">SS{stage}</div>}

@@ -34,7 +34,7 @@ export function Me() {
       <h1 className="px-4 pb-4 pt-5 font-display text-[2.1rem] font-black leading-none tracking-tight">Me</h1>
 
       {acc.status !== 'disabled' && (
-        <Link to="/account" className="flex items-center gap-3 border-y border-line px-4 py-3.5 hover:bg-raised">
+        <Link to="/account" className="flex items-center gap-3 border-y border-line px-4 py-3.5 hover:bg-raised active:bg-raised">
           <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-line bg-raised text-sm font-extrabold text-muted">{initials || <IconUser />}</span>
           <span className="min-w-0 flex-1">
             <span className="block truncate font-bold">{name}</span>
@@ -57,7 +57,7 @@ export function Me() {
             const sum = summarizeSession(s.laps);
             return (
               <li key={s.id} className="border-b border-line last:border-0">
-                <Link to={`/sessions/${s.id}`} className="flex items-center gap-3 px-4 py-3 hover:bg-raised">
+                <Link to={`/sessions/${s.id}`} className="flex items-center gap-3 px-4 py-3 hover:bg-raised active:bg-raised">
                   <span className="min-w-0 flex-1">
                     <span className="flex items-center gap-2 truncate font-semibold">
                       {s.circuitName} {s.source === 'simulated' && <SimBadge />}
@@ -75,7 +75,7 @@ export function Me() {
         )}
         {(sessions?.length ?? 0) > recent.length && (
           <li className="border-t border-line">
-            <Link to="/sessions" className="flex items-center px-4 py-3 text-sm text-muted hover:bg-raised hover:text-fg">
+            <Link to="/sessions" className="flex items-center px-4 py-3 text-sm text-muted hover:bg-raised active:bg-raised hover:text-fg">
               <span className="flex-1">All drives ({sessions!.length})</span>
               <IconChevronRight width={18} height={18} />
             </Link>
@@ -87,12 +87,12 @@ export function Me() {
         <MeRow to="/settings" label="Settings" />
         {!installed && (
           <li className="border-b border-line">
-            <button type="button" onClick={() => setShowInstall((v) => !v)} aria-expanded={showInstall} className="flex w-full items-center px-4 py-3.5 text-left hover:bg-raised">
+            <button type="button" onClick={() => setShowInstall((v) => !v)} aria-expanded={showInstall} className="flex w-full items-center px-4 py-3.5 text-left hover:bg-raised active:bg-raised">
               <span className="flex-1">Install on home screen</span>
-              <IconChevronRight width={18} height={18} className={`text-muted transition-transform ${showInstall ? 'rotate-90' : ''}`} />
+              <IconChevronRight width={18} height={18} className={`text-muted transition-transform motion-reduce:transition-none ${showInstall ? 'rotate-90' : ''}`} />
             </button>
             {showInstall && (
-              <div className="px-4 pb-4">
+              <div className="anim-reveal px-4 pb-4">
                 <InstallCard />
               </div>
             )}
@@ -107,7 +107,7 @@ export function Me() {
 function MeRow({ to, label, last = false }: { to: string; label: string; last?: boolean }) {
   return (
     <li className={last ? '' : 'border-b border-line'}>
-      <Link to={to} className="flex items-center px-4 py-3.5 hover:bg-raised">
+      <Link to={to} className="flex items-center px-4 py-3.5 hover:bg-raised active:bg-raised">
         <span className="flex-1">{label}</span>
         <IconChevronRight width={18} height={18} className="text-muted" />
       </Link>

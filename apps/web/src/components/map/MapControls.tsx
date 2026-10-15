@@ -63,7 +63,7 @@ export function SearchControl({ className = 'left-3 top-3' }: { className?: stri
         <ul className="mt-1 max-h-72 overflow-auto rounded border border-line bg-panel text-sm shadow-lg">
           {results.map((r, i) => (
             <li key={i}>
-              <button type="button" className="w-full px-3 py-2 text-left hover:bg-raised" onClick={() => go(r)}>
+              <button type="button" className="w-full px-3 py-2 text-left hover:bg-raised active:bg-raised" onClick={() => go(r)}>
                 {r.name}
               </button>
             </li>

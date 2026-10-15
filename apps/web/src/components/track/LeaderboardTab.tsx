@@ -83,7 +83,7 @@ export function LeaderboardTab({ track }: { track: FeaturedCircuit }) {
             // Someone else's lap opens as B against your own lap (A); your own row opens as A.
             const compareUrl = `/leaderboard/${track.id}/compare?${mine ? 'a' : 'b'}=${encodeURIComponent(`lb:${e.uid}`)}`;
             return (
-              <tr key={e.uid} onClick={() => navigate(compareUrl)} className={`cursor-pointer hover:bg-raised ${mine ? 'bg-raised' : ''}`}>
+              <tr key={e.uid} onClick={() => navigate(compareUrl)} className={`cursor-pointer hover:bg-raised active:bg-raised ${mine ? 'bg-raised' : ''}`}>
                 <td className="py-3 pl-2 font-mono font-bold tabular">{i === 0 ? <span className="text-accent">P1</span> : `P${i + 1}`}</td>
                 <td className="px-2 py-3">
                   <Link to={compareUrl} onClick={(ev) => ev.stopPropagation()} className="block truncate font-semibold hover:underline">

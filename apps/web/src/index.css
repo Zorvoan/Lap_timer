@@ -120,9 +120,140 @@ body {
   @apply flex h-4 w-4 items-center justify-center text-[10px] leading-none text-white;
 }
 
+/*
+ * Motion. Curves and durations follow .claude/skills/ui-animation. Only transform and opacity
+ * move; colours fade. Entrances use `backwards` fill so no transform stays on an element after
+ * it has arrived (a lingering transform would trap position:fixed children).
+ */
+:root {
+  --ease-enter: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-move: cubic-bezier(0.25, 1, 0.5, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-expo: cubic-bezier(0.19, 1, 0.22, 1);
+  --ease-overshoot: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-shake: cubic-bezier(0.36, 0.07, 0.19, 0.97);
+}
+
+/* Press feedback: felt, not seen. Pressing is instant, release eases back. */
+.press {
+  touch-action: manipulation;
+  transition:
+    color 150ms ease,
+    background-color 150ms ease,
+    border-color 150ms ease,
+    transform 160ms var(--ease-enter);
+}
+.press:active:not(:disabled) {
+  transform: scale(0.97);
+  transition-duration: 0s;
+}
+
+/* State colour changes (GPS box, gap box, parts) fade instead of snapping. */
+.tint {
+  transition:
+    color 300ms ease,
+    background-color 300ms ease,
+    border-color 300ms ease;
+}
+
+@keyframes lt-fade-in {
+  from { opacity: 0; }
+}
+@keyframes lt-page-in {
+  from { opacity: 0; transform: translateY(6px); }
+}
+@keyframes lt-rise {
+  from { opacity: 0; transform: translateY(16px); }
+}
+@keyframes lt-reveal {
+  from { opacity: 0; transform: translateY(-4px); }
+}
+@keyframes lt-num-in {
+  from { opacity: 0; transform: translateY(0.3em); filter: blur(4px); }
+}
+@keyframes lt-icon-in {
+  from { opacity: 0; transform: scale(0.25); filter: blur(2px); }
+}
+@keyframes lt-pop {
+  from { opacity: 0; transform: scale(0.94); }
+}
+@keyframes lt-bar-in {
+  from { opacity: 0; transform: scaleX(0.3); }
+}
+@keyframes lt-sheet-in {
+  from { transform: translateY(100%); }
+}
+@keyframes lt-sheet-out {
+  to { transform: translateY(100%); }
+}
+@keyframes lt-dialog-in {
+  from { opacity: 0; transform: scale(0.96); }
+}
+@keyframes lt-dialog-out {
+  to { opacity: 0; transform: scale(0.96); }
+}
+@keyframes lt-fade-out {
+  to { opacity: 0; }
+}
+@keyframes lt-toast-in {
+  from { opacity: 0; transform: translateY(8px); }
+}
+@keyframes lt-stamp {
+  from { opacity: 0; transform: rotate(-16deg) scale(1.9); }
+  to { opacity: 1; transform: rotate(-7deg) scale(1); }
+}
+@keyframes lt-shake {
+  25% { transform: translateX(4px); }
+  50% { transform: translateX(-2px); }
+  75% { transform: translateX(2px); }
+}
+
+/* A new page: a short rise and fade, so moving between tabs reads as a change of place. */
+.anim-page { animation: lt-page-in 220ms var(--ease-enter) backwards; }
+/* Content that just appeared under the control that opened it. */
+.anim-reveal { animation: lt-reveal 200ms var(--ease-enter) backwards; }
+/* A number that arrives on its own: lap parts, leaderboard place. */
+.anim-num { display: inline-block; animation: lt-num-in 320ms var(--ease-enter) backwards; }
+/* An icon replacing another in the same spot (GPS found). */
+.anim-icon { animation: lt-icon-in 220ms ease-in-out backwards; }
+/* A finished lap taking over the gap box. */
+.anim-pop { animation: lt-pop 260ms var(--ease-enter) backwards; }
+.anim-bar { transform-origin: center; animation: lt-bar-in 200ms var(--ease-enter) backwards; }
+.anim-toast { animation: lt-toast-in 220ms var(--ease-enter) backwards; }
+.anim-shake { animation: lt-shake 220ms var(--ease-shake); }
+/* Staggered entrance of a screen seen once (sign-in); --i is the item's place in the order. */
+.anim-stagger { animation: lt-rise 480ms var(--ease-expo) backwards; animation-delay: calc(var(--i, 0) * 60ms); }
+
+/* Bottom sheet with its backdrop; both share curve and duration. Centred dialog on desktop. */
+.sheet-backdrop { animation: lt-fade-in 360ms var(--ease-drawer) backwards; }
+.sheet-backdrop[data-closing] { animation: lt-fade-out 200ms var(--ease-enter) forwards; }
+.sheet { animation: lt-sheet-in 360ms var(--ease-drawer) backwards; }
+.sheet[data-closing] { animation: lt-sheet-out 200ms var(--ease-enter) forwards; }
+@media (min-width: 768px) {
+  .sheet[data-center] { animation-name: lt-dialog-in; animation-duration: 250ms; animation-timing-function: var(--ease-enter); }
+  .sheet[data-center][data-closing] { animation-name: lt-dialog-out; animation-duration: 150ms; }
+}
+
+/* The time card: card rises, digits land one after another, then the stamp slams on. */
+.tc-card { animation: lt-rise 450ms var(--ease-expo) backwards; }
+.tc-digit { display: inline-block; animation: lt-num-in 380ms var(--ease-enter) backwards; }
+.tc-stamp { animation: lt-stamp 420ms var(--ease-overshoot) 620ms backwards; }
+
+/* Reduced motion: nothing travels or scales; things still fade so state changes stay visible. */
 @media (prefers-reduced-motion: reduce) {
-  * {
-    animation: none !important;
-    transition: none !important;
+  .anim-page, .anim-reveal, .anim-num, .anim-icon, .anim-pop, .anim-bar, .anim-toast, .anim-stagger,
+  .sheet, .tc-card, .tc-digit, .tc-stamp {
+    animation-name: lt-fade-in;
   }
+  .sheet[data-closing], .sheet[data-center][data-closing] { animation-name: lt-fade-out; }
+  .anim-shake { animation: none; }
+  /* Pressing does not shrink; looping pulses stop. Colour fades stay. */
+  .press:active:not(:disabled) { transform: none; }
+  .animate-pulse { animation: none; }
+  .leaflet-container * { transition: none !important; }
+}
+
+/* Phone: List and Map are two views of one screen; the one switched to fades in. */
+@media (max-width: 767px) {
+  .anim-view { animation: lt-fade-in 180ms var(--ease-enter) backwards; }
 }

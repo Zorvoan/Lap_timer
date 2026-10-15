@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { distanceMeters, formatLapTime, formatSpeed, speedLabel, type SectorSplit, type Session } from '@laptimer/core';
-import { Button, ConfirmButton, Empty, LinkButton, Notice, Spinner } from '../components/ui/primitives';
+import { Button, ConfirmButton, Empty, LinkButton, Notice, Sheet, Spinner } from '../components/ui/primitives';
 import { IconAlert, IconCheck, IconPlay, IconSpinner, IconStop, IconTrophy } from '../components/ui/icons';
 import { loadBoard } from '../components/track/LeaderboardTab';
 import { useAccount, useData, useLive, useTicker } from '../hooks/useData';
@@ -142,16 +142,15 @@ function DriveSetup() {
 
   return (
     <div className="mx-auto flex min-h-full max-w-xl flex-col px-4 pb-8 pt-5">
-      {askSafety && (
-        <SafetyDialog
-          onCancel={() => setAskSafety(false)}
-          onAgree={async () => {
-            setAskSafety(false);
-            await acceptSafety();
-            void start({ confirmed: true });
-          }}
-        />
-      )}
+      <SafetyDialog
+        open={askSafety}
+        onCancel={() => setAskSafety(false)}
+        onAgree={async () => {
+          setAskSafety(false);
+          await acceptSafety();
+          void start({ confirmed: true });
+        }}
+      />
       {active && <RecoveryBanner info={active} />}
 
       <div className="label">Track</div>
@@ -256,7 +255,7 @@ function DriveSetup() {
 
 /** One line: is GPS good enough to start? */
 function GpsLine({ gps, simulating, needM }: { gps: GpsPreview; simulating: boolean; needM: number }) {
-  const box = 'mt-4 flex items-center gap-3 rounded-lg border p-3.5';
+  const box = 'tint mt-4 flex items-center gap-3 rounded-lg border p-3.5';
   if (simulating) {
     return (
       <div className={`${box} border-warn/50 bg-warn/10`}>
@@ -267,7 +266,7 @@ function GpsLine({ gps, simulating, needM }: { gps: GpsPreview; simulating: bool
   if (gps.state === 'ready') {
     return (
       <div className={`${box} border-gain/40 bg-gain/10`} role="status">
-        <IconCheck width={26} height={26} className="shrink-0 text-gain" />
+        <IconCheck width={26} height={26} className="anim-icon shrink-0 text-gain" />
         <div>
           <div className="font-extrabold text-gain">GPS ready</div>
           <div className="text-xs text-gain/80">Accurate to {Math.round(gps.accuracyM ?? 0)} m</div>
@@ -325,31 +324,23 @@ function LeaderboardLine({ simulating }: { simulating: boolean }) {
   );
 }
 
-function SafetyDialog({ onCancel, onAgree }: { onCancel: () => void; onAgree: () => void }) {
+function SafetyDialog({ open, onCancel, onAgree }: { open: boolean; onCancel: () => void; onAgree: () => void }) {
   return (
-    <div className="fixed inset-0 z-[2000] flex items-end bg-black/60 md:items-center md:justify-center" onClick={onCancel}>
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="safety-title"
-        className="w-full border-t border-line bg-panel p-4 pb-[max(1rem,env(safe-area-inset-bottom))] md:max-w-md md:rounded md:border"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h2 id="safety-title" className="text-xl font-bold">
-          Before your first run
-        </h2>
-        <p className="mt-2 text-sm">{SAFETY_TEXT}</p>
-        <p className="mt-2 text-sm text-muted">{SAFETY_DETAIL}</p>
-        <div className="mt-4 grid grid-cols-2 gap-3">
-          <Button size="lg" onClick={onCancel}>
-            Cancel
-          </Button>
-          <Button size="lg" variant="primary" onClick={onAgree}>
-            I agree
-          </Button>
-        </div>
+    <Sheet open={open} onClose={onCancel} labelledBy="safety-title" center>
+      <h2 id="safety-title" className="text-xl font-bold">
+        Before your first run
+      </h2>
+      <p className="mt-2 text-sm">{SAFETY_TEXT}</p>
+      <p className="mt-2 text-sm text-muted">{SAFETY_DETAIL}</p>
+      <div className="mt-4 grid grid-cols-2 gap-3">
+        <Button size="lg" onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button size="lg" variant="primary" onClick={onAgree}>
+          I agree
+        </Button>
       </div>
-    </div>
+    </Sheet>
   );
 }
 
@@ -533,33 +524,23 @@ function DriveRunning() {
         </div>
       )}
 
-      {confirmStop && (
-        <div className="fixed inset-0 z-[2000] flex items-end bg-black/60" onClick={() => setConfirmStop(false)}>
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="stop-title"
-            className="w-full border-t border-line bg-panel p-4 pb-[max(1rem,env(safe-area-inset-bottom))]"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2 id="stop-title" className="text-xl font-bold">
-              Stop and save?
-            </h2>
-            <p className="mt-1 text-sm text-muted">
-              {snap.completedLaps === 0 ? 'No lap is finished yet, so this run has no time.' : `${snap.completedLaps} lap${snap.completedLaps > 1 ? 's' : ''} will be saved.`}
-              {snap.lapState === 'in_lap' && snap.completedLaps > 0 && ' The lap in progress is not counted.'}
-            </p>
-            <div className="mt-4 grid grid-cols-2 gap-3">
-              <Button size="xl" onClick={() => setConfirmStop(false)}>
-                Keep timing
-              </Button>
-              <Button size="xl" variant="primary" className="whitespace-nowrap" disabled={stopping} onClick={() => (setConfirmStop(false), void stop())}>
-                <IconStop /> Stop
-              </Button>
-            </div>
-          </div>
+      <Sheet open={confirmStop} onClose={() => setConfirmStop(false)} labelledBy="stop-title">
+        <h2 id="stop-title" className="text-xl font-bold">
+          Stop and save?
+        </h2>
+        <p className="mt-1 text-sm text-muted">
+          {snap.completedLaps === 0 ? 'No lap is finished yet, so this run has no time.' : `${snap.completedLaps} lap${snap.completedLaps > 1 ? 's' : ''} will be saved.`}
+          {snap.lapState === 'in_lap' && snap.completedLaps > 0 && ' The lap in progress is not counted.'}
+        </p>
+        <div className="mt-4 grid grid-cols-2 gap-3">
+          <Button size="xl" onClick={() => setConfirmStop(false)}>
+            Keep timing
+          </Button>
+          <Button size="xl" variant="primary" className="whitespace-nowrap" disabled={stopping} onClick={() => (setConfirmStop(false), void stop())}>
+            <IconStop /> Stop
+          </Button>
         </div>
-      )}
+      </Sheet>
     </div>
   );
 }
@@ -592,7 +573,7 @@ function GapBox({
   hasReference: boolean;
   delta: { deltaMs: number; reliable: boolean } | null;
 }) {
-  const box = 'rounded-xl border px-4 pb-7 pt-5 text-center';
+  const box = 'tint rounded-xl border px-4 pb-7 pt-5 text-center';
   if (waiting) {
     return (
       <div className={`${box} border-line`}>
@@ -605,7 +586,7 @@ function GapBox({
   if (flash) {
     const faster = flash.deltaMs !== null && flash.deltaMs < 0;
     return (
-      <div className={`${box} ${flash.deltaMs === null ? 'border-line' : faster ? 'border-gain/50 bg-gain/10' : 'border-loss/50 bg-loss/10'}`} role="status" aria-live="assertive">
+      <div key={`lap-${flash.lap}`} className={`${box} anim-pop ${flash.deltaMs === null ? 'border-line' : faster ? 'border-gain/50 bg-gain/10' : 'border-loss/50 bg-loss/10'}`} role="status" aria-live="assertive">
         <div className="label">Lap {flash.lap}</div>
         <div className="mt-2 font-mono text-6xl font-extrabold leading-none tabular">{formatClock(flash.timeMs)}</div>
         {flash.deltaMs !== null && <div className={`mt-3 font-mono text-2xl font-bold tabular ${faster ? 'text-gain' : 'text-loss'}`}>{formatGap(flash.deltaMs)}</div>}
@@ -638,7 +619,7 @@ function GapBox({
   return (
     <div className={`${box} ${tone}`} role="timer" aria-label="Gap to your best lap">
       <div className={`label ${delta.reliable ? (faster ? '!text-gain/80' : '!text-loss/80') : ''}`}>vs best</div>
-      <div className={`mt-2 font-mono text-[clamp(4.5rem,25vw,7rem)] font-extrabold leading-none tabular ${text}`}>{formatGap(delta.deltaMs)}</div>
+      <div className={`tint mt-2 font-mono text-[clamp(4.5rem,25vw,7rem)] font-extrabold leading-none tabular ${text}`}>{formatGap(delta.deltaMs)}</div>
       {!delta.reliable && <div className="mt-2 text-sm text-muted">GPS uncertain here</div>}
     </div>
   );
@@ -658,9 +639,12 @@ function Parts({ sectors }: { sectors: SectorSplit[] }) {
         const tone = !s ? 'border-line' : purple ? 'border-[#b36bff]' : gap === null ? 'border-line' : gap < 0 ? 'border-gain/50' : 'border-loss/50';
         const text = !s ? 'text-muted' : purple ? 'text-[#b36bff]' : gap === null ? 'text-fg' : gap < 0 ? 'text-gain' : 'text-loss';
         return (
-          <div key={k} className={`rounded-lg border py-2.5 text-center ${tone}`}>
+          <div key={k} className={`tint rounded-lg border py-2.5 text-center ${tone}`}>
             <div className="label">Part {k + 1}</div>
-            <div className={`mt-1 font-mono text-2xl font-bold tabular ${text}`}>{!s ? '—' : gap !== null ? formatGap(gap) : (s.timeMs / 1000).toFixed(2)}</div>
+            {/* A part's result arrives once, when it is driven; it lands rather than appearing. */}
+            <div key={s ? s.timeMs : 'empty'} className={`mt-1 font-mono text-2xl font-bold tabular ${text}`}>
+              <span className={s ? 'anim-num' : ''}>{!s ? '—' : gap !== null ? formatGap(gap) : (s.timeMs / 1000).toFixed(2)}</span>
+            </div>
           </div>
         );
       })}

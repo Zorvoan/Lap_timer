@@ -56,7 +56,7 @@ export function SessionRows({ sessions }: { sessions: Session[] }) {
         const sum = summarizeSession(s.laps);
         return (
           <li key={s.id}>
-            <Link to={`/sessions/${s.id}`} className="grid grid-cols-[1fr_auto] items-center gap-x-4 gap-y-0.5 px-4 py-3 hover:bg-raised sm:grid-cols-[1fr_8rem_6rem_7rem]">
+            <Link to={`/sessions/${s.id}`} className="grid grid-cols-[1fr_auto] items-center gap-x-4 gap-y-0.5 px-4 py-3 hover:bg-raised active:bg-raised sm:grid-cols-[1fr_8rem_6rem_7rem]">
               <span className="min-w-0">
                 <span className="flex items-center gap-2 truncate text-sm font-medium">
                   {s.circuitName} {s.source === 'simulated' && <SimBadge />}
