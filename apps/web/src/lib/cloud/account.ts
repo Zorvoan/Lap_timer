@@ -7,7 +7,7 @@ import { config } from '../config';
 import { log } from '../log';
 import { clearAllData, dataEvents, getCircuit, getKv, listSessions, saveCircuit, setKv } from '../repo';
 import { lapLength } from '../references';
-import type { AccountUser, FirebaseApi } from './firebase';
+import type { AccountUser, FirebaseApi, SocialProvider } from './firebase';
 import type { FeaturedCircuit } from './community';
 import { bestEligibleLap, entryFromLap, traceForPublishing, validateCar, validateNickname, type Profile } from './leaderboard';
 import { resetSyncState, runSync, type SyncReport } from './syncEngine';
@@ -22,6 +22,10 @@ export interface AccountState {
   lastSyncAt: number | null;
   lastReport: SyncReport | null;
   syncError: string | null;
+  /** Why the last Google / Apple sign-in failed (shown on the sign-in screen). */
+  authError: string | null;
+  /** Sign-in providers switched on in the Firebase project, besides e-mail. */
+  providers: SocialProvider[];
   /** undefined = not loaded yet; null = signed in but no nickname/car set. */
   profile: Profile | null | undefined;
   /** Official leaderboard tracks (cached for offline use). */
@@ -57,6 +61,21 @@ export interface LeaderboardSubmission {
 
 export const cloudEnabled = Boolean(config.firebase.apiKey && config.firebase.projectId);
 
+const PROVIDERS_KEY = 'lt-sign-in-providers';
+const SOCIAL: { id: SocialProvider; firebaseId: string }[] = [
+  { id: 'apple', firebaseId: 'apple.com' },
+  { id: 'google', firebaseId: 'google.com' },
+];
+
+function cachedProviders(): SocialProvider[] {
+  try {
+    const v = JSON.parse(localStorage.getItem(PROVIDERS_KEY) ?? '[]');
+    return Array.isArray(v) ? v.filter((x): x is SocialProvider => x === 'google' || x === 'apple') : [];
+  } catch {
+    return [];
+  }
+}
+
 let state: AccountState = {
   status: cloudEnabled ? 'loading' : 'disabled',
   user: null,
@@ -64,6 +83,8 @@ let state: AccountState = {
   lastSyncAt: null,
   lastReport: null,
   syncError: null,
+  authError: null,
+  providers: cloudEnabled ? cachedProviders() : [],
   profile: undefined,
   featured: [],
   submissions: [],
@@ -100,6 +121,7 @@ function loadApi(): Promise<FirebaseApi> {
 /** Starts listening for the signed-in user. Call once at app start. */
 export function initAccount(): void {
   if (!cloudEnabled) return;
+  void refreshProviders();
   void loadApi()
     .then((a) => {
       a.onUser((user) => {
@@ -110,6 +132,10 @@ export function initAccount(): void {
         }
       });
       void refreshFeatured();
+      a.finishRedirect().catch((e) => {
+        const m = describeError(e);
+        if (m) set({ authError: m });
+      });
     })
     .catch((e) => {
       log.error('firebase failed to load', e);
@@ -177,6 +203,48 @@ export async function syncNow(): Promise<void> {
     }
   })();
   return syncing;
+}
+
+/**
+ * Which of Google / Apple the Firebase project has switched on. Asked of the sign-in service
+ * directly, so a provider enabled in the Firebase console shows up without a new app version.
+ */
+async function refreshProviders(): Promise<void> {
+  // The Auth emulator signs in with any provider (fake accounts) but cannot answer this question.
+  if (config.firebase.emulators) return set({ providers: SOCIAL.map((x) => x.id) });
+  const on = await Promise.all(
+    SOCIAL.map(async ({ id, firebaseId }) => {
+      try {
+        const r = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:createAuthUri?key=${encodeURIComponent(config.firebase.apiKey)}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ providerId: firebaseId, continueUri: location.origin }),
+        });
+        return r.ok ? id : null;
+      } catch {
+        return undefined; // offline: keep what we knew
+      }
+    }),
+  );
+  if (on.includes(undefined)) return;
+  const providers = on.filter((x): x is SocialProvider => x !== null && x !== undefined);
+  try {
+    localStorage.setItem(PROVIDERS_KEY, JSON.stringify(providers));
+  } catch {
+    // not remembered; asked again next time
+  }
+  set({ providers });
+}
+
+/** Signs in (or creates an account) with Google or Apple. A new account then asks for a profile. */
+export async function signInWith(p: SocialProvider): Promise<void> {
+  set({ authError: null });
+  try {
+    await (await loadApi()).signInWith(p);
+  } catch (e) {
+    const m = describeError(e);
+    if (m) set({ authError: m });
+  }
 }
 
 /** True while a new account is being created, before its profile is saved. */
@@ -390,7 +458,15 @@ export function describeError(e: unknown): string {
     case 'unavailable':
       return 'No connection to the server. Check your internet connection.';
     case 'auth/operation-not-allowed':
-      return 'E-mail sign-in is not enabled for this app.';
+      return 'This way of signing in is not switched on for this app.';
+    case 'auth/popup-closed-by-user':
+    case 'auth/cancelled-popup-request':
+    case 'auth/user-cancelled':
+      return ''; // the user closed the Google / Apple window: nothing to report
+    case 'auth/account-exists-with-different-credential':
+      return 'This e-mail already has an account with another way of signing in. Use that one.';
+    case 'auth/unauthorized-domain':
+      return 'Signing in from this address is not allowed. Open the app at its usual address.';
     case 'permission-denied':
       return 'The server refused access to your data. Sign out and in again.';
     case 'resource-exhausted':

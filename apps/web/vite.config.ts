@@ -37,6 +37,8 @@ export default defineConfig({
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
         navigateFallback: '/index.html',
+        // Firebase's sign-in helper pages (Google / Apple) must come from the server, not the app shell.
+        navigateFallbackDenylist: [/^\/__\//],
         runtimeCaching: [
           {
             // Tiles you have viewed stay available offline for a week. No bulk prefetching:

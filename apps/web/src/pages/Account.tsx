@@ -3,7 +3,8 @@ import { PageHeader } from '../components/AppShell';
 import { SAFETY_DETAIL, SAFETY_TEXT, acceptSafety } from '../lib/safety';
 import { Button, ConfirmButton, Field, Input, Notice, Panel, Segmented, Spinner } from '../components/ui/primitives';
 import { useAccount } from '../hooks/useData';
-import { describeError, login, logout, register, resetPassword, syncNow, updateProfile } from '../lib/cloud/account';
+import { describeError, login, logout, register, resetPassword, signInWith, syncNow, updateProfile } from '../lib/cloud/account';
+import type { SocialProvider } from '../lib/cloud/firebase';
 import { validateCar, validateNickname } from '../lib/cloud/leaderboard';
 
 type Mode = 'login' | 'register' | 'reset';
@@ -82,6 +83,7 @@ export function SignInForm() {
 
   return (
     <div>
+      {mode !== 'reset' && <SocialButtons />}
       {mode !== 'reset' && (
         <Segmented
           label="Account"
@@ -152,6 +154,63 @@ export function SignInForm() {
         )}
       </form>
     </div>
+  );
+}
+
+/**
+ * "Continue with Apple / Google", for the providers switched on in Firebase. Styled to each
+ * brand's rules for dark backgrounds (Apple: white button; Google: dark button with the full-colour G).
+ */
+function SocialButtons() {
+  const acc = useAccount();
+  const [busy, setBusy] = useState<SocialProvider | null>(null);
+  if (!acc.providers.length) return null;
+  async function go(p: SocialProvider) {
+    setBusy(p);
+    await signInWith(p).finally(() => setBusy(null));
+  }
+  return (
+    <div className="mb-6">
+      <div className="space-y-3">
+        {acc.providers.includes('apple') && (
+          <button type="button" disabled={!!busy} onClick={() => void go('apple')} className="press flex h-12 w-full items-center justify-center gap-2.5 rounded-lg bg-white text-[17px] font-semibold text-black disabled:opacity-60">
+            <AppleLogo /> {busy === 'apple' ? 'Opening Apple…' : 'Continue with Apple'}
+          </button>
+        )}
+        {acc.providers.includes('google') && (
+          <button type="button" disabled={!!busy} onClick={() => void go('google')} className="press flex h-12 w-full items-center justify-center gap-2.5 rounded-lg border border-[#8e918f] bg-[#131314] text-[16px] font-medium text-[#e3e3e3] disabled:opacity-60">
+            <GoogleLogo /> {busy === 'google' ? 'Opening Google…' : 'Continue with Google'}
+          </button>
+        )}
+      </div>
+      {acc.authError && (
+        <p role="alert" className="anim-shake mt-3 text-sm text-loss">
+          {acc.authError}
+        </p>
+      )}
+      <div className="mt-6 flex items-center gap-3 text-xs font-semibold uppercase tracking-[0.12em] text-muted" aria-hidden="true">
+        <span className="h-px flex-1 bg-line" /> or with e-mail <span className="h-px flex-1 bg-line" />
+      </div>
+    </div>
+  );
+}
+
+function AppleLogo() {
+  return (
+    <svg width="17" height="20" viewBox="0 0 17 20" aria-hidden="true" fill="currentColor">
+      <path d="M14.06 10.62c-.02-2.2 1.8-3.26 1.88-3.31-1.03-1.5-2.62-1.7-3.18-1.73-1.35-.14-2.64.8-3.33.8-.69 0-1.74-.78-2.87-.76-1.47.02-2.83.86-3.59 2.18-1.53 2.66-.39 6.6 1.1 8.75.73 1.05 1.6 2.24 2.73 2.2 1.1-.05 1.51-.71 2.84-.71 1.32 0 1.7.71 2.86.69 1.18-.02 1.93-1.07 2.65-2.13.84-1.22 1.18-2.4 1.2-2.47-.03-.01-2.27-.87-2.29-3.45zM11.9 4.15c.6-.73 1.01-1.75.9-2.76-.87.04-1.92.58-2.54 1.31-.56.65-1.05 1.68-.92 2.67.97.08 1.96-.49 2.56-1.22z" />
+    </svg>
+  );
+}
+
+function GoogleLogo() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 48 48" aria-hidden="true">
+      <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z" />
+      <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z" />
+      <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z" />
+      <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z" />
+    </svg>
   );
 }
 
@@ -252,8 +311,9 @@ function relativeTime(t: number): string {
   return new Date(t).toLocaleString();
 }
 
-export function ProfileForm({ submitLabel, onDone, wide = false }: { submitLabel: string; onDone?: () => void; wide?: boolean }) {
+export function ProfileForm({ submitLabel, onDone, wide = false, requireLegal = false }: { submitLabel: string; onDone?: () => void; wide?: boolean; requireLegal?: boolean }) {
   const acc = useAccount();
+  const [legal, setLegal] = useState(false);
   const [nickname, setNickname] = useState(acc.profile?.nickname ?? '');
   const [car, setCar] = useState(acc.profile?.car ?? '');
   const [busy, setBusy] = useState(false);
@@ -264,9 +324,11 @@ export function ProfileForm({ submitLabel, onDone, wide = false }: { submitLabel
     setError(null);
     const p = validateNickname(nickname) ?? validateCar(car);
     if (p) return setError(p);
+    if (requireLegal && !legal) return setError('Please confirm that you will only drive legally.');
     setBusy(true);
     try {
       await updateProfile({ nickname, car });
+      if (requireLegal) await acceptSafety();
       onDone?.();
     } catch (err) {
       setError(describeError(err));
@@ -283,6 +345,14 @@ export function ProfileForm({ submitLabel, onDone, wide = false }: { submitLabel
       <Field label="Car">
         <Input value={car} onChange={(e) => setCar(e.target.value)} maxLength={60} placeholder="e.g. Škoda Octavia RS 2.0 TSI" />
       </Field>
+      {requireLegal && (
+        <label className="flex items-start gap-3 rounded border border-line p-3 text-sm">
+          <input type="checkbox" className="mt-0.5 h-5 w-5 shrink-0 accent-[rgb(var(--c-accent))]" checked={legal} onChange={(e) => setLegal(e.target.checked)} />
+          <span>
+            {SAFETY_TEXT} <span className="text-muted">{SAFETY_DETAIL}</span>
+          </span>
+        </label>
+      )}
       {error && (
         <p role="alert" className="anim-shake text-sm text-loss">
           {error}
