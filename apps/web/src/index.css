@@ -61,7 +61,7 @@ body {
 }
 
 /* iOS zooms the whole page into any focused field smaller than 16px and does not zoom back. */
-@media (max-width: 767px) {
+@media (max-width: 767px), (max-height: 559px) {
   input,
   select,
   textarea {
@@ -229,7 +229,7 @@ body {
 .sheet-backdrop[data-closing] { animation: lt-fade-out 200ms var(--ease-enter) forwards; }
 .sheet { animation: lt-sheet-in 360ms var(--ease-drawer) backwards; }
 .sheet[data-closing] { animation: lt-sheet-out 200ms var(--ease-enter) forwards; }
-@media (min-width: 768px) {
+@media (min-width: 768px) and (min-height: 560px) {
   .sheet[data-center] { animation-name: lt-dialog-in; animation-duration: 250ms; animation-timing-function: var(--ease-enter); }
   .sheet[data-center][data-closing] { animation-name: lt-dialog-out; animation-duration: 150ms; }
 }
@@ -254,6 +254,6 @@ body {
 }
 
 /* Phone: List and Map are two views of one screen; the one switched to fades in. */
-@media (max-width: 767px) {
+@media (max-width: 767px), (max-height: 559px) {
   .anim-view { animation: lt-fade-in 180ms var(--ease-enter) backwards; }
 }

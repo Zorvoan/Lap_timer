@@ -280,7 +280,7 @@ export function Sheet({
         aria-labelledby={labelledBy}
         data-closing={closing || undefined}
         data-center={center || undefined}
-        className={`sheet relative w-full border-t border-line bg-panel p-4 pb-[max(1rem,env(safe-area-inset-bottom))] ${center ? 'md:max-w-md md:rounded md:border' : ''}`}
+        className={`sheet relative w-full border-t border-line bg-panel p-4 pb-[max(1rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] ${center ? 'md:max-w-md md:rounded md:border' : ''}`}
         onClick={(e) => e.stopPropagation()}
       >
         {children}

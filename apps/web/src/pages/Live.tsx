@@ -141,7 +141,7 @@ function DriveSetup() {
   }
 
   return (
-    <div className="mx-auto flex min-h-full max-w-xl flex-col px-4 pb-8 pt-5 short:pb-3 short:pt-3">
+    <div className="mx-auto flex min-h-full max-w-xl flex-col px-4 pb-8 pt-5 short:pb-3 short:pt-3 land:max-w-4xl">
       <SafetyDialog
         open={askSafety}
         onCancel={() => setAskSafety(false)}
@@ -153,6 +153,9 @@ function DriveSetup() {
       />
       {active && <RecoveryBanner info={active} />}
 
+      {/* Sideways phone: what you drive on the left, Start on the right. */}
+      <div className="land:grid land:grid-cols-2 land:items-center land:gap-6">
+      <div>
       <div className="label">Track</div>
       <div className="mt-1 flex items-baseline gap-3">
         <h1 className="min-w-0 flex-1 font-display text-[clamp(1.35rem,6.5vw,1.75rem)] font-black leading-tight tracking-tight">{circuit.name}</h1>
@@ -198,9 +201,11 @@ function DriveSetup() {
         </div>
       )}
 
+      </div>
+      <div>
       <Button
         variant={ready ? 'primary' : 'secondary'}
-        size="xl" className="mt-6 !h-[clamp(3.5rem,10dvh,5rem)] w-full !text-[clamp(1.25rem,6vw,1.5rem)] !font-extrabold short:mt-4"
+        size="xl" className="mt-6 !h-[clamp(3.5rem,10dvh,5rem)] w-full !text-[clamp(1.25rem,6vw,1.5rem)] !font-extrabold short:mt-4 land:mt-0"
         onClick={() => void start()}
         disabled={busy || !!active || !ready}
       >
@@ -249,6 +254,8 @@ function DriveSetup() {
           )}
         </div>
       )}
+      </div>
+      </div>
     </div>
   );
 }
@@ -480,7 +487,7 @@ function DriveRunning() {
       )}
 
       {/* Sizes follow the screen's height as well as its width, so it all fits on small phones. */}
-      <div className="mx-auto flex w-full max-w-xl flex-1 flex-col justify-center gap-[clamp(0.75rem,3.5dvh,2rem)] px-4 py-[clamp(0.75rem,3dvh,1.5rem)]">
+      <div className="mx-auto flex w-full max-w-xl flex-1 flex-col justify-center gap-[clamp(0.75rem,3.5dvh,2rem)] px-4 py-[clamp(0.75rem,3dvh,1.5rem)] land:grid land:max-w-4xl land:grid-cols-2 land:items-center land:gap-4">
         <GapBox
           waiting={snap.lapState === 'waiting_start'}
           flash={flash ? { lap: live.lapOffset + flash.lap, timeMs: flash.timeMs, deltaMs: flash.deltaMs } : null}
@@ -488,6 +495,8 @@ function DriveRunning() {
           hasReference={!!live.reference}
           delta={snap.delta}
         />
+        {/* Sideways phone: the gap on the left, time, parts and speed on the right. */}
+        <div className="flex flex-col gap-[clamp(0.75rem,3.5dvh,2rem)] land:gap-3">
         <div className="text-center">
           <div className="label">Time</div>
           <div className="mt-1 font-mono text-[clamp(2.75rem,min(18vw,9dvh),5.5rem)] font-extrabold leading-none tabular">{formatClock(snap.lapState === 'waiting_start' ? 0 : elapsed)}</div>
@@ -496,16 +505,17 @@ function DriveRunning() {
         <div className="text-center text-muted">
           <span className="font-mono text-[clamp(1.3rem,4dvh,1.7rem)] text-fg tabular">{formatSpeed(snap.speedMs, settings.speedUnit)}</span> {speedLabel(settings.speedUnit)}
         </div>
+        </div>
       </div>
 
-      <div className="sticky bottom-0 z-10 border-t border-line bg-bg p-4 pb-[max(1rem,env(safe-area-inset-bottom))] short:p-3 short:pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+      <div className="sticky bottom-0 z-10 border-t border-line bg-bg p-4 pb-[max(1rem,env(safe-area-inset-bottom))] short:p-3 short:pb-[max(0.75rem,env(safe-area-inset-bottom))] land:py-2">
         <div className="mx-auto flex max-w-xl gap-3">
           {live.status === 'paused' && (
-            <Button size="xl" variant="primary" className="flex-1 short:!h-14" onClick={() => liveController.resume()}>
+            <Button size="xl" variant="primary" className="flex-1 short:!h-14 land:!h-12" onClick={() => liveController.resume()}>
               <IconPlay /> Resume
             </Button>
           )}
-          <Button size="xl" className="flex-1 short:!h-14" onClick={() => setConfirmStop(true)} disabled={stopping}>
+          <Button size="xl" className="flex-1 short:!h-14 land:!h-12" onClick={() => setConfirmStop(true)} disabled={stopping}>
             <IconStop width={18} height={18} /> {stopping ? 'Saving…' : 'Stop'}
           </Button>
         </div>

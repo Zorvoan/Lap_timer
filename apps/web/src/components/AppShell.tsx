@@ -5,6 +5,7 @@ import { useAccount, useData, useLive } from '../hooks/useData';
 import { getActiveSession } from '../lib/repo';
 import { applyUpdateIfReady } from '../lib/update';
 import { buttonClass } from './ui/primitives';
+import { NotifyPrompt } from './NotifyPrompt';
 import { IconArrowLeft, IconMap, IconTimer, IconTrophy, IconUser, IconX } from './ui/icons';
 
 const Welcome = lazy(() => import('../pages/Welcome').then((m) => ({ default: m.Welcome })));
@@ -65,7 +66,8 @@ export function AppShell() {
   }
 
   return (
-    <div className="flex h-full flex-col md:flex-row">
+    // Sideways on a phone with a notch, keep everything clear of it.
+    <div className="flex h-full flex-col pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] md:flex-row">
       {!immersive && (
         <nav aria-label="Main" className="hidden w-52 shrink-0 flex-col border-r border-line bg-panel md:flex">
           <div className="flex h-14 items-center gap-2 border-b border-line px-4">
@@ -95,12 +97,14 @@ export function AppShell() {
         </main>
       </div>
       {!immersive && <LeaderboardToast />}
+      {/* Not while driving or about to: the Drive screens stay uninterrupted. */}
+      <NotifyPrompt paused={sessionActive || loc.pathname.startsWith('/live')} />
 
       {!immersive && (
         <nav aria-label="Main" className="grid shrink-0 grid-cols-3 border-t border-line bg-panel pb-[env(safe-area-inset-bottom)] md:hidden">
           <TabItem to="/" label="Roads" icon={IconMap} active={tab === 'tracks'} />
           <div className="flex items-center justify-center">
-            <Link to="/live" aria-current={tab === 'drive' ? 'page' : undefined} className="press flex h-12 w-[6.5rem] items-center justify-center gap-2 rounded-xl bg-accent text-[15px] font-extrabold text-white">
+            <Link to="/live" aria-current={tab === 'drive' ? 'page' : undefined} className="press flex h-12 w-[6.5rem] items-center justify-center gap-2 rounded-xl bg-accent text-[15px] font-extrabold text-white land:h-9">
               <IconTimer /> Drive
             </Link>
           </div>
@@ -119,7 +123,7 @@ type NavIcon = (p: React.SVGProps<SVGSVGElement>) => React.ReactElement;
 
 function TabItem({ to, label, icon: Icon, active }: { to: string; label: string; icon: NavIcon; active: boolean }) {
   return (
-    <Link to={to} aria-current={active ? 'page' : undefined} className={`press relative flex h-[4.25rem] flex-col items-center justify-center gap-1 text-xs font-semibold ${active ? 'text-fg' : 'text-muted'}`}>
+    <Link to={to} aria-current={active ? 'page' : undefined} className={`press relative flex h-[4.25rem] flex-col items-center justify-center gap-1 text-xs font-semibold land:h-12 land:flex-row land:gap-2 land:text-sm ${active ? 'text-fg' : 'text-muted'}`}>
       {active && <span className="anim-bar absolute inset-x-[28%] top-0 h-[3px] rounded-b bg-accent" aria-hidden="true" />}
       <Icon width={22} height={22} />
       {label}
