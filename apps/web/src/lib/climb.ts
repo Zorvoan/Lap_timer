@@ -4,22 +4,41 @@ import { fetchElevationProfile } from './elevation';
 import { getKv, setKv } from './repo';
 
 /** Changes smaller than this are terrain-model noise, not hills. */
-const NOISE_M = 3;
+const NOISE_M = 5;
+/**
+ * The terrain model (~90 m cells) picks up the slopes beside a road, so the profile is averaged
+ * over this distance before climbs are counted.
+ */
+const SMOOTH_M = 150;
 
-/** Total climb and descent along a profile, ignoring ripples under NOISE_M. */
+/** Total climb and descent along a profile, ignoring terrain-model ripples. */
 export function climbOf(e: readonly ElevationPoint[] | null | undefined): { up: number; down: number; net: number } | null {
   if (!e || e.length < 2) return null;
+  // At least the neighbouring samples, however far apart they were taken.
+  const step = (e[e.length - 1].d - e[0].d) / (e.length - 1);
+  const half = Math.max(SMOOTH_M / 2, step * 1.01);
+  const smooth = e.map((p) => {
+    let sum = 0;
+    let n = 0;
+    for (const q of e) {
+      if (Math.abs(q.d - p.d) <= half) {
+        sum += q.elevation;
+        n++;
+      }
+    }
+    return sum / n;
+  });
   let up = 0;
   let down = 0;
-  let ref = e[0].elevation;
-  for (const p of e) {
-    const dz = p.elevation - ref;
+  let ref = smooth[0];
+  for (const z of smooth) {
+    const dz = z - ref;
     if (dz >= NOISE_M) {
       up += dz;
-      ref = p.elevation;
+      ref = z;
     } else if (dz <= -NOISE_M) {
       down -= dz;
-      ref = p.elevation;
+      ref = z;
     }
   }
   return { up, down, net: e[e.length - 1].elevation - e[0].elevation };
@@ -30,7 +49,7 @@ export function climbText(e: readonly ElevationPoint[] | null | undefined): stri
   const c = climbOf(e);
   if (!c) return null;
   const r = (m: number) => Math.round(m / 5) * 5;
-  if (c.up < 15 && c.down < 15) return 'Flat';
+  if (c.up < 25 && c.down < 25) return 'Flat';
   if (c.down <= c.up * 0.25) return `+${r(Math.max(c.net, 0) || c.up)} m climb`;
   if (c.up <= c.down * 0.25) return `${r(Math.max(-c.net, 0) || c.down)} m descent`;
   return `${r(c.up)} m up, ${r(c.down)} m down`;
