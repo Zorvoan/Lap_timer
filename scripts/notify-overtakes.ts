@@ -189,6 +189,13 @@ async function main() {
     console.log('::warning::Notifications are not sent yet: give the FIREBASE_SERVICE_ACCOUNT service account the "Firebase Cloud Messaging API Admin" role in Google Cloud IAM.');
     return;
   }
+  const testUid = process.env.NOTIFY_TEST_UID;
+  if (testUid) {
+    // Manual check that delivery works: one test message to this driver's devices, nothing else.
+    const r = await send({ uid: testUid, title: 'Lap Timer notifications work', body: "You'll get one like this when someone beats your time.", url: '/me', tag: 'test' });
+    console.log(`Test: ${r.sent} sent, ${r.removed} old devices removed.${r.sent + r.removed === 0 ? ' No device has notifications turned on for this account.' : ''}`);
+    return;
+  }
   const startedAt = new Date().toISOString();
   const s = await api('GET', STATE);
   if (s.status !== 200 && s.status !== 404) throw new Error(`Reading the last state failed: HTTP ${s.status}`);
