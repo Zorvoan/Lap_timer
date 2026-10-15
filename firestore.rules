@@ -5,6 +5,8 @@ rules_version = '2';
 //  users/{uid}/**                  circuits, sessions, traces, tombstones — owner only
 //  nicknames/{lower}               nickname reservation → uid (public read, unique)
 //  featured/{circuitId}            official leaderboard tracks (public read, admin write only)
+//  public/{circuitId}              roads drivers made public (public read, owner create/delete, never edited)
+//  publicSlots/{uid}               which roads a driver has made public: at most 5
 //  leaderboards/{circuitId}/entries/{uid}   each driver's best lap (public read, owner write)
 //  leaderboards/{circuitId}/traces/{uid}    that lap's trace, for racing against it
 service cloud.firestore {
@@ -57,14 +59,65 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // A driver's public roads. The list can only grow up to 5, or lose one road whose public copy
+    // is deleted in the same write, so there are never more than 5 public roads per driver.
+    match /publicSlots/{uid} {
+      function validSlots() {
+        return request.resource.data.keys().hasOnly(['ids'])
+          && request.resource.data.ids is list
+          && request.resource.data.ids.size() <= 5;
+      }
+      function removesOneUnpublished() {
+        let removed = resource.data.ids.removeAll(request.resource.data.ids);
+        return resource.data.ids.hasAll(request.resource.data.ids)
+          && removed.size() == 1
+          && !existsAfter(/databases/$(database)/documents/public/$(removed[0]));
+      }
+      allow read: if true;
+      allow create: if isOwner(uid) && validSlots();
+      allow update: if isOwner(uid) && validSlots()
+        && (request.resource.data.ids.hasAll(resource.data.ids) || removesOneUnpublished());
+      allow delete: if false;
+    }
+
+    // A public road: a copy of the owner's circuit everyone can see and race on its own
+    // leaderboard. It is never edited, so every driver is timed on the same lines.
+    match /public/{circuitId} {
+      allow read: if true;
+      allow create: if signedIn()
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.id == circuitId
+        && getAfter(/databases/$(database)/documents/publicSlots/$(request.auth.uid)).data.ids.hasAny([circuitId])
+        && request.resource.data.ownerNickname == get(profilePath(request.auth.uid)).data.nickname
+        && request.resource.data.name is string && request.resource.data.name.size() >= 2 && request.resource.data.name.size() <= 60
+        && request.resource.data.lengthM is number && request.resource.data.lengthM >= 300 && request.resource.data.lengthM <= 100000
+        && !exists(/databases/$(database)/documents/featured/$(circuitId));
+      allow update: if false;
+      allow delete: if signedIn() && resource.data.ownerUid == request.auth.uid;
+    }
+
     match /leaderboards/{circuitId} {
       function entryMatchesProfile(uid) {
         let p = getAfter(profilePath(uid)).data;
         return request.resource.data.nickname == p.nickname && request.resource.data.car == p.car;
       }
+      function featuredPath() {
+        return /databases/$(database)/documents/featured/$(circuitId);
+      }
+      function publicPath() {
+        return /databases/$(database)/documents/public/$(circuitId);
+      }
+      // Official tracks and public roads have leaderboards.
+      function isLeaderboardTrack() {
+        return exists(featuredPath()) || exists(publicPath());
+      }
+      // The owner of a public road may clear its leaderboard (before unpublishing it).
+      function isRoadOwner() {
+        return signedIn() && exists(publicPath()) && get(publicPath()).data.ownerUid == request.auth.uid;
+      }
       // No lap averages more than 250 km/h (0.06944 m/ms) over the track: GPS errors or forged.
       function plausibleTime() {
-        let track = get(/databases/$(database)/documents/featured/$(circuitId)).data;
+        let track = exists(featuredPath()) ? get(featuredPath()).data : get(publicPath()).data;
         return request.resource.data.timeMs * 0.06945 >= track.lengthM;
       }
       function validSplits() {
@@ -75,7 +128,7 @@ service cloud.firestore {
       match /entries/{uid} {
         allow read: if true;
         allow create, update: if isOwner(uid)
-          && exists(/databases/$(database)/documents/featured/$(circuitId))
+          && isLeaderboardTrack()
           && request.resource.data.keys().hasOnly(['uid', 'nickname', 'car', 'timeMs', 'drivenAt', 'sessionId', 'lap', 'sectorTimesMs', 'splitTimesMs', 'avgSpeedMs', 'maxSpeedMs', 'submittedAt'])
           && validSplits()
           && request.resource.data.uid == uid
@@ -85,13 +138,14 @@ service cloud.firestore {
           && entryMatchesProfile(uid)
           // A time can only improve (profile changes keep the same time).
           && (resource == null || request.resource.data.timeMs <= resource.data.timeMs);
-        allow delete: if isOwner(uid);
+        allow delete: if isOwner(uid) || isRoadOwner();
       }
 
       match /traces/{uid} {
         allow read: if true;
-        allow write: if isOwner(uid)
-          && (request.resource == null || (request.resource.data.keys().hasOnly(['timeMs', 'lengthM', 'points']) && request.resource.data.points.size() < 400000));
+        allow create, update: if isOwner(uid)
+          && request.resource.data.keys().hasOnly(['timeMs', 'lengthM', 'points']) && request.resource.data.points.size() < 400000;
+        allow delete: if isOwner(uid) || isRoadOwner();
       }
     }
   }

@@ -47,7 +47,9 @@ export function CircuitEditor() {
   const location = useLocation();
   const navigate = useNavigate();
   const { settings } = useSettings();
-  const official = useAccount().featured.some((f) => f.id === id);
+  const acct = useAccount();
+  const official = acct.featured.some((f) => f.id === id);
+  const isPublic = acct.community.some((f) => f.id === id);
   const recorded = (location.state as { recorded?: RecordedDraft } | null)?.recorded ?? null;
 
   const [loaded, setLoaded] = useState(!id);
@@ -213,6 +215,7 @@ export function CircuitEditor() {
   async function save() {
     setSaveError(null);
     if (official) return setSaveError('Official leaderboard tracks cannot be edited, so every driver is timed on the same lines.');
+    if (isPublic) return setSaveError('This road is public, so it cannot be edited: every driver is timed on the same lines. Unpublish it on its page first.');
     const trimmed = name.trim();
     if (!trimmed) return setSaveError('Give the circuit a name.');
     if (trimmed.length > 80) return setSaveError('Name is too long (max 80 characters).');

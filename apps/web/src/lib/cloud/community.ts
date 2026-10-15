@@ -6,8 +6,8 @@
 import { collection, doc, getCountFromServer, getDoc, getDocs, limit, orderBy, query, runTransaction, serverTimestamp, where, writeBatch } from 'firebase/firestore';
 import type { Circuit } from '@laptimer/core';
 import { db } from './firebase';
-import { decodeCircuit, type CircuitDoc } from './codec';
-import type { LeaderboardEntry, Profile, PublishedTrace } from './leaderboard';
+import { decodeCircuit, encodeCircuit, type CircuitDoc } from './codec';
+import { PUBLIC_ROAD_LIMIT, type LeaderboardEntry, type Profile, type PublishedTrace } from './leaderboard';
 
 export class NicknameTakenError extends Error {
   constructor() {
@@ -17,7 +17,10 @@ export class NicknameTakenError extends Error {
 
 export interface FeaturedCircuit extends Circuit {
   featuredOrder: number;
+  /** Set on public roads (made public by a driver); absent on official tracks. */
+  owner?: { uid: string; nickname: string };
 }
+
 
 export async function getProfile(uid: string): Promise<Profile | null> {
   const snap = await getDoc(doc(db, 'users', uid));
@@ -69,6 +72,53 @@ export async function listFeatured(): Promise<FeaturedCircuit[]> {
     }
   }
   return out.sort((a, b) => a.featuredOrder - b.featuredOrder);
+}
+
+/** Roads drivers made public, newest first. Listed after the official tracks. */
+export async function listPublic(): Promise<FeaturedCircuit[]> {
+  const snaps = await getDocs(collection(db, 'public'));
+  const out: (FeaturedCircuit & { publishedAt: number })[] = [];
+  for (const s of snaps.docs) {
+    const data = s.data() as CircuitDoc & { ownerUid?: string; ownerNickname?: string; publishedAt?: number };
+    try {
+      out.push({ ...decodeCircuit(data), featuredOrder: 1000, owner: { uid: data.ownerUid ?? '', nickname: data.ownerNickname ?? '' }, publishedAt: data.publishedAt ?? 0 });
+    } catch {
+      /* skip malformed */
+    }
+  }
+  return out.sort((a, b) => b.publishedAt - a.publishedAt).map(({ publishedAt: _at, ...road }) => road);
+}
+
+async function slots(uid: string): Promise<{ exists: boolean; ids: string[] }> {
+  const snap = await getDoc(doc(db, 'publicSlots', uid));
+  return { exists: snap.exists(), ids: snap.exists() ? ((snap.get('ids') as string[]) ?? []) : [] };
+}
+
+/** Makes one of the driver's circuits public (a copy everyone can race; never edited). */
+export async function publishRoad(uid: string, nickname: string, circuit: Circuit): Promise<void> {
+  const s = await slots(uid);
+  if (s.ids.length >= PUBLIC_ROAD_LIMIT && !s.ids.includes(circuit.id)) throw new Error(`You already have ${PUBLIC_ROAD_LIMIT} public roads. Unpublish one first.`);
+  const b = writeBatch(db);
+  b.set(doc(db, 'publicSlots', uid), { ids: s.ids.includes(circuit.id) ? s.ids : [...s.ids, circuit.id] });
+  b.set(doc(db, 'public', circuit.id), { ...encodeCircuit(circuit), ownerUid: uid, ownerNickname: nickname, publishedAt: Date.now() });
+  await b.commit();
+}
+
+/** Takes a public road down: its leaderboard (everyone's times and traces) goes with it. */
+export async function unpublishRoad(uid: string, circuitId: string): Promise<void> {
+  for (const sub of ['entries', 'traces']) {
+    const snaps = await getDocs(collection(db, 'leaderboards', circuitId, sub));
+    for (let i = 0; i < snaps.docs.length; i += 400) {
+      const b = writeBatch(db);
+      snaps.docs.slice(i, i + 400).forEach((d) => b.delete(d.ref));
+      await b.commit();
+    }
+  }
+  const s = await slots(uid);
+  const b = writeBatch(db);
+  b.delete(doc(db, 'public', circuitId));
+  if (s.exists) b.set(doc(db, 'publicSlots', uid), { ids: s.ids.filter((id) => id !== circuitId) });
+  await b.commit();
 }
 
 export async function getLeaderboard(circuitId: string, max = 200): Promise<LeaderboardEntry[]> {

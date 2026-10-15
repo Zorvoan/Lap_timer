@@ -9,6 +9,7 @@ import { log } from '../log';
 import { clearAllData, dataEvents, getCircuit, getKv, listSessions, saveCircuit, setKv } from '../repo';
 import { lapLength } from '../references';
 import type { AccountUser, FirebaseApi, SocialProvider } from './firebase';
+import type { Circuit } from '@laptimer/core';
 import type { FeaturedCircuit } from './community';
 import { bestEligibleLap, entryFromLap, traceForPublishing, validateCar, validateNickname, type Profile } from './leaderboard';
 import { resetSyncState, runSync, type SyncReport } from './syncEngine';
@@ -31,6 +32,8 @@ export interface AccountState {
   profile: Profile | null | undefined;
   /** Official leaderboard tracks (cached for offline use). */
   featured: FeaturedCircuit[];
+  /** Roads drivers made public; they have leaderboards too (cached for offline use). */
+  community: FeaturedCircuit[];
   /** Laps published to leaderboards by the most recent sync that published any. */
   submissions: LeaderboardSubmission[];
   /** Official tracks where someone else has pushed the driver down since the last check. */
@@ -88,6 +91,7 @@ let state: AccountState = {
   providers: cloudEnabled ? cachedProviders() : [],
   profile: undefined,
   featured: [],
+  community: [],
   submissions: [],
   overtakes: [],
 };
@@ -263,7 +267,7 @@ export async function register(email: string, password: string, nickname: string
   try {
     await a.register(email.trim(), password);
     const uid = state.user?.uid ?? (await waitForUser());
-    await c.saveProfile(uid, { nickname, car }, state.featured.map((f) => f.id));
+    await c.saveProfile(uid, { nickname, car }, leaderboardTracks().map((f) => f.id));
     set({ profile: { nickname: nickname.trim(), car: car.trim() } });
   } finally {
     registering = false;
@@ -297,7 +301,7 @@ export async function updateProfile(next: Profile): Promise<void> {
   if (problem) throw new Error(problem);
   const uid = state.user?.uid;
   if (!uid) throw new Error('Sign in first.');
-  await (await community()).saveProfile(uid, next, state.featured.map((f) => f.id));
+  await (await community()).saveProfile(uid, next, leaderboardTracks().map((f) => f.id));
   set({ profile: { nickname: next.nickname.trim(), car: next.car.trim() } });
   scheduleSync(0); // publishes laps if this was the first profile
 }
@@ -322,11 +326,55 @@ export async function refreshFeatured(): Promise<FeaturedCircuit[]> {
   } catch (e) {
     log.warn('official tracks could not be loaded', { error: String(e) });
     return state.featured;
+  } finally {
+    void refreshCommunity();
   }
 }
 
+/** Loads the roads drivers made public. Copied to this device only when driven. */
+export async function refreshCommunity(): Promise<FeaturedCircuit[]> {
+  if (!cloudEnabled) return [];
+  if (!state.community.length) {
+    const cached = await getKv<FeaturedCircuit[]>('community');
+    if (cached?.length) set({ community: cached });
+  }
+  try {
+    const list = await (await community()).listPublic();
+    await setKv('community', list);
+    set({ community: list });
+    return list;
+  } catch (e) {
+    log.warn('public roads could not be loaded', { error: String(e) });
+    return state.community;
+  }
+}
+
+/** Every track with a leaderboard: the official ones, then the public roads. */
+export function leaderboardTracks(s: Pick<AccountState, 'featured' | 'community'> = state): FeaturedCircuit[] {
+  const official = new Set(s.featured.map((f) => f.id));
+  return [...s.featured, ...s.community.filter((c) => !official.has(c.id))];
+}
+
+/** Makes one of this driver's circuits public. */
+export async function publishRoad(circuit: Circuit): Promise<void> {
+  const uid = state.user?.uid;
+  if (!uid || !state.profile) throw new Error('Sign in and add a nickname first.');
+  await (await community()).publishRoad(uid, state.profile.nickname, circuit);
+  await refreshCommunity();
+  scheduleSync(0); // publishes the owner's laps already driven on it
+}
+
+/** Takes one of this driver's public roads down, with its leaderboard. */
+export async function unpublishRoad(circuitId: string): Promise<void> {
+  const uid = state.user?.uid;
+  if (!uid) throw new Error('Sign in first.');
+  await (await community()).unpublishRoad(uid, circuitId);
+  set({ community: state.community.filter((c) => c.id !== circuitId) });
+  await refreshCommunity();
+}
+
 function stripFeatured(f: FeaturedCircuit) {
-  const { featuredOrder: _order, ...circuit } = f;
+  const { featuredOrder: _order, owner: _owner, ...circuit } = f;
   return circuit;
 }
 
@@ -337,20 +385,21 @@ export async function ensureLocalCircuit(f: FeaturedCircuit): Promise<void> {
 }
 
 export function isFeatured(circuitId: string): boolean {
-  return state.featured.some((f) => f.id === circuitId);
+  return leaderboardTracks().some((f) => f.id === circuitId);
 }
 
 /** Publishes the best real-GPS lap on each official track when it beats the published one. */
 async function submitBestLaps(uid: string): Promise<LeaderboardSubmission[]> {
   const profile = state.profile;
-  if (!profile || !state.featured.length) return [];
+  const tracks = leaderboardTracks();
+  if (!profile || !tracks.length) return [];
   const c = await community();
   const sessions = await listSessions();
   // v2: entries published before sector splits existed are checked (and completed) once.
   const cacheKey = `lbSubmitted2:${uid}`;
   const cache = (await getKv<Record<string, number>>(cacheKey)) ?? {};
   const submitted: LeaderboardSubmission[] = [];
-  for (const f of state.featured) {
+  for (const f of tracks) {
     const best = bestEligibleLap(sessions, f.id);
     if (!best) continue;
     if (cache[f.id] !== undefined && best.lap.timeMs >= cache[f.id]) continue;
@@ -396,7 +445,7 @@ async function checkPositions(uid: string): Promise<Overtake[]> {
   const c = await community();
   const positions: Record<string, number> = {};
   const out: Overtake[] = [];
-  for (const f of state.featured) {
+  for (const f of leaderboardTracks()) {
     const mine = await c.getEntry(f.id, uid);
     if (!mine) continue;
     const now = await c.getPosition(f.id, mine.timeMs);

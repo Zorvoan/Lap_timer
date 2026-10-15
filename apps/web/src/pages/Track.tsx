@@ -11,7 +11,8 @@ import { Button, ConfirmButton, LinkButton, Notice, Segmented, Spinner } from '.
 import { IconArrowLeft, IconPlay } from '../components/ui/icons';
 import { useAccount, useData } from '../hooks/useData';
 import { useSettings } from '../hooks/useSettings';
-import { ensureLocalCircuit, refreshFeatured } from '../lib/cloud/account';
+import { describeError, ensureLocalCircuit, leaderboardTracks, publishRoad, refreshCommunity, refreshFeatured, unpublishRoad } from '../lib/cloud/account';
+import { PUBLIC_ROAD_LIMIT } from '../lib/cloud/leaderboard';
 import { buildExport, downloadText } from '../lib/exportImport';
 import { slug } from '../lib/circuitStats';
 import { deleteCircuit, getCircuit, listSessions } from '../lib/repo';
@@ -33,7 +34,21 @@ export function Track() {
     if (!acc.featured.length) void refreshFeatured();
   }, [acc.featured.length]);
   const { data, loading } = useData(async () => ({ circuit: await getCircuit(id), sessions: await listSessions(id) }), [id]);
-  const featured = acc.featured.find((f) => f.id === id) ?? null;
+  // A link to a public road this device hasn't seen yet: look it up before saying it's gone.
+  const [remoteChecked, setRemoteChecked] = useState(false);
+  const unknown = !loading && !!data && !data.circuit && !leaderboardTracks(acc).some((f) => f.id === id);
+  useEffect(() => {
+    if (!unknown) return setRemoteChecked(true);
+    setRemoteChecked(false);
+    void refreshCommunity().finally(() => setRemoteChecked(true));
+  }, [unknown, id]);
+  // Official tracks and public roads have leaderboards; `road` is set for public roads.
+  const featured = leaderboardTracks(acc).find((f) => f.id === id) ?? null;
+  const road = featured?.owner ? featured : null;
+  const mine = !!road && road.owner?.uid === acc.user?.uid;
+  const myPublicCount = acc.community.filter((c) => c.owner?.uid === acc.user?.uid).length;
+  const [shareBusy, setShareBusy] = useState(false);
+  const [shareError, setShareError] = useState<string | null>(null);
   const circuit: Circuit | null = data?.circuit ?? featured;
   const sessions = data?.sessions ?? [];
   const lapCount = sessions.reduce((n, s) => n + s.laps.length, 0);
@@ -42,13 +57,39 @@ export function Track() {
   const tab = featured && params.get('tab') !== 'laps' && !params.get('session') ? 'leaderboard' : 'laps';
   const bounds = useMemo(() => (circuit ? L.latLngBounds(circuit.geometry.map(([lon, lat]) => [lat, lon] as [number, number])) : null), [circuit]);
 
+  async function makePublic(c: Circuit) {
+    setShareError(null);
+    if (c.name.trim().length > 60) return setShareError('Shorten the name to 60 characters or less first (Edit track).');
+    if (c.lengthM < 300) return setShareError('This road is too short to make public (at least 300 m).');
+    setShareBusy(true);
+    try {
+      await publishRoad(c);
+    } catch (e) {
+      setShareError(describeError(e));
+    } finally {
+      setShareBusy(false);
+    }
+  }
+
+  async function unpublish() {
+    setShareError(null);
+    setShareBusy(true);
+    try {
+      await unpublishRoad(id);
+    } catch (e) {
+      setShareError(describeError(e));
+    } finally {
+      setShareBusy(false);
+    }
+  }
+
   async function drive() {
     if (featured) await ensureLocalCircuit(featured);
     navigate(`/live?circuit=${id}`);
   }
 
   if (!circuit) {
-    if (loading || (!data && !acc.featured.length)) return <div className="p-6"><Spinner /></div>;
+    if (loading || (!data && !acc.featured.length) || !remoteChecked) return <div className="p-6"><Spinner /></div>;
     return (
       <div className="space-y-3 p-6">
         <Notice tone="error">This track no longer exists. Its drives are still under Me, My drives.</Notice>
@@ -74,6 +115,7 @@ export function Track() {
       <div className="mx-auto max-w-5xl px-4 md:px-6">
         <div className="flex flex-wrap items-end justify-between gap-4 pt-4">
           <div className="min-w-0">
+            {road && <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#d08a4e]">{mine ? 'Your public road' : `Public road by ${road.owner?.nickname}`}</div>}
             <h1 className="font-display text-[1.75rem] font-black leading-tight tracking-tight">{circuit.name}</h1>
             <p className="mt-0.5 text-sm text-muted">
               {formatDistance(circuit.lengthM, settings.distanceUnit)}, {circuit.kind === 'closed' ? 'a closed circuit' : 'from start to finish'}
@@ -102,6 +144,32 @@ export function Track() {
         <div key={tab} className={`mt-3 ${tabSwitched ? 'anim-page' : ''}`}>
           {tab === 'leaderboard' && featured ? <LeaderboardTab track={featured} /> : data ? <MyLapsTab circuit={circuit} sessions={sessions} /> : <Spinner />}
         </div>
+
+        {mine && (
+          <div className="mt-8 border-t border-line pt-4">
+            <p className="text-sm text-muted">Everyone can see and race this road. It can&apos;t be edited while it is public, so all drivers are timed on the same lines.</p>
+            <ConfirmButton size="sm" className="mt-3" disabled={shareBusy} onConfirm={unpublish} confirmLabel="Tap again: unpublish and delete its leaderboard">
+              {shareBusy ? 'Unpublishing…' : 'Unpublish'}
+            </ConfirmButton>
+            {shareError && <p role="alert" className="anim-shake mt-2 text-sm text-loss">{shareError}</p>}
+          </div>
+        )}
+
+        {!featured && data?.circuit && acc.status === 'signed_in' && acc.profile && (
+          <div className="mt-8 border-t border-line pt-4">
+            <h2 className="label">Make it public</h2>
+            <p className="mt-1 text-sm text-muted">Everyone sees it on the map and races it on its own leaderboard. Once public it can&apos;t be edited; unpublish it to change it.</p>
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <Button variant="primary" size="sm" disabled={shareBusy || myPublicCount >= PUBLIC_ROAD_LIMIT} onClick={() => void makePublic(data.circuit!)}>
+                {shareBusy ? 'Publishing…' : 'Make public'}
+              </Button>
+              <span className="text-xs text-muted">
+                {myPublicCount} of {PUBLIC_ROAD_LIMIT} public roads used{myPublicCount >= PUBLIC_ROAD_LIMIT ? '. Unpublish one to share this.' : ''}
+              </span>
+            </div>
+            {shareError && <p role="alert" className="anim-shake mt-2 text-sm text-loss">{shareError}</p>}
+          </div>
+        )}
 
         {!featured && data?.circuit && (
           <div className="mt-8 flex flex-wrap gap-2 border-t border-line pt-4">

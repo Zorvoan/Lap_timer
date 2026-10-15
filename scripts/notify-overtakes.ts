@@ -70,13 +70,26 @@ interface Track {
 }
 type Ranks = Record<string, Record<string, number>>;
 
+/** Official tracks (numbered like rally stages) and the roads drivers made public. */
 async function tracks(): Promise<Track[]> {
   const r = await api('GET', `${BASE}/featured?pageSize=100&mask.fieldPaths=name&mask.fieldPaths=featuredOrder`);
   if (r.status !== 200) throw new Error(`Listing official tracks failed: HTTP ${r.status}`);
-  return ((r.json.documents ?? []) as { name: string; fields: Record<string, Value> }[]).map((d) => {
+  const official = ((r.json.documents ?? []) as { name: string; fields: Record<string, Value> }[]).map((d) => {
     const f = fromFields(d.fields);
     return { id: d.name.split('/').pop()!, name: String(f.name ?? 'a track'), stage: Number(f.featuredOrder ?? -1) + 1 };
   });
+  const roads: Track[] = [];
+  let pageToken = '';
+  do {
+    const p = await api('GET', `${BASE}/public?pageSize=300&mask.fieldPaths=name${pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ''}`);
+    if (p.status !== 200) throw new Error(`Listing public roads failed: HTTP ${p.status}`);
+    for (const d of (p.json.documents ?? []) as { name: string; fields: Record<string, Value> }[]) {
+      roads.push({ id: d.name.split('/').pop()!, name: String(fromFields(d.fields).name ?? 'a road'), stage: 0 });
+    }
+    pageToken = p.json.nextPageToken ?? '';
+  } while (pageToken);
+  const ids = new Set(official.map((t) => t.id));
+  return [...official, ...roads.filter((t) => !ids.has(t.id))];
 }
 
 async function query(trackId: string, q: Record<string, unknown>): Promise<Entry[]> {
