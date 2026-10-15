@@ -7,7 +7,7 @@ import { loadBoard } from '../components/track/LeaderboardTab';
 import { useAccount, useData, useLive, useTicker } from '../hooks/useData';
 import { useSettings } from '../hooks/useSettings';
 import { liveController } from '../lib/liveController';
-import { getActiveSession, getCircuit, getSession, listCircuits, listSessions, saveSession, setActiveSession, deleteSession } from '../lib/repo';
+import { getActiveSession, getCircuit, getKv, getSession, listCircuits, listSessions, saveSession, setActiveSession, setKv, deleteSession } from '../lib/repo';
 import { resolveReference, type ReferenceChoice } from '../lib/references';
 import { GeolocationSource } from '../lib/gps/geolocation';
 import { useGpsPreview, type GpsPreview } from '../lib/gps/preview';
@@ -48,6 +48,7 @@ function DriveSetup() {
   const [params, setParams] = useSearchParams();
   const { data, loading } = useData(async () => ({ circuits: await listCircuits(), sessions: await listSessions() }), [acc.featured.length]);
   const { data: active } = useData(getActiveSession, []);
+  const { data: guideSeen, loading: guideLoading, reload: reloadGuide } = useData(() => getKv<boolean>(GUIDE_KEY), []);
   const canSimulate = simulatorAllowed(acc.user?.uid);
   const [source, setSource] = useState<'gps' | 'simulated'>('gps');
   const [timeScale, setTimeScale] = useState(1);
@@ -166,6 +167,8 @@ function DriveSetup() {
   }
 
   const atStart = here !== null && here <= NEAR_START_M;
+  // Until the first real drive (or "Got it"), how timing works in three steps.
+  const guide = !guideLoading && !guideSeen && !!data && !data.sessions.some((s) => s.source === 'gps');
   return (
     <div className="mx-auto flex min-h-full max-w-xl flex-col px-4 pb-8 pt-5 short:pb-3 short:pt-3 land:max-w-4xl">
       <SafetyDialog
@@ -238,9 +241,9 @@ function DriveSetup() {
           <div className="mt-0.5 truncate font-semibold">{racing.label}</div>
           {racing.detail && <div className="truncate text-xs text-muted">{racing.detail}</div>}
         </div>
-        {racing.timeMs !== undefined && <div className="font-mono text-lg tabular min-[360px]:text-xl">{formatLapTime(racing.timeMs)}</div>}
+        {racing.timeMs !== undefined && <div className="font-mono text-lg tabular [@media(min-width:360px)]:text-xl">{formatLapTime(racing.timeMs)}</div>}
         <span className="flex shrink-0 items-center text-sm text-muted">
-          <span className="hidden min-[360px]:inline">Change</span> <IconChevronRight width={16} height={16} />
+          <span className="hidden [@media(min-width:360px)]:inline">Change</span> <IconChevronRight width={16} height={16} />
         </span>
       </button>
       {official && <LeaderboardLine simulating={simulating} />}
@@ -284,7 +287,16 @@ function DriveSetup() {
           Start anyway (times will be less accurate)
         </button>
       )}
-      <p className="mx-auto mt-4 max-w-xs text-center text-sm leading-relaxed text-muted short:mt-3 short:text-xs">
+      {guide && (
+        <FirstDriveGuide
+          sprint={circuit.kind === 'sprint'}
+          onDone={async () => {
+            await setKv(GUIDE_KEY, true);
+            reloadGuide();
+          }}
+        />
+      )}
+      <p className={`mx-auto mt-4 max-w-xs text-center text-sm leading-relaxed text-muted short:mt-3 short:text-xs ${guide && ready ? 'hidden' : ''}`}>
         {ready
           ? 'Put the phone in a holder and keep the screen on. Timing starts when you cross the start line.'
           : gps.state === 'denied'
@@ -342,6 +354,41 @@ function DriveSetup() {
       </div>
       </div>
     </div>
+  );
+}
+
+const GUIDE_KEY = 'hint:firstDrive';
+
+/** First drive: nothing to do but Start; the clock runs by itself between the lines. */
+function FirstDriveGuide({ sprint, onDone }: { sprint: boolean; onDone: () => void }) {
+  const steps = [
+    ['Tap Start', 'Put the phone in a holder with the screen on. You can tap Start anywhere, before you get to the road.'],
+    ['Drive through the start line', 'The clock starts by itself the moment you cross it. No need to touch the phone.'],
+    sprint
+      ? ['Cross the finish line', 'The clock stops and your time is saved. The drive ends by itself.']
+      : ['Keep driving laps', 'Every time you cross the line a lap is saved. Tap Stop when you are done.'],
+  ];
+  return (
+    <section aria-labelledby="guide-title" className="anim-reveal mt-4 rounded-lg border border-line bg-raised p-4 short:mt-3 short:p-3">
+      <div className="label">Your first drive</div>
+      <h2 id="guide-title" className="mt-0.5 font-display text-lg font-black">
+        How timing works
+      </h2>
+      <ol className="mt-3 space-y-3 short:space-y-2">
+        {steps.map(([title, text], i) => (
+          <li key={title} className="flex gap-3">
+            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-accent text-xs font-extrabold text-white">{i + 1}</span>
+            <div className="min-w-0">
+              <div className="font-semibold leading-6">{title}</div>
+              <div className="text-sm leading-snug text-muted">{text}</div>
+            </div>
+          </li>
+        ))}
+      </ol>
+      <Button size="sm" className="mt-4 w-full short:mt-3" onClick={onDone}>
+        Got it
+      </Button>
+    </section>
   );
 }
 
@@ -754,7 +801,7 @@ function GapBox({
       <div className={`${box} border-line`}>
         <div className="label">Ready</div>
         <div className="mt-2 font-display text-[clamp(1.5rem,7vw,1.875rem)] font-black leading-tight">Cross the start line</div>
-        <div className="mt-2 text-sm text-muted">Timing starts by itself.</div>
+        <div className="mt-2 text-sm text-muted">Timing starts by itself as you drive through it.</div>
       </div>
     );
   }
