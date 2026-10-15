@@ -73,7 +73,7 @@ export function AppShell() {
             <span className="text-sm font-bold uppercase tracking-[0.2em]">Lap Timer</span>
           </div>
           <ul className="flex flex-col gap-0.5 p-2">
-            <SideItem to="/" label="Tracks" icon={IconMap} active={tab === 'tracks'} />
+            <SideItem to="/" label="Roads" icon={IconMap} active={tab === 'tracks'} />
             <SideItem to="/me" label="Me" icon={IconUser} active={tab === 'me'} />
           </ul>
           <div className="px-2">
@@ -98,7 +98,7 @@ export function AppShell() {
 
       {!immersive && (
         <nav aria-label="Main" className="grid shrink-0 grid-cols-3 border-t border-line bg-panel pb-[env(safe-area-inset-bottom)] md:hidden">
-          <TabItem to="/" label="Tracks" icon={IconMap} active={tab === 'tracks'} />
+          <TabItem to="/" label="Roads" icon={IconMap} active={tab === 'tracks'} />
           <div className="flex items-center justify-center">
             <Link to="/live" aria-current={tab === 'drive' ? 'page' : undefined} className="press flex h-12 w-[6.5rem] items-center justify-center gap-2 rounded-xl bg-accent text-[15px] font-extrabold text-white">
               <IconTimer /> Drive

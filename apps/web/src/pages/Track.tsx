@@ -52,7 +52,7 @@ export function Track() {
     return (
       <div className="space-y-3 p-6">
         <Notice tone="error">This track no longer exists. Its drives are still under Me, My drives.</Notice>
-        <LinkButton to="/">All tracks</LinkButton>
+        <LinkButton to="/">All roads</LinkButton>
       </div>
     );
   }

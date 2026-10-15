@@ -89,7 +89,7 @@ export function Tracks() {
           <header className="flex items-end justify-between gap-3 px-4 pb-4 pt-5">
             <div>
               {circuits.official.length > 0 && (
-                <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#d08a4e]">{circuits.official.length} official tracks</div>
+                <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#d08a4e]">{circuits.official.length} official roads</div>
               )}
               <h1 className="font-display text-[2.1rem] font-black leading-none tracking-tight">Roads</h1>
             </div>
@@ -117,25 +117,25 @@ export function Tracks() {
           </div>
           {error && (
             <div className="px-4 pb-3">
-              <Notice tone="error">Could not load your tracks: {error.message}</Notice>
+              <Notice tone="error">Could not load your roads: {error.message}</Notice>
             </div>
           )}
           {loading && !data ? (
             <div className="px-4 py-6">
-              <Spinner label="Loading tracks" />
+              <Spinner label="Loading roads" />
             </div>
           ) : (
             <>
               <ul className="border-t border-line">{circuits.official.map(row)}</ul>
               {circuits.own.length > 0 && (
                 <>
-                  <h2 className="label px-4 pb-2 pt-6">Your tracks</h2>
+                  <h2 className="label px-4 pb-2 pt-6">Your roads</h2>
                   <ul className="border-t border-line">{circuits.own.map(row)}</ul>
                 </>
               )}
               <div className="flex flex-wrap justify-center gap-x-6 gap-y-2 px-4 pt-5 text-sm text-muted">
                 <Link to="/circuits/new" className="flex items-center gap-1.5 hover:text-fg">
-                  <IconPlus width={16} height={16} /> Add your own track
+                  <IconPlus width={16} height={16} /> Add your own road
                 </Link>
                 <Link to="/circuits/record" className="flex items-center gap-1.5 hover:text-fg">
                   <IconRecord width={16} height={16} /> Record one by driving

@@ -32,7 +32,7 @@ export function Sessions() {
             bodyClass="p-0"
             actions={
               <Select aria-label="Filter by track" value={circuit} onChange={(e) => setCircuit(e.target.value)} className="h-8 w-48 text-xs">
-                <option value="">All tracks</option>
+                <option value="">All roads</option>
                 {circuitNames.map(([id, name]) => (
                   <option key={id} value={id}>
                     {name}
