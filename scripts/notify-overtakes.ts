@@ -120,13 +120,17 @@ interface Note {
   tag: string;
 }
 
-/** Drivers who lost places since `before`, each with who went past them. */
+/**
+ * Drivers whose time was beaten since `before`: someone now ahead of them was behind them, or not
+ * on the board, last time. Nobody else is told: not a driver passed by no one (someone ahead just
+ * got faster, or a driver ahead left), and not a driver who is new on the board.
+ */
 export function overtakes(track: Track, before: Record<string, number>, entries: Entry[]): Note[] {
   const notes: Note[] = [];
   entries.forEach((e, i) => {
     const was = before[e.uid];
     const now = i + 1;
-    if (!was || now <= was) return;
+    if (!was) return;
     // Those now ahead who were behind (or not on the board) before: the newest one passed last.
     const passers = entries.slice(0, i).filter((o) => !before[o.uid] || before[o.uid] > was);
     if (!passers.length) return;
@@ -135,7 +139,7 @@ export function overtakes(track: Track, before: Record<string, number>, entries:
     notes.push({
       uid: e.uid,
       title: `${by.nickname} beat your time`,
-      body: `${where}: you're now P${now} (was P${was}). ${lapTime(by.timeMs)} vs your ${lapTime(e.timeMs)}.`,
+      body: `${where}: you're now P${now}${now !== was ? ` (was P${was})` : ''}. ${lapTime(by.timeMs)} vs your ${lapTime(e.timeMs)}.`,
       url: `/tracks/${track.id}`,
       tag: `overtake-${track.id}`,
     });
@@ -143,16 +147,48 @@ export function overtakes(track: Track, before: Record<string, number>, entries:
   return notes;
 }
 
+/**
+ * Which account each device belongs to now. A phone used with two accounts can be listed under
+ * both (if signing out could not remove it, e.g. offline); it belongs to the one that registered
+ * it last, so the other account's notifications never reach it.
+ */
+let owners: Map<string, { uid: string; at: number }> | null = null;
+async function deviceOwners(): Promise<Map<string, { uid: string; at: number }>> {
+  if (owners) return owners;
+  const r = await api('POST', `${BASE}:runQuery`, { structuredQuery: { from: [{ collectionId: 'push', allDescendants: true }] } });
+  if (r.status !== 200) throw new Error(`Reading devices failed: HTTP ${r.status}`);
+  owners = new Map();
+  for (const x of r.json as { document?: { name: string; fields: Record<string, Value> } }[]) {
+    if (!x.document) continue;
+    const t = fromValue(x.document.fields.token ?? {});
+    const uid = x.document.name.match(/\/users\/([^/]+)\/push\//)?.[1];
+    const at = Number(fromValue(x.document.fields.updatedAt ?? {}) ?? 0) || 0;
+    if (typeof t !== 'string' || !uid) continue;
+    const cur = owners.get(t);
+    if (!cur || at > cur.at) owners.set(t, { uid, at });
+  }
+  return owners;
+}
+
 /** Sends one note to every device of its driver; drops tokens FCM no longer knows. */
 async function send(note: Note): Promise<{ sent: number; removed: number }> {
   const r = await api('GET', `${BASE}/users/${note.uid}/push?pageSize=20`);
   if (r.status !== 200) return { sent: 0, removed: 0 };
+  const own = await deviceOwners();
   let sent = 0;
   let removed = 0;
   for (const d of (r.json.documents ?? []) as { name: string; fields: Record<string, Value> }[]) {
     const deviceToken = fromValue(d.fields.token ?? {});
     if (typeof deviceToken !== 'string') continue;
+    if (own.get(deviceToken) && own.get(deviceToken)!.uid !== note.uid) {
+      // This phone now belongs to another account: forget it here instead of sending.
+      await api('DELETE', `${ROOT}/${d.name}`);
+      removed++;
+      continue;
+    }
     if (EMULATOR) {
+      // Local testing only (never in the public Actions log): who would get what.
+      console.log(`  [emulator] ${note.uid}/${d.name.split('/').pop()}: ${note.title}. ${note.body}`);
       sent++;
       continue;
     }
