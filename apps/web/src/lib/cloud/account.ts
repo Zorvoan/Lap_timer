@@ -4,6 +4,7 @@
  * and every few minutes while the app is open (to pick up laps driven on another device).
  */
 import { config } from '../config';
+import { savedDevice } from '../pushState';
 import { log } from '../log';
 import { clearAllData, dataEvents, getCircuit, getKv, listSessions, saveCircuit, setKv } from '../repo';
 import { lapLength } from '../references';
@@ -129,6 +130,7 @@ export function initAccount(): void {
         if (user) {
           void loadProfile(user.uid);
           scheduleSync(0);
+          if (savedDevice()?.uid === user.uid) void import('./push').then((m) => m.refreshPush(user.uid)).catch(() => undefined);
         }
       });
       void refreshFeatured();
@@ -428,6 +430,8 @@ export async function logout(removeLocalData: boolean): Promise<void> {
   const a = await loadApi();
   const uid = state.user?.uid;
   if (syncing) await syncing.catch(() => undefined);
+  // This device stops getting the account's notifications.
+  if (savedDevice()) await (await import('./push')).disablePush().catch(() => undefined);
   await a.logout();
   if (removeLocalData) {
     await clearAllData();
