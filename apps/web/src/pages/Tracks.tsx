@@ -7,14 +7,17 @@ import { TrackLines, boundsOf, type TrackKind } from '../components/map/TrackLin
 import { RouteShape } from '../components/map/RouteShape';
 import { LocateControl } from '../components/map/MapControls';
 import { ProfileNotice, loadBoard } from '../components/track/LeaderboardTab';
-import { Notice, Segmented, Sheet, Spinner } from '../components/ui/primitives';
+import { Button, LinkButton, Notice, Segmented, Sheet, Spinner } from '../components/ui/primitives';
 import { IconChevronRight, IconPin, IconPlay, IconPlus, IconRecord } from '../components/ui/icons';
 import { useAccount, useData } from '../hooks/useData';
 import { useSettings } from '../hooks/useSettings';
 import { circuitStats, type CircuitStats } from '../lib/circuitStats';
-import { ensureLocalCircuit, refreshFeatured } from '../lib/cloud/account';
+import { describeError, ensureLocalCircuit, publishRoad, refreshFeatured } from '../lib/cloud/account';
+import { PUBLIC_ROAD_LIMIT } from '../lib/cloud/leaderboard';
 import type { LeaderboardEntry } from '../lib/cloud/leaderboard';
 import { listCircuits, listSessions } from '../lib/repo';
+import { climbText, useElevation } from '../lib/climb';
+import { ClimbSuffix } from '../components/track/ClimbSuffix';
 
 /** A start line closer than this is "where you are". */
 const AT_START_M = 400;
@@ -44,6 +47,7 @@ export function Tracks() {
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const view = params.get('view') === 'map' ? 'map' : 'list';
+  const group = (['community', 'own'] as const).find((g) => g === params.get('group')) ?? 'official';
   useEffect(() => {
     void refreshFeatured();
   }, []);
@@ -78,6 +82,25 @@ export function Tracks() {
   const bounds = useMemo(() => boundsOf(all), [all]);
 
   const [choice, setChoice] = useState<string[] | null>(null);
+  // Sharing: pick one of your own roads to make public (up to PUBLIC_ROAD_LIMIT).
+  const [sharing, setSharing] = useState(false);
+  const [shareBusy, setShareBusy] = useState<string | null>(null);
+  const [shareError, setShareError] = useState<string | null>(null);
+  const myPublic = community.filter((c) => c.owner?.uid === acc.user?.uid).length;
+  const canShare = acc.status === 'signed_in' && !!acc.profile && myPublic < PUBLIC_ROAD_LIMIT;
+  async function share(c: Circuit) {
+    setShareBusy(c.id);
+    setShareError(null);
+    try {
+      await publishRoad(c);
+      setSharing(false);
+      navigate(`/tracks/${c.id}`, { state: { from: '/' } });
+    } catch (e) {
+      setShareError(describeError(e));
+    } finally {
+      setShareBusy(null);
+    }
+  }
   const openFromMap = (id: string) => navigate(`/tracks/${id}`, { state: { from: '/?view=map' } });
 
   async function drive(c: Circuit) {
@@ -96,6 +119,7 @@ export function Tracks() {
       stats={stats.get(c.id)}
       board={boards?.get(c.id)}
       official={kindOf(c.id) !== 'own'}
+      from={group === 'official' ? '/' : `/?group=${group}`}
       by={communityOwner(c.id)?.uid === acc.user?.uid ? 'you' : communityOwner(c.id)?.nickname}
       myUid={acc.user?.uid ?? null}
     />
@@ -112,7 +136,7 @@ export function Tracks() {
               )}
               <h1 className="font-display text-[2.1rem] font-black leading-none tracking-tight">Roads</h1>
             </div>
-            <ViewSwitch view={view} onChange={(v) => setParams(v === 'map' ? { view: 'map' } : {}, { replace: true })} />
+            <ViewSwitch view={view} onChange={(v) => setParams({ ...(v === 'map' ? { view: 'map' } : {}), ...(group !== 'official' ? { group } : {}) }, { replace: true })} />
           </header>
 
           {near && (
@@ -145,19 +169,49 @@ export function Tracks() {
             </div>
           ) : (
             <>
-              <ul className="border-t border-line">{circuits.official.map(row)}</ul>
-              {circuits.community.length > 0 && (
+              {/* Three groups, one at a time: official stages, roads other drivers shared, and yours. */}
+              <div className="px-4 pb-3">
+                <Segmented
+                  label="Which roads"
+                  itemClass="h-9 text-[13px]"
+                  value={group}
+                  onChange={(g) => setParams({ ...(view === 'map' ? { view: 'map' } : {}), ...(g === 'official' ? {} : { group: g }) }, { replace: true })}
+                  options={[
+                    { value: 'official', label: 'Official' },
+                    { value: 'community', label: `Community${circuits.community.length ? ` ${circuits.community.length}` : ''}` },
+                    { value: 'own', label: `Yours${circuits.own.length ? ` ${circuits.own.length}` : ''}` },
+                  ]}
+                />
+              </div>
+              <div key={group} className="anim-reveal">
+              {group === 'official' && <ul className="border-t border-line">{circuits.official.map(row)}</ul>}
+              {group === 'community' && (
                 <>
-                  <h2 className="label px-4 pb-2 pt-6">Community roads</h2>
-                  <ul className="border-t border-line">{circuits.community.map(row)}</ul>
+                  {circuits.community.length > 0 && <ul className="border-t border-line">{circuits.community.map(row)}</ul>}
+                  {canShare && (
+                    <div className="mx-4 mt-4 rounded-lg border border-[#d08a4e]/50 bg-[#d08a4e]/10 p-4">
+                      <p className="font-display text-lg font-black leading-tight">Share your road</p>
+                      <p className="mt-1 text-sm text-muted">
+                        {circuits.community.length ? 'Make one of yours public too' : 'Roads other drivers made public show up here. Make one of yours public'} and everyone can race it on its own leaderboard. {myPublic} of {PUBLIC_ROAD_LIMIT} used.
+                      </p>
+                      <button type="button" onClick={() => setSharing(true)} className="press mt-3 h-10 rounded bg-accent px-4 text-sm font-bold text-white">
+                        Share a road
+                      </button>
+                    </div>
+                  )}
+                  {!canShare && circuits.community.length === 0 && <p className="px-4 py-4 text-sm text-muted">No public roads yet.</p>}
                 </>
               )}
-              {circuits.own.length > 0 && (
+              {group === 'own' && (
                 <>
-                  <h2 className="label px-4 pb-2 pt-6">Your roads</h2>
-                  <ul className="border-t border-line">{circuits.own.map(row)}</ul>
+                  {circuits.own.length > 0 ? (
+                    <ul className="border-t border-line">{circuits.own.map(row)}</ul>
+                  ) : (
+                    <p className="px-4 pb-1 pt-2 text-sm text-muted">Roads you add or record show up here. Make them public to race others on them.</p>
+                  )}
                 </>
               )}
+              </div>
               <div className="flex flex-wrap justify-center gap-x-6 gap-y-2 px-4 pt-5 text-sm text-muted">
                 <Link to="/circuits/new" className="flex items-center gap-1.5 hover:text-fg">
                   <IconPlus width={16} height={16} /> Add your own road
@@ -174,7 +228,7 @@ export function Tracks() {
       <section className={`${view === 'map' ? 'flex' : 'hidden'} anim-view min-h-0 flex-1 flex-col md:flex`}>
         <header className="flex items-center justify-between gap-3 border-b border-line px-4 pb-3 pt-5 md:hidden">
           <h1 className="font-display text-[2.1rem] font-black leading-none tracking-tight">Roads</h1>
-          <ViewSwitch view={view} onChange={(v) => setParams(v === 'map' ? { view: 'map' } : {}, { replace: true })} />
+          <ViewSwitch view={view} onChange={(v) => setParams({ ...(v === 'map' ? { view: 'map' } : {}), ...(group !== 'official' ? { group } : {}) }, { replace: true })} />
         </header>
         <div className="relative min-h-0 flex-1">
         <BaseMap center={mapView?.center} zoom={mapView?.zoom}>
@@ -188,6 +242,51 @@ export function Tracks() {
         </div>
       </section>
 
+      <Sheet open={sharing} onClose={() => setSharing(false)} labelledBy="share-road" center>
+        <h2 id="share-road" className="font-display text-xl font-black">
+          Share a road
+        </h2>
+        <p className="mt-0.5 text-sm text-muted">
+          Everyone will see it and race it on its own leaderboard. A public road can&apos;t be edited. {myPublic} of {PUBLIC_ROAD_LIMIT} used.
+        </p>
+        {circuits.own.length === 0 ? (
+          <div className="mt-4">
+            <p className="text-sm">You have no roads of your own yet.</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <LinkButton to="/circuits/new" size="sm" variant="primary">
+                Add your own road
+              </LinkButton>
+              <LinkButton to="/circuits/record" size="sm">
+                Record one by driving
+              </LinkButton>
+            </div>
+          </div>
+        ) : (
+          <ul className="mt-3 max-h-[50vh] divide-y divide-line overflow-y-auto border-y border-line">
+            {circuits.own.map((c) => (
+              <li key={c.id} className="flex items-center gap-3 py-2.5">
+                <RouteShape geometry={c.geometry} size={48} className="shrink-0 rounded-lg bg-raised text-fg/85" />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-display font-extrabold">{c.name}</span>
+                  <span className="block text-xs text-muted">
+                    {formatDistance(c.lengthM, settings.distanceUnit)}
+                    <ClimbSuffix circuit={c} />
+                  </span>
+                </span>
+                <Button size="sm" variant="primary" disabled={!!shareBusy} onClick={() => void share(c)}>
+                  {shareBusy === c.id ? 'Sharing…' : 'Make public'}
+                </Button>
+              </li>
+            ))}
+          </ul>
+        )}
+        {shareError && (
+          <p role="alert" className="anim-shake mt-2 text-sm text-loss">
+            {shareError}
+          </p>
+        )}
+      </Sheet>
+
       {/* Tracks sharing a road (a hill climb and its downhill) are tapped together: pick one. */}
       <Sheet open={!!choice} onClose={() => setChoice(null)} labelledBy="choose-road" center>
         <h2 id="choose-road" className="font-display text-xl font-black">
@@ -199,7 +298,6 @@ export function Tracks() {
             .map((id) => all.find((c) => c.id === id))
             .filter((c): c is Circuit => !!c)
             .map((c) => {
-              const elev = elevationChange(c);
               return (
                 <li key={c.id}>
                   <button type="button" onClick={() => (setChoice(null), openFromMap(c.id))} className="flex w-full items-center gap-3.5 py-3 text-left active:bg-raised">
@@ -210,7 +308,7 @@ export function Tracks() {
                       <span className="block truncate font-display text-lg font-extrabold leading-tight">{c.name}</span>
                       <span className="block text-xs text-muted">
                         {formatDistance(c.lengthM, settings.distanceUnit)}
-                        {elev && `, ${elev}`}
+                        <ClimbSuffix circuit={c} />
                       </span>
                     </span>
                     <IconChevronRight width={18} height={18} className="shrink-0 text-muted" />
@@ -247,6 +345,7 @@ function TrackRow({
   board,
   official,
   by,
+  from,
   myUid,
 }: {
   circuit: Circuit;
@@ -258,12 +357,14 @@ function TrackRow({
   official: boolean;
   /** Who made a public road public ("you" for the user's own). */
   by?: string;
+  /** Where the track page's back arrow returns to. */
+  from: string;
   myUid: string | null;
 }) {
   const { settings } = useSettings();
   const rank = myUid && board ? board.findIndex((e) => e.uid === myUid) + 1 : 0;
   const record = board?.[0];
-  const climb = elevationChange(c);
+  const climb = climbText(useElevation(c));
   let right: React.ReactNode;
   if (stats?.bestMs != null) {
     right = (
@@ -284,7 +385,7 @@ function TrackRow({
   }
   return (
     <li className="border-b border-line">
-      <Link to={`/tracks/${c.id}`} state={{ from: '/' }} className="flex items-center gap-3.5 px-4 py-3.5 hover:bg-raised active:bg-raised">
+      <Link to={`/tracks/${c.id}`} state={{ from }} className="flex items-center gap-3.5 px-4 py-3.5 hover:bg-raised active:bg-raised">
         <RouteShape geometry={c.geometry} size={68} className="shrink-0 rounded-lg bg-raised text-fg/85" />
         <div className="min-w-0 flex-1">
           {stage > 0 && <div className="font-mono text-[11px] font-bold text-accent">SS{stage}</div>}
@@ -303,13 +404,6 @@ function TrackRow({
 }
 
 /** "+130 m climb" or "130 m descent" from start to finish, when the track has elevation data. */
-function elevationChange(c: Circuit): string | null {
-  const e = c.elevation;
-  if (!e || e.length < 2) return null;
-  const change = Math.round(e[e.length - 1].elevation - e[0].elevation);
-  if (Math.abs(change) < 20) return null;
-  return change > 0 ? `+${change} m climb` : `${-change} m descent`;
-}
 
 /**
  * The track whose start line is within AT_START_M of the user, if location is already allowed.

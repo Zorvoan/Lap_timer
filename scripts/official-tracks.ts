@@ -8,6 +8,7 @@
  *   inspect <text>     Circuits of any user whose name contains <text>: lengths, lines, overlap.
  *   publish <spec>     Publishes circuits as official tracks; see {@link PublishSpec}.
  *   pair <spec>        A hill climb and its downhill over the same exact distance; see {@link PairSpec}.
+ *   elevation [all]    Adds an elevation profile to official tracks that have none (or to all).
  *
  * The service account needs the "Cloud Datastore User" role. It bypasses the security rules,
  * so the output never prints more than the matched circuits' own summary.
@@ -327,6 +328,29 @@ async function pair(token: string, spec: PairSpec) {
   }
 }
 
+/**
+ * Gives official tracks an elevation profile (for "+130 m climb" and the profile chart). Only the
+ * elevation and updatedAt fields change, so every app refreshes its copy and nothing else moves.
+ */
+async function addElevation(token: string, all: boolean) {
+  const featured = await listDocs(token, 'featured');
+  const now = Date.now();
+  for (const f of featured) {
+    const circuit = decodeCircuit(f.data as unknown as CircuitDoc);
+    if (circuit.elevation?.length && !all) continue;
+    const profile = await elevationProfile(circuit.geometry);
+    const ys = profile.map((p) => p.elevation);
+    const up = ys.slice(1).reduce((s, y, i) => s + Math.max(0, y - ys[i]), 0);
+    const down = ys.slice(1).reduce((s, y, i) => s + Math.max(0, ys[i] - y), 0);
+    const doc = encodeCircuit({ ...circuit, elevation: profile, updatedAt: now });
+    await api(token, 'PATCH', `${BASE}/featured/${f.id}?updateMask.fieldPaths=elevation&updateMask.fieldPaths=updatedAt`, {
+      fields: toFields({ elevation: doc.elevation, updatedAt: now }),
+    });
+    console.log(`"${circuit.name}": ${profile.length} points, ${ys[0].toFixed(0)} m → ${ys.at(-1)!.toFixed(0)} m, up ${up.toFixed(0)} m, down ${down.toFixed(0)} m`);
+    await sleep(1100); // the free elevation API: keep it gentle
+  }
+}
+
 async function main() {
   let [command, ...args] = process.argv.slice(2);
   let spec: unknown = null;
@@ -340,6 +364,7 @@ async function main() {
   if (command === 'inspect') await inspect(token, args.join(' '));
   else if (command === 'publish') await publish(token, (spec ?? JSON.parse(args[0])) as PublishSpec);
   else if (command === 'pair') await pair(token, (spec ?? JSON.parse(args[0])) as PairSpec);
+  else if (command === 'elevation') await addElevation(token, args[0] === 'all');
   else throw new Error(`Unknown command "${command}".`);
 }
 

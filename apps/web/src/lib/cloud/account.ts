@@ -359,6 +359,8 @@ export function leaderboardTracks(s: Pick<AccountState, 'featured' | 'community'
 export async function publishRoad(circuit: Circuit): Promise<void> {
   const uid = state.user?.uid;
   if (!uid || !state.profile) throw new Error('Sign in and add a nickname first.');
+  if (circuit.name.trim().length > 60) throw new Error('Shorten the name to 60 characters or less first (Edit track).');
+  if (circuit.lengthM < 300) throw new Error('This road is too short to make public (at least 300 m).');
   await (await community()).publishRoad(uid, state.profile.nickname, circuit);
   await refreshCommunity();
   scheduleSync(0); // publishes the owner's laps already driven on it
