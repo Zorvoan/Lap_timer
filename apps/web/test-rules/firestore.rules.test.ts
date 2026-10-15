@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { afterAll, beforeAll, beforeEach, describe, it } from 'vitest';
 import { assertFails, assertSucceeds, initializeTestEnvironment, type RulesTestEnvironment } from '@firebase/rules-unit-testing';
-import { doc, setDoc } from 'firebase/firestore';
+import { deleteDoc, doc, setDoc, writeBatch } from 'firebase/firestore';
 
 const TRACK = 'track-2km';
 let env: RulesTestEnvironment;
@@ -69,5 +69,66 @@ describe('leaderboard entries', () => {
   it('only accepts entries on official tracks', async () => {
     const db = env.authenticatedContext('alice').firestore();
     await assertFails(setDoc(doc(db, 'leaderboards', 'not-official', 'entries', 'alice'), entry(60_000)));
+  });
+});
+
+describe('public roads', () => {
+  const road = (id: string, extra: Record<string, unknown> = {}) => ({ id, name: 'My road', lengthM: 2000, ownerUid: 'alice', ownerNickname: 'Alice', publishedAt: 1, ...extra });
+  const alice = () => env.authenticatedContext('alice').firestore();
+  async function publish(id: string, ids: string[], extra: Record<string, unknown> = {}) {
+    const db = alice();
+    const b = writeBatch(db);
+    b.set(doc(db, 'publicSlots', 'alice'), { ids });
+    b.set(doc(db, 'public', id), road(id, extra));
+    await b.commit();
+  }
+
+  it('lets a driver publish up to five roads, not a sixth', async () => {
+    const ids: string[] = [];
+    for (let i = 1; i <= 5; i++) {
+      ids.push(`r${i}`);
+      await assertSucceeds(publish(`r${i}`, [...ids]));
+    }
+    await assertFails(publish('r6', [...ids, 'r6']));
+    // Dropping a slot without unpublishing its road does not free it.
+    await assertFails(setDoc(doc(alice(), 'publicSlots', 'alice'), { ids: ids.slice(1) }));
+  });
+
+  it('frees a slot when the road is unpublished in the same write', async () => {
+    await publish('r1', ['r1']);
+    const db = alice();
+    const b = writeBatch(db);
+    b.delete(doc(db, 'public', 'r1'));
+    b.set(doc(db, 'publicSlots', 'alice'), { ids: [] });
+    await assertSucceeds(b.commit());
+  });
+
+  it('needs a slot, the own uid and nickname, and a sane road; never edits', async () => {
+    const db = alice();
+    await assertFails(setDoc(doc(db, 'public', 'r1'), road('r1')));
+    await assertFails(publish('r1', ['r1'], { ownerUid: 'bob' }));
+    await assertFails(publish('r1', ['r1'], { ownerNickname: 'Someone else' }));
+    await assertFails(publish('r1', ['r1'], { lengthM: 100 }));
+    await assertFails(publish(TRACK, [TRACK]));
+    await assertSucceeds(publish('r1', ['r1']));
+    await assertFails(setDoc(doc(db, 'public', 'r1'), road('r1', { name: 'Renamed' })));
+    const bob = env.authenticatedContext('bob').firestore();
+    await assertFails(deleteDoc(doc(bob, 'public', 'r1')));
+  });
+
+  it('has a leaderboard the owner can clear', async () => {
+    await publish('r1', ['r1']);
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      const db = ctx.firestore();
+      await setDoc(doc(db, 'users', 'bob'), { nickname: 'Bob', nicknameLower: 'bob', car: 'Fabia', updatedAt: 1 });
+    });
+    const bob = env.authenticatedContext('bob').firestore();
+    const bobEntry = { ...entry(60_000), uid: 'bob', nickname: 'Bob', car: 'Fabia' };
+    await assertSucceeds(setDoc(doc(bob, 'leaderboards', 'r1', 'entries', 'bob'), bobEntry));
+    await assertFails(setDoc(doc(bob, 'leaderboards', 'r1', 'entries', 'bob'), { ...bobEntry, timeMs: 20_000 }));
+    // Another driver cannot remove Bob's time; the road's owner can.
+    const carol = env.authenticatedContext('carol').firestore();
+    await assertFails(deleteDoc(doc(carol, 'leaderboards', 'r1', 'entries', 'bob')));
+    await assertSucceeds(deleteDoc(doc(alice(), 'leaderboards', 'r1', 'entries', 'bob')));
   });
 });

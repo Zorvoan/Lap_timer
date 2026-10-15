@@ -3,7 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useMapEvents } from 'react-leaflet';
 import { distanceMeters, formatDistance, formatLapTime, type Circuit } from '@laptimer/core';
 import { BaseMap, FitBounds } from '../components/map/BaseMap';
-import { TrackLines, boundsOf } from '../components/map/TrackLines';
+import { TrackLines, boundsOf, type TrackKind } from '../components/map/TrackLines';
 import { RouteShape } from '../components/map/RouteShape';
 import { LocateControl } from '../components/map/MapControls';
 import { ProfileNotice, loadBoard } from '../components/track/LeaderboardTab';
@@ -52,18 +52,23 @@ export function Tracks() {
   const stats = useMemo(() => circuitStats(data?.sessions ?? [], settings.includeSimulatedInBests), [data, settings.includeSimulatedInBests]);
   const order = (id: string) => acc.featured.findIndex((f) => f.id === id);
   const isOfficial = (id: string) => order(id) >= 0;
+  const community = useMemo(() => acc.community.filter((c) => !isOfficial(c.id)), [acc.community, acc.featured]); // eslint-disable-line react-hooks/exhaustive-deps
+  const communityOwner = (id: string) => community.find((c) => c.id === id)?.owner;
   const circuits = useMemo(() => {
     const all = data?.circuits ?? [];
     const official = all.filter((c) => isOfficial(c.id)).sort((a, b) => order(a.id) - order(b.id));
-    return { official, own: all.filter((c) => !isOfficial(c.id)) };
+    // A public road (yours, or one you drove) is listed under Community roads, not twice.
+    return { official, community, own: all.filter((c) => !isOfficial(c.id) && !communityOwner(c.id)) };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, acc.featured]);
-  const all = useMemo(() => [...circuits.official, ...circuits.own], [circuits]);
+  }, [data, acc.featured, community]);
+  const all = useMemo(() => [...circuits.official, ...circuits.community, ...circuits.own], [circuits]);
+  const kindOf = (id: string): TrackKind => (isOfficial(id) ? 'official' : communityOwner(id) ? 'community' : 'own');
 
-  const ids = acc.featured.map((f) => f.id).join(',');
+  const boardTracks = useMemo(() => [...acc.featured, ...community], [acc.featured, community]);
+  const ids = boardTracks.map((f) => f.id).join(',');
   const { data: boards } = useData(async () => {
     const out = new Map<string, LeaderboardEntry[]>();
-    await Promise.all(acc.featured.map(async (f) => out.set(f.id, await loadBoard(f.id, 100).catch(() => []))));
+    await Promise.all(boardTracks.map(async (f) => out.set(f.id, await loadBoard(f.id, 100).catch(() => []))));
     return out;
   }, [ids]);
 
@@ -76,14 +81,25 @@ export function Tracks() {
   const openFromMap = (id: string) => navigate(`/tracks/${id}`, { state: { from: '/?view=map' } });
 
   async function drive(c: Circuit) {
-    const f = acc.featured.find((x) => x.id === c.id);
+    const f = boardTracks.find((x) => x.id === c.id);
     if (f) await ensureLocalCircuit(f);
     navigate(`/live?circuit=${c.id}`);
   }
 
   // Official tracks are numbered like rally stages, in their featured order.
   const stageNo = (id: string) => (isOfficial(id) ? order(id) + 1 : 0);
-  const row = (c: Circuit) => <TrackRow key={c.id} circuit={c} stage={stageNo(c.id)} stats={stats.get(c.id)} board={boards?.get(c.id)} official={isOfficial(c.id)} myUid={acc.user?.uid ?? null} />;
+  const row = (c: Circuit) => (
+    <TrackRow
+      key={c.id}
+      circuit={c}
+      stage={stageNo(c.id)}
+      stats={stats.get(c.id)}
+      board={boards?.get(c.id)}
+      official={kindOf(c.id) !== 'own'}
+      by={communityOwner(c.id)?.uid === acc.user?.uid ? 'you' : communityOwner(c.id)?.nickname}
+      myUid={acc.user?.uid ?? null}
+    />
+  );
 
   return (
     <div className="flex h-full flex-col md:flex-row">
@@ -130,6 +146,12 @@ export function Tracks() {
           ) : (
             <>
               <ul className="border-t border-line">{circuits.official.map(row)}</ul>
+              {circuits.community.length > 0 && (
+                <>
+                  <h2 className="label px-4 pb-2 pt-6">Community roads</h2>
+                  <ul className="border-t border-line">{circuits.community.map(row)}</ul>
+                </>
+              )}
               {circuits.own.length > 0 && (
                 <>
                   <h2 className="label px-4 pb-2 pt-6">Your roads</h2>
@@ -157,7 +179,7 @@ export function Tracks() {
         <div className="relative min-h-0 flex-1">
         <BaseMap center={mapView?.center} zoom={mapView?.zoom}>
           <LocateControl />
-          {all.length > 0 && <TrackLines circuits={all} isOfficial={isOfficial} onSelect={(ids) => (ids.length === 1 ? openFromMap(ids[0]) : setChoice(ids))} />}
+          {all.length > 0 && <TrackLines circuits={all} kindOf={kindOf} onSelect={(ids) => (ids.length === 1 ? openFromMap(ids[0]) : setChoice(ids))} />}
           {/* Coming back from a track keeps the map where it was; otherwise it shows every track. */}
           {!mapView && <FitBounds bounds={bounds} fitKey={`all:${all.length}`} maxZoom={15} />}
           <KeepView />
@@ -184,6 +206,7 @@ export function Tracks() {
                     <RouteShape geometry={c.geometry} size={56} className="shrink-0 rounded-lg bg-raised text-fg/85" />
                     <span className="min-w-0 flex-1">
                       {stageNo(c.id) > 0 && <span className="block font-mono text-[11px] font-bold text-accent">SS{stageNo(c.id)}</span>}
+                      {communityOwner(c.id) && <span className="block truncate text-[11px] font-semibold text-[#d08a4e]">by {communityOwner(c.id)?.uid === acc.user?.uid ? 'you' : communityOwner(c.id)?.nickname}</span>}
                       <span className="block truncate font-display text-lg font-extrabold leading-tight">{c.name}</span>
                       <span className="block text-xs text-muted">
                         {formatDistance(c.lengthM, settings.distanceUnit)}
@@ -223,6 +246,7 @@ function TrackRow({
   stats,
   board,
   official,
+  by,
   myUid,
 }: {
   circuit: Circuit;
@@ -230,7 +254,10 @@ function TrackRow({
   stage: number;
   stats: CircuitStats | undefined;
   board: LeaderboardEntry[] | undefined;
+  /** Has a leaderboard (official track or public road). */
   official: boolean;
+  /** Who made a public road public ("you" for the user's own). */
+  by?: string;
   myUid: string | null;
 }) {
   const { settings } = useSettings();
@@ -261,6 +288,7 @@ function TrackRow({
         <RouteShape geometry={c.geometry} size={68} className="shrink-0 rounded-lg bg-raised text-fg/85" />
         <div className="min-w-0 flex-1">
           {stage > 0 && <div className="font-mono text-[11px] font-bold text-accent">SS{stage}</div>}
+          {by && <div className="truncate text-[11px] font-semibold text-[#d08a4e]">by {by}</div>}
           <div className="font-display text-[19px] font-extrabold leading-tight">{c.name}</div>
           <div className="mt-0.5 text-xs text-muted">
             {formatDistance(c.lengthM, settings.distanceUnit)}

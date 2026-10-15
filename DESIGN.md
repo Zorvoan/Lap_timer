@@ -20,6 +20,10 @@ it ranks. Every screen has one obvious next action. Nothing needs configuring be
 - **Roads** (the tracks list): one plain list (dividers, no card per track). Each row: name, length, your best time and
   rank, or the track record when you have no time. A List / Map switch shows the same tracks on a
   map. Near a start line, that track is offered at the top with its Drive button.
+- **Community roads**: every driver can make up to 5 of their own roads public (from the road's
+  page). Everyone sees them under Community roads and on the map (amber), with a leaderboard like
+  the official ones. A public road is never edited; its author can unpublish it, which deletes its
+  leaderboard.
 - **Track**: one page per track (replaces the circuit card, circuit detail and leaderboard pages):
   map, a large Drive button, then Leaderboard / My laps. Tapping a driver compares their lap with yours.
 - **Before driving**: no choices. The track comes from where you are (with a Change link), the lap to

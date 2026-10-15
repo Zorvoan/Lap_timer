@@ -8,7 +8,7 @@ import { ComparisonCharts, ReplayPanel, useComparisonRows } from '../components/
 import { COLOR_A, COLOR_B } from '../components/charts/Charts';
 import { useAccount, useData } from '../hooks/useData';
 import { useSettings } from '../hooks/useSettings';
-import { refreshFeatured } from '../lib/cloud/account';
+import { leaderboardTracks, refreshFeatured } from '../lib/cloud/account';
 import { lapFromPublished, type LeaderboardEntry } from '../lib/cloud/leaderboard';
 import type { FeaturedCircuit } from '../lib/cloud/community';
 import { circuitLapNumbers, lapKey } from '../lib/lapNumbers';
@@ -42,7 +42,7 @@ export function LeaderboardCompare() {
     if (!acc.featured.length) void refreshFeatured();
   }, [acc.featured.length]);
 
-  const track = acc.featured.find((f) => f.id === id) ?? null;
+  const track = leaderboardTracks(acc).find((f) => f.id === id) ?? null;
   const lengthM = useMemo(() => {
     if (!track) return 0;
     try {

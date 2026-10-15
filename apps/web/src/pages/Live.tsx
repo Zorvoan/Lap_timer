@@ -15,7 +15,7 @@ import { DEFAULT_SIMULATOR, SimulatedSource } from '../lib/gps/simulated';
 import { unlockAudio } from '../lib/audio';
 import { SAFETY_DETAIL, SAFETY_TEXT, acceptSafety, hasAcceptedSafety } from '../lib/safety';
 import { simulatorAllowed } from '../lib/developer';
-import { ensureLocalCircuit } from '../lib/cloud/account';
+import { ensureLocalCircuit, leaderboardTracks } from '../lib/cloud/account';
 import { formatClock, formatGap } from '../lib/runFormat';
 import type { ActiveSessionInfo } from '../lib/db';
 
@@ -80,7 +80,8 @@ function DriveSetup() {
   const lastDriven = data?.sessions.find((s) => circuits.some((c) => c.id === s.circuitId))?.circuitId;
   const circuitId = paramId ?? lastDriven ?? circuits[0]?.id ?? null;
   const circuit = circuits.find((c) => c.id === circuitId) ?? null;
-  const official = circuit ? order(circuit.id) >= 0 : false;
+  // Official tracks and public roads count for a leaderboard.
+  const official = circuit ? leaderboardTracks(acc).some((f) => f.id === circuit.id) : false;
 
   const refParam = params.get('ref');
   const simulating = source === 'simulated';
@@ -117,7 +118,7 @@ function DriveSetup() {
     setError(null);
     unlockAudio();
     try {
-      const f = acc.featured.find((x) => x.id === circuit.id);
+      const f = leaderboardTracks(acc).find((x) => x.id === circuit.id);
       if (f) await ensureLocalCircuit(f);
       const ref = await resolveReference(circuit, choice(), settings.includeSimulatedInBests || simulating);
       const src = simulating ? new SimulatedSource(circuit, { ...DEFAULT_SIMULATOR, timeScale, seed: Date.now() % 100000 }) : new GeolocationSource();

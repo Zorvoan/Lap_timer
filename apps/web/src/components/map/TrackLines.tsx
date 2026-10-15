@@ -5,11 +5,13 @@ import type { Circuit } from '@laptimer/core';
 import { RouteLayer } from './RouteLayer';
 import { TimingLineView } from './TimingLines';
 
-/** Map colours: official (leaderboard) tracks in the accent red, the user's own circuits in blue. */
-export const TRACK_COLORS = { official: 'rgb(225 6 0)', own: 'rgb(59 158 255)' } as const;
+/** Map colours: official tracks in the accent red, public roads in amber, the user's own in blue. */
+export const TRACK_COLORS = { official: 'rgb(225 6 0)', community: 'rgb(208 138 78)', own: 'rgb(59 158 255)' } as const;
+export type TrackKind = keyof typeof TRACK_COLORS;
 
-export function trackColor(official: boolean): string {
-  return official ? TRACK_COLORS.official : TRACK_COLORS.own;
+export function trackColor(kind: TrackKind | boolean): string {
+  if (typeof kind === 'boolean') return kind ? TRACK_COLORS.official : TRACK_COLORS.own;
+  return TRACK_COLORS[kind];
 }
 
 const toLatLngs = (c: Circuit) => c.geometry.map(([lon, lat]) => [lat, lon] as [number, number]);
@@ -50,12 +52,12 @@ function distToSegment(px: number, py: number, ax: number, ay: number, bx: numbe
  */
 export function TrackLines({
   circuits,
-  isOfficial,
+  kindOf,
   selectedId = null,
   onSelect,
 }: {
   circuits: readonly Circuit[];
-  isOfficial: (id: string) => boolean;
+  kindOf: (id: string) => TrackKind;
   selectedId?: string | null;
   onSelect?: (ids: string[]) => void;
 }) {
@@ -79,7 +81,7 @@ export function TrackLines({
         .filter((c) => c.id !== selectedId)
         .map((c) => {
           const positions = latLngs.get(c.id) ?? [];
-          const color = trackColor(isOfficial(c.id));
+          const color = trackColor(kindOf(c.id));
           return (
             <Fragment key={c.id}>
               <Polyline positions={positions} pathOptions={{ color: '#000', weight: 7, opacity: selected ? 0.3 : 0.5 }} interactive={false} />
@@ -89,7 +91,7 @@ export function TrackLines({
         })}
       {selected && (
         <>
-          <RouteLayer geometry={selected.geometry} closed={selected.kind === 'closed'} color={trackColor(isOfficial(selected.id))} weight={6} />
+          <RouteLayer geometry={selected.geometry} closed={selected.kind === 'closed'} color={trackColor(kindOf(selected.id))} weight={6} />
           <TimingLineView line={selected.startLine} kind="start" label={selected.kind === 'closed' ? 'Start / finish' : 'Start'} />
           {selected.finishLine && <TimingLineView line={selected.finishLine} kind="finish" label="Finish" />}
           {selected.sectors.map((s, i) => (

@@ -10,6 +10,7 @@ import { useAccount, useData } from '../hooks/useData';
 import { useSettings } from '../hooks/useSettings';
 import { getCircuit, getSession, listSessions } from '../lib/repo';
 import { lapLength } from '../lib/references';
+import { leaderboardTracks } from '../lib/cloud/account';
 import { formatGap } from '../lib/runFormat';
 
 const PURPLE = 'text-[#b36bff]';
@@ -56,7 +57,7 @@ export function DriveResult() {
     return { session, circuit, lap, previous, parts, prevParts, bestParts, sim, laps: session.laps.length };
   }, [data, settings.includeSimulatedInBests]);
 
-  const official = !!result && acc.featured.some((f) => f.id === result.session.circuitId);
+  const official = !!result && leaderboardTracks(acc).some((f) => f.id === result.session.circuitId);
   const online = typeof navigator === 'undefined' || navigator.onLine;
   const { data: rank } = useData(async () => {
     if (!result?.lap || !official || result.sim || !online) return null;

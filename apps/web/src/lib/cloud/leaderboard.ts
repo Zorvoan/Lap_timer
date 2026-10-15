@@ -1,6 +1,9 @@
 /** Pure leaderboard logic: which laps qualify, and how a lap is published. */
 import { TrackModel, lineAlong, splitTimes, type CircuitDefinition, type LapRecord, type Session } from '@laptimer/core';
 
+/** How many roads one driver can make public. Also enforced by firestore.rules. */
+export const PUBLIC_ROAD_LIMIT = 5;
+
 export interface Profile {
   nickname: string;
   car: string;
