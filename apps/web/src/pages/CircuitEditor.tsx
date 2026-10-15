@@ -72,7 +72,7 @@ export function CircuitEditor() {
   const [step, setStep] = useState<Step>(id ? 'route' : 'basics');
   /** Map taps add route points on the route step; elsewhere they do nothing. */
   const tool: Tool = step === 'route' ? 'waypoints' : 'none';
-  const desktop = useMediaQuery('(min-width: 768px)');
+  const desktop = useMediaQuery('(min-width: 768px) and (min-height: 560px)');
   /** Earlier waypoint lists, for Undo. */
   const history = useRef<LonLat[][]>([]);
   const editWaypoints = (next: (w: LonLat[]) => LonLat[]) =>

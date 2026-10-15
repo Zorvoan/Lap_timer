@@ -6,8 +6,15 @@ export default {
   darkMode: ['class', '[data-theme="dark"]'],
   theme: {
     extend: {
-      // Phones whose visible screen is short (iPhone mini / SE with the tab bar): tighter spacing.
-      screens: { short: { raw: '(max-height: 760px)' } },
+      screens: {
+        // The desktop layout (sidebar, side-by-side panes) needs width and height: a phone turned
+        // sideways is wide but short and keeps the phone layout.
+        md: { raw: '(min-width: 768px) and (min-height: 560px)' },
+        // Phones whose visible screen is short (iPhone mini / SE with the tab bar): tighter spacing.
+        short: { raw: '(max-height: 760px)' },
+        // A phone turned sideways: driving screens use two columns.
+        land: { raw: '(orientation: landscape) and (max-height: 559px)' },
+      },
       colors: {
         bg: 'rgb(var(--c-bg) / <alpha-value>)',
         panel: 'rgb(var(--c-panel) / <alpha-value>)',

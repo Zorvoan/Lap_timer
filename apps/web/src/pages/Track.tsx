@@ -59,7 +59,7 @@ export function Track() {
 
   return (
     <div className="pb-10">
-      <div className="relative h-52 border-b border-line md:h-72">
+      <div className="relative h-52 border-b border-line md:h-72 land:h-28">
         <BaseMap scrollWheelZoom={false} zoomSnap={0.1}>
           <RouteLayer geometry={circuit.geometry} closed={circuit.kind === 'closed'} />
           <TimingLineView line={circuit.startLine} kind="start" label={circuit.kind === 'closed' ? 'Start / finish' : 'Start'} />
