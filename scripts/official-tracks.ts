@@ -136,6 +136,25 @@ async function inspect(token: string, text: string) {
 }
 
 /**
+ * Every synced drive on one track, to see why a time is missing from its leaderboard: per lap the
+ * time, validity and flags. Drivers are numbered, never named (this log is public).
+ */
+async function laps(token: string, trackId: string) {
+  const entries = new Set((await listDocs(token, `leaderboards/${trackId}/entries`)).map((e) => e.id));
+  let driver = 0;
+  for (const u of await listDocs(token, 'users')) {
+    const drives = (await listDocs(token, `users/${u.id}/sessions`)).filter((d) => d.data.circuitId === trackId);
+    if (!drives.length) continue;
+    console.log(`\ndriver ${++driver} (${entries.has(u.id) ? 'on' : 'NOT on'} the leaderboard): ${drives.length} drive(s)`);
+    for (const d of drives.sort((a, b) => Number(a.data.startedAt) - Number(b.data.startedAt))) {
+      const ls = JSON.parse(String(d.data.laps ?? '[]')) as { lap: number; timeMs: number; valid: boolean; flags: string[]; distanceM: number }[];
+      console.log(`  ${new Date(Number(d.data.startedAt)).toISOString()} ${d.data.source} ${d.data.endedAt === null ? 'NOT ENDED' : 'ended'}, ${ls.length} lap(s)`);
+      for (const l of ls) console.log(`    lap ${l.lap}: ${(l.timeMs / 1000).toFixed(3)} s, ${l.valid ? 'valid' : 'INVALID'}, ${km(l.distanceM)}, flags [${l.flags.join(', ')}]`);
+    }
+  }
+}
+
+/**
  * Publishes circuits as official tracks, appended after the existing ones.
  * `lengthM` trims sprint routes so the start→finish distance is exactly that long (the finish
  * line is moved; the start line stays where the creator put it).
@@ -364,6 +383,7 @@ async function main() {
   if (command === 'inspect') await inspect(token, args.join(' '));
   else if (command === 'publish') await publish(token, (spec ?? JSON.parse(args[0])) as PublishSpec);
   else if (command === 'pair') await pair(token, (spec ?? JSON.parse(args[0])) as PairSpec);
+  else if (command === 'laps') await laps(token, args[0]);
   else if (command === 'elevation') await addElevation(token, args[0] === 'all');
   else throw new Error(`Unknown command "${command}".`);
 }
