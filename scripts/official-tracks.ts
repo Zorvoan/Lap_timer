@@ -17,7 +17,7 @@ import { readFileSync } from 'node:fs';
 import { TrackModel, bearingDeg, distanceMeters, lineAlong, type Circuit, type ElevationPoint, type LonLat } from '../packages/core/src/index';
 import { sprintPair, trimSprint, type SprintShape } from '../packages/core/src/trim';
 import { decodeCircuit, decodeSession, encodeCircuit, type CircuitDoc, type SessionDoc, type TraceChunkDoc } from '../apps/web/src/lib/cloud/codec';
-import { trackingGaps } from '../apps/web/src/lib/cloud/leaderboard';
+import { ineligibleReason, trackingGaps } from '../apps/web/src/lib/cloud/leaderboard';
 import { accessToken } from './lib/google';
 
 const PROJECT = process.env.FIREBASE_PROJECT ?? 'laptimer-okwph';
@@ -155,7 +155,8 @@ async function laps(token: string, trackId: string) {
         const g = trackingGaps(l);
         const speeds = l.trace.map((p) => p.v).filter((v): v is number => v !== null);
         console.log(`    lap ${l.lap}: ${(l.timeMs / 1000).toFixed(3)} s, ${l.valid ? 'valid' : 'INVALID'}, ${km(l.distanceM)}, flags [${l.flags.join(', ')}]`);
-        console.log(`      ${l.trace.length} points, ${g.count} gap(s) > 60 m covering ${g.gapM.toFixed(0)} m, worst gap crossed at ${g.worstRatio.toFixed(2)}× the speed around it; avg ${(l.avgSpeedMs * 3.6).toFixed(0)} km/h, max ${speeds.length ? (Math.max(...speeds) * 3.6).toFixed(0) : '?'} km/h`);
+        console.log(`      leaderboard: ${ineligibleReason(s, l) ?? 'counts'}`);
+        console.log(`      ${l.trace.length} points, ${g.count} gap(s) > 40 m covering ${g.gapM.toFixed(0)} m, worst gap crossed at ${g.worstRatio.toFixed(2)}× the speed around it; avg ${(l.avgSpeedMs * 3.6).toFixed(0)} km/h, max ${speeds.length ? (Math.max(...speeds) * 3.6).toFixed(0) : '?'} km/h`);
       }
     }
   }

@@ -4,7 +4,9 @@ import {
   MAX_TRACE_POINTS,
   bestEligibleLap,
   entryFromLap,
+  ineligibleReason,
   isEligible,
+  trackingGaps,
   lapFromPublished,
   parsePublishedTrace,
   traceForPublishing,
@@ -21,6 +23,12 @@ function lap(n: number, timeMs: number, extra: Partial<LapRecord> = {}): LapReco
   };
 }
 
+/** The same lap with 300 m of road skipped in 2 s (across a hairpin): everything after arrives early. */
+function shortCut(l: LapRecord): LapRecord {
+  const trace = l.trace.filter((p) => p.d <= 400 || p.d >= 700).map((p) => (p.d >= 700 ? { ...p, t: p.t - 13_000 } : p));
+  return { ...l, trace, timeMs: l.timeMs - 13_000 };
+}
+
 function session(id: string, source: Session['source'], laps: LapRecord[], circuitId = 'c1'): Session {
   return { id, circuitId, circuitName: 'C', source, startedAt: 1, endedAt: 2, laps, marks: [], reference: null, updatedAt: 0 };
 }
@@ -31,12 +39,26 @@ describe('leaderboard eligibility', () => {
       session('sim', 'simulated', [lap(1, 40_000)]),
       session('a', 'gps', [lap(1, 52_000), lap(2, 50_500)]),
       session('b', 'gps', [lap(1, 49_000, { valid: false })]),
-      session('c', 'gps', [lap(1, 49_500, { flags: ['tracking_lost'] })]),
+      session('c', 'gps', [shortCut(lap(1, 49_500, { flags: ['tracking_lost'] }))]),
       session('other', 'gps', [lap(1, 30_000)], 'c2'),
     ];
     const best = bestEligibleLap(sessions, 'c1');
     expect(best?.session.id).toBe('a');
     expect(best?.lap.timeMs).toBe(50_500);
+  });
+
+  it('accepts GPS dropouts crossed at road speed, but not a short cut', () => {
+    const s = session('a', 'gps', []);
+    // 300 m with no matched position, crossed in 15 s at 20 m/s: a dropout in a forest.
+    const dropout = lap(1, 50_000, { flags: ['tracking_lost', 'signal_gap'] });
+    dropout.trace = dropout.trace.filter((p) => p.d < 400 || p.d > 700);
+    expect(trackingGaps(dropout).count).toBe(1);
+    expect(trackingGaps(dropout).gapM).toBeCloseTo(300, 0);
+    expect(isEligible(s, dropout)).toBe(true);
+    const cut = shortCut(lap(1, 50_000, { flags: ['tracking_lost'] }));
+    expect(trackingGaps(cut).worstRatio).toBeGreaterThan(1.6);
+    expect(isEligible(s, cut)).toBe(false);
+    expect(ineligibleReason(s, cut)).toMatch(/skipped/);
   });
 
   it('ignores sessions still being recorded', () => {

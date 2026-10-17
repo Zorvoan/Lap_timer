@@ -50,21 +50,28 @@ export function validateCar(raw: string): string | null {
 }
 
 /**
- * A lap counts for the leaderboard when it was timed with real GPS (never the simulator),
- * passed the distance check, and the position stayed matched to the track.
+ * A lap counts for the leaderboard when it was timed with real GPS (never the simulator), passed
+ * the distance check, averaged a plausible speed and never skipped part of the road: GPS dropouts
+ * (common in forests and hairpins) are fine as long as the car crossed them at road speed.
  */
 export function isEligible(session: Session, lap: LapRecord): boolean {
-  return (
-    session.source === 'gps' &&
-    lap.valid &&
-    !lap.flags.includes('tracking_lost') &&
-    !lap.flags.includes('simulated') &&
-    lap.distanceM / (lap.timeMs / 1000) <= MAX_LEADERBOARD_SPEED_MS
-  );
+  return ineligibleReason(session, lap) === null;
 }
 
+/** Why a lap cannot go on the leaderboard, for the driver; null when it can. */
+export function ineligibleReason(session: Session, lap: LapRecord): string | null {
+  if (session.source !== 'gps' || lap.flags.includes('simulated')) return "Simulated runs don't go on the leaderboard.";
+  if (!lap.valid) return 'The lap distance does not match the road (a line crossing was missed), so the time cannot count.';
+  if (lap.distanceM / (lap.timeMs / 1000) > MAX_LEADERBOARD_SPEED_MS) return 'The lap averaged over 250 km/h: a GPS error, so it cannot count.';
+  if (trackingGaps(lap).worstRatio > MAX_GAP_SPEED_RATIO) return 'Part of the road was skipped faster than possible (GPS jumped or the car left the road), so it cannot count.';
+  return null;
+}
+
+/** A gap crossed faster than this many times the speed on either side of it is a short cut. */
+export const MAX_GAP_SPEED_RATIO = 1.6;
+
 /** A jump along the road between two matched positions longer than this is a gap in tracking. */
-const GAP_M = 60;
+const GAP_M = 40;
 
 /**
  * The stretches of a lap where the position was not matched to the road (or GPS was silent): how
@@ -72,7 +79,7 @@ const GAP_M = 60;
  * compared with the car's speed on either side of it. A short cut (leaving the road across a
  * hairpin) shows up as a gap crossed impossibly fast; a GPS dropout as one crossed at road speed.
  */
-export function trackingGaps(lap: Pick<LapRecord, 'trace' | 'avgSpeedMs'>): { gapM: number; count: number; worstRatio: number } {
+export function trackingGaps(lap: Pick<LapRecord, 'trace' | 'avgSpeedMs' | 'maxSpeedMs'>): { gapM: number; count: number; worstRatio: number } {
   const tr = lap.trace;
   let gapM = 0;
   let count = 0;
@@ -83,7 +90,7 @@ export function trackingGaps(lap: Pick<LapRecord, 'trace' | 'avgSpeedMs'>): { ga
     if (dd <= GAP_M || dt <= 0) continue;
     gapM += dd;
     count++;
-    const around = Math.max(tr[i - 1].v ?? 0, tr[i].v ?? 0) || lap.avgSpeedMs;
+    const around = Math.max(tr[i - 1].v ?? 0, tr[i].v ?? 0) || lap.maxSpeedMs || lap.avgSpeedMs;
     worstRatio = Math.max(worstRatio, dd / dt / Math.max(around, 5));
   }
   return { gapM, count, worstRatio };
