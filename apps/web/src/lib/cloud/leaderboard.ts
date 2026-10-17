@@ -63,6 +63,32 @@ export function isEligible(session: Session, lap: LapRecord): boolean {
   );
 }
 
+/** A jump along the road between two matched positions longer than this is a gap in tracking. */
+const GAP_M = 60;
+
+/**
+ * The stretches of a lap where the position was not matched to the road (or GPS was silent): how
+ * far they reach along the road in total, and the gap whose crossing needed the highest speed
+ * compared with the car's speed on either side of it. A short cut (leaving the road across a
+ * hairpin) shows up as a gap crossed impossibly fast; a GPS dropout as one crossed at road speed.
+ */
+export function trackingGaps(lap: Pick<LapRecord, 'trace' | 'avgSpeedMs'>): { gapM: number; count: number; worstRatio: number } {
+  const tr = lap.trace;
+  let gapM = 0;
+  let count = 0;
+  let worstRatio = 0;
+  for (let i = 1; i < tr.length; i++) {
+    const dd = tr[i].d - tr[i - 1].d;
+    const dt = (tr[i].t - tr[i - 1].t) / 1000;
+    if (dd <= GAP_M || dt <= 0) continue;
+    gapM += dd;
+    count++;
+    const around = Math.max(tr[i - 1].v ?? 0, tr[i].v ?? 0) || lap.avgSpeedMs;
+    worstRatio = Math.max(worstRatio, dd / dt / Math.max(around, 5));
+  }
+  return { gapM, count, worstRatio };
+}
+
 /**
  * Fastest plausible average speed of a leaderboard lap (250 km/h). Faster laps are GPS errors or
  * forged; firestore.rules enforces the same limit against the track length.

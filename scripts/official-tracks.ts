@@ -16,7 +16,8 @@
 import { readFileSync } from 'node:fs';
 import { TrackModel, bearingDeg, distanceMeters, lineAlong, type Circuit, type ElevationPoint, type LonLat } from '../packages/core/src/index';
 import { sprintPair, trimSprint, type SprintShape } from '../packages/core/src/trim';
-import { decodeCircuit, encodeCircuit, type CircuitDoc } from '../apps/web/src/lib/cloud/codec';
+import { decodeCircuit, decodeSession, encodeCircuit, type CircuitDoc, type SessionDoc, type TraceChunkDoc } from '../apps/web/src/lib/cloud/codec';
+import { trackingGaps } from '../apps/web/src/lib/cloud/leaderboard';
 import { accessToken } from './lib/google';
 
 const PROJECT = process.env.FIREBASE_PROJECT ?? 'laptimer-okwph';
@@ -147,9 +148,15 @@ async function laps(token: string, trackId: string) {
     if (!drives.length) continue;
     console.log(`\ndriver ${++driver} (${entries.has(u.id) ? 'on' : 'NOT on'} the leaderboard): ${drives.length} drive(s)`);
     for (const d of drives.sort((a, b) => Number(a.data.startedAt) - Number(b.data.startedAt))) {
-      const ls = JSON.parse(String(d.data.laps ?? '[]')) as { lap: number; timeMs: number; valid: boolean; flags: string[]; distanceM: number }[];
-      console.log(`  ${new Date(Number(d.data.startedAt)).toISOString()} ${d.data.source} ${d.data.endedAt === null ? 'NOT ENDED' : 'ended'}, ${ls.length} lap(s)`);
-      for (const l of ls) console.log(`    lap ${l.lap}: ${(l.timeMs / 1000).toFixed(3)} s, ${l.valid ? 'valid' : 'INVALID'}, ${km(l.distanceM)}, flags [${l.flags.join(', ')}]`);
+      const chunks = (await listDocs(token, `users/${u.id}/sessions/${d.id}/traces`)).map((c) => c.data as unknown as TraceChunkDoc);
+      const s = decodeSession(d.data as unknown as SessionDoc, chunks);
+      console.log(`  ${new Date(s.startedAt).toISOString()} ${s.source} ${s.endedAt === null ? 'NOT ENDED' : 'ended'}, ${s.laps.length} lap(s)`);
+      for (const l of s.laps) {
+        const g = trackingGaps(l);
+        const speeds = l.trace.map((p) => p.v).filter((v): v is number => v !== null);
+        console.log(`    lap ${l.lap}: ${(l.timeMs / 1000).toFixed(3)} s, ${l.valid ? 'valid' : 'INVALID'}, ${km(l.distanceM)}, flags [${l.flags.join(', ')}]`);
+        console.log(`      ${l.trace.length} points, ${g.count} gap(s) > 60 m covering ${g.gapM.toFixed(0)} m, worst gap crossed at ${g.worstRatio.toFixed(2)}× the speed around it; avg ${(l.avgSpeedMs * 3.6).toFixed(0)} km/h, max ${speeds.length ? (Math.max(...speeds) * 3.6).toFixed(0) : '?'} km/h`);
+      }
     }
   }
 }
