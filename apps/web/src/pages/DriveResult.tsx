@@ -11,6 +11,7 @@ import { useSettings } from '../hooks/useSettings';
 import { getCircuit, getSession, listSessions } from '../lib/repo';
 import { lapLength } from '../lib/references';
 import { leaderboardTracks } from '../lib/cloud/account';
+import { ineligibleReason } from '../lib/cloud/leaderboard';
 import { formatGap } from '../lib/runFormat';
 
 const PURPLE = 'text-[#b36bff]';
@@ -82,6 +83,7 @@ export function DriveResult() {
   const gapMs = lap && previous ? lap.timeMs - previous.timeMs : null;
   const signedIn = acc.status === 'signed_in' && !!acc.profile;
   const stage = acc.featured.findIndex((f) => f.id === session.circuitId) + 1;
+  const ineligible = lap && official && !sim ? ineligibleReason(session, lap) : null;
 
   return (
     <div className="mx-auto flex min-h-full max-w-xl flex-col px-4 pb-8 pt-6">
@@ -139,6 +141,8 @@ export function DriveResult() {
               <Row muted action={<LinkButton to="/account" size="sm" variant="primary">{acc.status === 'signed_in' ? 'Add' : 'Sign in'}</LinkButton>}>
                 {acc.status === 'signed_in' ? 'Add a nickname and car to get on the leaderboard.' : 'Sign in to put this time on the leaderboard.'}
               </Row>
+            ) : ineligible ? (
+              <Row muted>{ineligible}</Row>
             ) : !online || acc.sync === 'offline' ? (
               <div className="flex items-center gap-3 py-3">
                 <IconCloudOff width={20} height={20} className="shrink-0 text-muted" />
