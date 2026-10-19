@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { LapTracePoint } from '@laptimer/core';
-import { drivingStyle, pairedCorners } from '../src/lib/drivingStyle';
+import { drivingStyle, fieldCorners, pairedCorners } from '../src/lib/drivingStyle';
 
 /** A lap sampled once a second from a speed profile (m/s by second). */
 function lapFrom(speeds: number[]) {
@@ -50,6 +50,15 @@ describe('driving style', () => {
     const c = (p.slow ?? p.fast)!;
     expect(c.count).toBe(1);
     expect(c.b - c.a).toBeGreaterThan(2);
+  });
+
+  it('only compares corners the other drivers took too', () => {
+    // The driver's lap has a hairpin and a fast bend; the other lap only the hairpin.
+    const other = drivingStyle(lapFrom([...Array(8).fill(30), 27, 22, 17, 12, 12, 17, 22, 27, ...Array(22).fill(30)]))!;
+    const corners = fieldCorners(s, [other]);
+    expect(corners).toHaveLength(1);
+    expect(corners[0].fast).toBe(false);
+    expect(corners[0].others).toHaveLength(1);
   });
 
   it('needs a trace with speeds', () => {

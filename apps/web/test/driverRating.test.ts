@@ -45,7 +45,8 @@ describe('driver rating', () => {
     session('c', 'road', 0, [timed(base, 60_000)]),
   ];
   const ref = timed(lap(1, 18), 57_000);
-  const board: RoadBoard = { circuitId: 'road', name: 'Road', lengthM: base.distanceM, othersMs: [57_000, 63_000, 66_000, 70_000], ref: { uid: 'p1', nickname: 'Fast', lap: ref } };
+  const slowRival = timed(lap(1, 12), 63_000);
+  const board: RoadBoard = { circuitId: 'road', name: 'Road', lengthM: base.distanceM, othersMs: [57_000, 63_000, 66_000, 70_000], rivals: [{ uid: 'p1', nickname: 'Fast', lap: ref }, { uid: 'p2', nickname: 'Slow', lap: slowRival }] };
   const r = driverRating(sessions, [board])!;
 
   it('rates pace against the record and position in the field', () => {
@@ -56,13 +57,16 @@ describe('driver rating', () => {
     expect(r.provisional).toBe(true);
   });
 
-  it('compares skills with the fastest driver', () => {
-    // The fastest driver carries more speed through the same (slow) corners; both laps are
-    // measured on them.
-    expect(r.skills.slowCorners!.value).toBeLessThan(-1);
-    expect(r.skills.slowCorners!.score).toBeLessThan(100);
+  it('compares the same corners with the other drivers', () => {
+    // On every corner one rival is faster (18 m/s) and one slower (12 m/s) than the driver (14).
+    expect(r.skills.slowCorners!.score).toBeCloseTo(50, 5);
+    expect(r.skills.slowCorners!.count).toBe(2);
+    // The others' median (smoothed apexes) is a little faster than the driver.
+    expect(r.skills.slowCorners!.value).toBeLessThan(0);
+    expect(r.skills.slowCorners!.value).toBeGreaterThan(-2);
     expect(r.skills.fastCorners).toBeNull();
-    expect(r.skills.topSpeed!.value).toBeCloseTo(0, 5);
+    // Same top speed as both rivals: half of them beaten on a tie.
+    expect(r.skills.topSpeed!.score).toBeCloseTo(50, 5);
     expect(r.skills.consistency).not.toBeNull();
     expect(r.losses.length).toBeGreaterThan(0);
     expect(r.losses[0].refName).toBe('Fast');
