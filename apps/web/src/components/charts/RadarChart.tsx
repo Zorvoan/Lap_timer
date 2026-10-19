@@ -5,6 +5,7 @@
  * hovering near an axis lights it and shows every series' value there.
  */
 import { useEffect, useRef, useState } from 'react';
+import { useSeen } from '../../hooks/useSeen';
 
 export interface RadarMetric {
   key: string;
@@ -35,12 +36,12 @@ const easeBack = (t: number) => {
   return 1 + (c + 1) * Math.pow(t - 1, 3) + c * Math.pow(t - 1, 2);
 };
 
-/** Milliseconds since mount, ticking until every entrance has finished. */
-function useEnterClock(total: number): number {
+/** Milliseconds since `start` turned true, ticking until every entrance has finished. */
+function useEnterClock(total: number, start: boolean): number {
   const reduce = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
   const [ms, setMs] = useState(reduce ? total : 0);
   useEffect(() => {
-    if (reduce) return;
+    if (reduce || !start) return;
     const t0 = performance.now();
     let raf = requestAnimationFrame(function tick(now) {
       const e = now - t0;
@@ -48,7 +49,7 @@ function useEnterClock(total: number): number {
       if (e < total) raf = requestAnimationFrame(tick);
     });
     return () => cancelAnimationFrame(raf);
-  }, [total, reduce]);
+  }, [total, reduce, start]);
   return ms;
 }
 
@@ -74,7 +75,9 @@ export function RadarChart({ metrics, series, ariaLabel }: { metrics: readonly R
 
   const gridStagger = 80;
   const areaStart = LEVELS * gridStagger + 200;
-  const ms = useEnterClock(areaStart + series.length * 150 + ENTER_MS);
+  // The web and the areas grow once the user scrolls to the chart.
+  const seen = useSeen(box);
+  const ms = useEnterClock(areaStart + series.length * 150 + ENTER_MS, seen);
 
   const n = metrics.length;
   const r = Math.max(0, size / 2 - 70);

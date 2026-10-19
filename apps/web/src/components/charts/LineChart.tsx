@@ -8,6 +8,7 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { area as d3area, curveMonotoneX, line as d3line } from 'd3-shape';
 import { scaleLinear } from 'd3-scale';
+import { useSeen } from '../../hooks/useSeen';
 
 export interface ChartPoint {
   x: number;
@@ -92,17 +93,17 @@ function bezier(x1: number, y1: number, x2: number, y2: number) {
 }
 
 /**
- * Animates a clip rect's width from 0 to `width` whenever `epoch` changes (new data), and follows
- * `width` directly when the chart is only resized.
+ * Animates a clip rect's width from 0 to `width` whenever `epoch` changes (new data), once the
+ * chart has been scrolled into view, and follows `width` directly when the chart is only resized.
  */
-function useReveal(width: number, epoch: string) {
+function useReveal(width: number, epoch: string, seen: boolean) {
   const rect = useRef<SVGRectElement>(null);
   const done = useRef<string | null>(null);
   const target = useRef(width);
   target.current = width;
   useEffect(() => {
     const el = rect.current;
-    if (!el || width <= 0) return;
+    if (!el || width <= 0 || !seen) return;
     if (done.current === epoch || matchMedia('(prefers-reduced-motion: reduce)').matches) {
       done.current = epoch;
       el.setAttribute('width', String(width));
@@ -119,7 +120,7 @@ function useReveal(width: number, epoch: string) {
       cancelAnimationFrame(raf);
       el.setAttribute('width', String(target.current));
     };
-  }, [width, epoch]);
+  }, [width, epoch, seen]);
   return rect;
 }
 
@@ -237,6 +238,8 @@ export function LineChart({
 }: LineChartProps) {
   const uid = useId().replace(/:/g, '');
   const [box, { w, h }] = useSize<HTMLDivElement>();
+  // Nothing plays until the user scrolls to the chart.
+  const seen = useSeen(box);
   const [hoverX, setHoverX] = useState<number | null>(null);
   // Legend: the series under the finger (or tapped on a phone) is lifted, the rest fade.
   const [focus, setFocus] = useState<number | null>(null);
@@ -314,7 +317,7 @@ export function LineChart({
 
   // A new set of lines plays the reveal again; a resize only stretches it.
   const epoch = series.map((s) => `${s.id}:${s.points.length}:${s.points[0]?.x ?? ''}:${s.points[s.points.length - 1]?.y ?? ''}`).join('|');
-  const revealRect = useReveal(iw + 8, epoch);
+  const revealRect = useReveal(iw + 8, epoch, seen);
   const faded = (i: number) => focus !== null && focus !== i;
 
   function toX(e: React.PointerEvent | React.MouseEvent): number {
@@ -399,6 +402,7 @@ export function LineChart({
               </g>
             ))}
             {!compact &&
+              seen &&
               markers.map((mk, i) => (
                 <g key={i} className="chart-fade" style={{ animationDelay: `${500 + i * 80}ms` }}>
                   <title>{mk.title ?? mk.label}</title>
