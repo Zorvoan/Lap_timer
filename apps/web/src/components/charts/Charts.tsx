@@ -4,8 +4,6 @@ import {
   formatDelta,
   formatLapTime,
   speedLabel,
-  traceGaps,
-  TRACE_GAP_MS,
   type AlignedRow,
   type DistanceUnit,
   type ElevationPoint,
@@ -112,34 +110,6 @@ export function SpeedDistanceChart({
       yMin={0}
       tooltipTitle={distTitle(distanceUnit)}
       pillLabel={distTitle(distanceUnit, 2)}
-    />
-  );
-}
-
-export function SpeedTimeChart({ laps, speedUnit, colors }: { laps: LapRecord[]; speedUnit: SpeedUnit; colors: string[] }) {
-  const unit = speedLabel(speedUnit);
-  // A null point inside each signal gap breaks the line there rather than drawing a straight one across.
-  const series = laps.map((l, i) => {
-    const points: ChartPoint[] = [];
-    for (const p of l.trace) {
-      if (p.v === null) continue;
-      const prev = points[points.length - 1];
-      if (prev && p.t / 1000 - prev.x > TRACE_GAP_MS / 1000) points.push({ x: (prev.x + p.t / 1000) / 2, y: null });
-      points.push({ x: p.t / 1000, y: convertSpeed(p.v, speedUnit) });
-    }
-    return { id: String(l.lap), label: `Lap ${l.lap}`, color: colors[i], points, width: 1.75, format: (v: number) => `${v.toFixed(1)} ${unit}` };
-  });
-  const gaps = laps.flatMap((l) => traceGaps(l.trace).map((g) => ({ from: g.fromT / 1000, to: g.toT / 1000 })));
-  return (
-    <LineChart
-      ariaLabel={`Speed by time, ${unit}`}
-      series={series}
-      bands={noGps(gaps)}
-      xFormat={(t) => `${Math.round(t)} s`}
-      yFormat={(v) => String(Math.round(v))}
-      yMin={0}
-      tooltipTitle={(t) => `${t.toFixed(1)} s`}
-      pillLabel={(t) => `${t.toFixed(1)} s`}
     />
   );
 }
