@@ -78,13 +78,16 @@ export function Sessions() {
   );
 }
 
-/** One row per lap: road, when, time; the best on each road is marked, invalid ones say so. */
+/**
+ * One row per lap: road, when, time; the best on each road is marked, invalid ones say so. Tapping
+ * one opens all your laps on that road with this one picked as lap A.
+ */
 export function LapRows({ rows }: { rows: readonly LapRow[] }) {
   return (
     <ul className="divide-y divide-line">
       {rows.map(({ session, lap, best }) => (
         <li key={`${session.id}#${lap.lap}`}>
-          <Link to={`/sessions/${session.id}`} className="flex items-center gap-3 px-4 py-3 hover:bg-raised active:bg-raised">
+          <Link to={`/tracks/${session.circuitId}?session=${encodeURIComponent(session.id)}&lap=${lap.lap}`} className="flex items-center gap-3 px-4 py-3 hover:bg-raised active:bg-raised">
             <span className="min-w-0 flex-1">
               <span className="flex items-center gap-2 truncate font-semibold">
                 <span className="truncate">{session.circuitName}</span>

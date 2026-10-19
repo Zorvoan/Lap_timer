@@ -1,10 +1,10 @@
 /**
- * One small line chart for the whole app, styled after Bklit UI's line chart (MIT,
- * github.com/bklit/bklit-ui): smooth curves that draw themselves in, dashed rows, quiet axis
- * labels, a dashed crosshair with dots and a tooltip that follow the finger, and markers (a
- * dashed line with a round badge) for moments worth pointing at.
+ * One small line chart for the whole app, styled after Bklit UI's charts (MIT,
+ * github.com/bklit/bklit-ui): smooth curves that draw themselves in on a dotted field, and a hover
+ * that glides: a fading crosshair, a haloed dot on every line, a tooltip card that trails behind on
+ * a softer spring, and a pill under the axis whose label rolls as it changes.
  */
-import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { area as d3area, curveMonotoneX, line as d3line } from 'd3-shape';
 import { scaleLinear } from 'd3-scale';
 
@@ -50,6 +50,8 @@ export interface LineChartProps {
   yFormat?: (y: number) => string;
   /** Tooltip heading for an x value; default: xFormat. */
   tooltipTitle?: (x: number, nearest: ChartPoint | null) => ReactNode;
+  /** Text of the pill under the axis while hovering; default: xFormat. */
+  pillLabel?: (x: number) => string;
   yDomain?: [number, number];
   /** Extra room above and below the data, as a share of its range. */
   yPad?: number;
@@ -58,7 +60,7 @@ export interface LineChartProps {
   zeroLine?: boolean;
   markers?: readonly ChartMarker[];
   bands?: readonly ChartBand[];
-  /** No axes, rows or tooltip: a sparkline-like preview. */
+  /** No axes, field or tooltip: a sparkline-like preview. */
   compact?: boolean;
   /** Tapping a point of the first series. */
   onSelect?: (p: ChartPoint) => void;
@@ -67,6 +69,10 @@ export interface LineChartProps {
 
 const MUTED = 'rgb(var(--c-muted))';
 const LINE = 'rgb(var(--c-line))';
+/** Bklit's springs: the crosshair and dots follow tightly, the card trails, the pill in between. */
+const FOLLOW = { stiffness: 300, damping: 30 };
+const CARD = { stiffness: 100, damping: 20 };
+const PILL = { stiffness: 400, damping: 35 };
 
 function useSize<T extends HTMLElement>() {
   const ref = useRef<T>(null);
@@ -81,7 +87,63 @@ function useSize<T extends HTMLElement>() {
   return [ref, size] as const;
 }
 
-/** Index of the point nearest to x among those with a value. */
+function reducedMotion(): boolean {
+  return typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+interface Spring {
+  v: number;
+  vel: number;
+  to: number;
+  k: number;
+  c: number;
+}
+
+/**
+ * Damped springs that write straight to the DOM every frame (no React re-render while gliding).
+ * `set` moves a spring's target; `jump` places it there without animating.
+ */
+function useSprings(apply: (v: Record<string, number>) => void) {
+  const state = useRef<Record<string, Spring>>({});
+  const raf = useRef(0);
+  const applyRef = useRef(apply);
+  applyRef.current = apply;
+  useEffect(() => () => cancelAnimationFrame(raf.current), []);
+  const api = useRef({
+    set(key: string, to: number, cfg: { stiffness: number; damping: number }, jump = false) {
+      const s = state.current[key];
+      if (!s || jump || reducedMotion()) state.current[key] = { v: to, vel: 0, to, k: cfg.stiffness, c: cfg.damping };
+      else s.to = to;
+      if (!raf.current) loop(performance.now());
+    },
+  });
+  function loop(last: number) {
+    raf.current = requestAnimationFrame((now) => {
+      const dt = Math.min(0.032, (now - last) / 1000);
+      let moving = false;
+      const out: Record<string, number> = {};
+      for (const [key, s] of Object.entries(state.current)) {
+        // Semi-implicit Euler in small steps keeps the stiff springs stable.
+        for (let t = 0; t < dt; t += 0.004) {
+          const h = Math.min(0.004, dt - t);
+          s.vel += (-s.k * (s.v - s.to) - s.c * s.vel) * h;
+          s.v += s.vel * h;
+        }
+        if (Math.abs(s.v - s.to) < 0.05 && Math.abs(s.vel) < 0.05) {
+          s.v = s.to;
+          s.vel = 0;
+        } else moving = true;
+        out[key] = s.v;
+      }
+      applyRef.current(out);
+      raf.current = 0;
+      if (moving) loop(now);
+    });
+  }
+  return api.current;
+}
+
+/** The point nearest to x among those with a value. */
 function nearest(points: readonly ChartPoint[], x: number): ChartPoint | null {
   let lo = 0;
   let hi = points.length - 1;
@@ -104,6 +166,7 @@ export function LineChart({
   xFormat = (x) => String(Math.round(x * 10) / 10),
   yFormat = (y) => String(Math.round(y * 10) / 10),
   tooltipTitle,
+  pillLabel,
   yDomain,
   yPad = 0.08,
   integerX = false,
@@ -118,9 +181,7 @@ export function LineChart({
   const [box, { w, h }] = useSize<HTMLDivElement>();
   const [hoverX, setHoverX] = useState<number | null>(null);
 
-  const m = compact
-    ? { top: 2, right: 2, bottom: 2, left: 2 }
-    : { top: markers.length ? 30 : 10, right: 10, bottom: 22, left: 46 };
+  const m = compact ? { top: 2, right: 2, bottom: 2, left: 2 } : { top: markers.length ? 32 : 12, right: 12, bottom: 34, left: 46 };
   const iw = Math.max(0, w - m.left - m.right);
   const ih = Math.max(0, h - m.top - m.bottom);
 
@@ -144,7 +205,7 @@ export function LineChart({
     if (x0 === x1) [x0, x1] = [x0 - 1, x1 + 1];
     const pad = (y1 - y0 || Math.abs(y1) || 1) * yPad;
     // Charts with dots keep them clear of the edges.
-    const inset = series.some((s) => s.dots) ? 12 : 0;
+    const inset = series.some((s) => s.dots) ? 14 : 0;
     const xs = scaleLinear().domain([x0, x1]).range([inset, Math.max(inset, iw - inset)]);
     const ys = scaleLinear()
       .domain(yDomain ?? [y0 - pad, y1 + pad])
@@ -180,14 +241,13 @@ export function LineChart({
   const first = series[0]?.points ?? [];
   const hoverPts = hoverX === null ? [] : series.map((s) => nearest(s.points, hoverX));
   const lead = hoverPts.find(Boolean) ?? null;
-  const hx = lead ? x(lead.x) : 0;
+  const zero = y(0);
 
   function toX(e: React.PointerEvent | React.MouseEvent): number {
     const r = (e.currentTarget as Element).getBoundingClientRect();
     return x.invert(Math.min(iw, Math.max(0, e.clientX - r.left)));
   }
 
-  const zero = y(0);
   return (
     <div ref={box} className="relative h-full w-full select-none" role="img" aria-label={ariaLabel}>
       {w > 0 && h > 0 && (
@@ -197,40 +257,66 @@ export function LineChart({
               s.area === 'split' ? (
                 <linearGradient key={i} id={`${uid}-a${i}`} gradientUnits="userSpaceOnUse" x1="0" y1={0} x2="0" y2={ih}>
                   <stop offset={0} stopColor="rgb(var(--c-loss))" stopOpacity={0.45} />
-                  <stop offset={Math.min(1, Math.max(0, zero / ih))} stopColor="rgb(var(--c-loss))" stopOpacity={0.12} />
-                  <stop offset={Math.min(1, Math.max(0, zero / ih))} stopColor="rgb(var(--c-gain))" stopOpacity={0.12} />
+                  <stop offset={Math.min(1, Math.max(0, zero / ih))} stopColor="rgb(var(--c-loss))" stopOpacity={0.1} />
+                  <stop offset={Math.min(1, Math.max(0, zero / ih))} stopColor="rgb(var(--c-gain))" stopOpacity={0.1} />
                   <stop offset={1} stopColor="rgb(var(--c-gain))" stopOpacity={0.45} />
                 </linearGradient>
               ) : (
                 <linearGradient key={i} id={`${uid}-a${i}`} x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor={s.color} stopOpacity={0.28} />
+                  <stop offset="0%" stopColor={s.color} stopOpacity={0.26} />
                   <stop offset="100%" stopColor={s.color} stopOpacity={0} />
                 </linearGradient>
               ),
             )}
+            {/* The dotted field, fading out towards the sides. */}
+            <pattern id={`${uid}-dots`} width={14} height={14} patternUnits="userSpaceOnUse">
+              <circle cx={1} cy={1} r={1} fill={MUTED} opacity={0.35} />
+            </pattern>
+            <linearGradient id={`${uid}-fadeh`} gradientUnits="userSpaceOnUse" x1={0} x2={iw} y1={0} y2={0}>
+              <stop offset="0%" stopColor="#fff" stopOpacity={0} />
+              <stop offset="10%" stopColor="#fff" stopOpacity={1} />
+              <stop offset="90%" stopColor="#fff" stopOpacity={1} />
+              <stop offset="100%" stopColor="#fff" stopOpacity={0} />
+            </linearGradient>
+            <mask id={`${uid}-fieldmask`}>
+              <rect width={iw} height={ih} fill={`url(#${uid}-fadeh)`} />
+            </mask>
+            {/* Lines soften at the very ends, like Bklit's. */}
+            <linearGradient id={`${uid}-fadel`} gradientUnits="userSpaceOnUse" x1={0} x2={iw} y1={0} y2={0}>
+              <stop offset="0%" stopColor="#fff" stopOpacity={0.2} />
+              <stop offset="4%" stopColor="#fff" stopOpacity={1} />
+              <stop offset="96%" stopColor="#fff" stopOpacity={1} />
+              <stop offset="100%" stopColor="#fff" stopOpacity={0.2} />
+            </linearGradient>
+            <mask id={`${uid}-linemask`}>
+              <rect x={-10} y={-10} width={iw + 20} height={ih + 20} fill={`url(#${uid}-fadel)`} />
+            </mask>
+            <linearGradient id={`${uid}-xh`} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="rgb(var(--c-fg))" stopOpacity={0} />
+              <stop offset="18%" stopColor="rgb(var(--c-fg))" stopOpacity={0.55} />
+              <stop offset="82%" stopColor="rgb(var(--c-fg))" stopOpacity={0.55} />
+              <stop offset="100%" stopColor="rgb(var(--c-fg))" stopOpacity={0} />
+            </linearGradient>
             <clipPath id={`${uid}-clip`}>
-              <rect x={-2} y={-4} width={iw + 4} height={ih + 8} />
+              <rect x={-4} y={-6} width={iw + 8} height={ih + 12} />
             </clipPath>
           </defs>
           <g transform={`translate(${m.left},${m.top})`}>
-            {/* Rows: dashed, quiet. */}
+            {!compact && <rect width={iw} height={ih} fill={`url(#${uid}-dots)`} mask={`url(#${uid}-fieldmask)`} />}
             {yTicks.map((t) => (
-              <g key={t}>
-                <line x1={0} x2={iw} y1={y(t)} y2={y(t)} stroke={LINE} strokeDasharray="4 4" />
-                <text x={-8} y={y(t)} dy="0.32em" textAnchor="end" fontSize={11} fill={MUTED} className="tabular">
-                  {yFormat(t)}
-                </text>
-              </g>
+              <text key={t} x={-10} y={y(t)} dy="0.32em" textAnchor="end" fontSize={11} fill={MUTED} className="tabular">
+                {yFormat(t)}
+              </text>
             ))}
             {xTicks.map((t) => (
-              <text key={t} x={x(t)} y={ih + 16} textAnchor="middle" fontSize={11} fill={MUTED} className="tabular">
+              <text key={t} x={x(t)} y={ih + 20} textAnchor="middle" fontSize={11} fill={MUTED} className="tabular" style={{ opacity: lead ? 0.2 : 1, transition: 'opacity 150ms ease' }}>
                 {xFormat(t)}
               </text>
             ))}
-            {zeroLine && <line x1={0} x2={iw} y1={zero} y2={zero} stroke={MUTED} strokeOpacity={0.7} />}
+            {zeroLine && <line x1={0} x2={iw} y1={zero} y2={zero} stroke={MUTED} strokeOpacity={0.6} strokeDasharray="3 4" />}
             {bands.map((b, i) => (
               <g key={i}>
-                <rect x={x(b.from)} width={Math.max(1, x(b.to) - x(b.from))} y={0} height={ih} fill={MUTED} opacity={0.12} />
+                <rect x={x(b.from)} width={Math.max(1, x(b.to) - x(b.from))} y={0} height={ih} fill={MUTED} opacity={0.12} rx={3} />
                 {b.label && !compact && (
                   <text x={(x(b.from) + x(b.to)) / 2} y={10} textAnchor="middle" fontSize={10} fill={MUTED}>
                     {b.label}
@@ -238,19 +324,18 @@ export function LineChart({
                 )}
               </g>
             ))}
-            {/* Markers: a dashed line with a round badge on top. */}
             {!compact &&
               markers.map((mk, i) => (
                 <g key={i} className="chart-fade" style={{ animationDelay: `${500 + i * 80}ms` }}>
                   <title>{mk.title ?? mk.label}</title>
-                  <line x1={x(mk.x)} x2={x(mk.x)} y1={-6} y2={ih} stroke={MUTED} strokeOpacity={0.6} strokeDasharray="4 4" />
-                  <circle cx={x(mk.x)} cy={-17} r={11} fill="rgb(var(--c-raised))" stroke={mk.color ?? LINE} strokeWidth={1.5} />
-                  <text x={x(mk.x)} y={-17} dy="0.35em" textAnchor="middle" fontSize={mk.label.length > 1 ? 9 : 11} fontWeight={800} fill={mk.color ?? 'rgb(var(--c-fg))'}>
+                  <line x1={x(mk.x)} x2={x(mk.x)} y1={-6} y2={ih} stroke={MUTED} strokeOpacity={0.5} strokeDasharray="3 4" />
+                  <circle cx={x(mk.x)} cy={-18} r={11} fill="rgb(var(--c-raised))" stroke={mk.color ?? LINE} strokeWidth={1.5} />
+                  <text x={x(mk.x)} y={-18} dy="0.35em" textAnchor="middle" fontSize={mk.label.length > 1 ? 9 : 11} fontWeight={800} fill={mk.color ?? 'rgb(var(--c-fg))'}>
                     {mk.label}
                   </text>
                 </g>
               ))}
-            <g clipPath={`url(#${uid}-clip)`}>
+            <g clipPath={`url(#${uid}-clip)`} mask={compact ? undefined : `url(#${uid}-linemask)`}>
               {series.map((_s, i) =>
                 paths[i].area ? <path key={`a${i}`} d={paths[i].area!} fill={`url(#${uid}-a${i})`} className="chart-fade" style={{ animationDelay: '250ms' }} /> : null,
               )}
@@ -276,27 +361,18 @@ export function LineChart({
                           key={`d${i}-${k}`}
                           cx={x(p.x)}
                           cy={y(p.y)}
-                          r={hoverX !== null && lead?.x === p.x ? 5.5 : 4}
+                          r={3.5}
                           fill={typeof s.dots === 'function' ? s.dots(p) : s.color}
                           stroke="rgb(var(--c-panel))"
                           strokeWidth={2}
                           className="chart-fade"
-                          style={{ animationDelay: `${300 + k * 25}ms`, transition: 'r 120ms ease' }}
+                          style={{ animationDelay: `${300 + k * 25}ms` }}
                         />
                       ),
                     )
                   : null,
               )}
             </g>
-            {/* Crosshair: dashed line and a dot on every series where the finger is. */}
-            {!compact && lead && (
-              <g pointerEvents="none">
-                <line x1={hx} x2={hx} y1={0} y2={ih} stroke="rgb(var(--c-fg))" strokeOpacity={0.45} strokeDasharray="4 4" />
-                {hoverPts.map((p, i) =>
-                  p && p.y !== null && !series[i].dots ? <circle key={i} cx={x(p.x)} cy={y(p.y)} r={4.5} fill={series[i].color} stroke="rgb(var(--c-panel))" strokeWidth={2} /> : null,
-                )}
-              </g>
-            )}
             {!compact && (
               <rect
                 width={iw}
@@ -315,28 +391,149 @@ export function LineChart({
           </g>
         </svg>
       )}
-      {!compact && lead && (
-        <div
-          className="pointer-events-none absolute top-0 z-10 min-w-[7.5rem] rounded-lg border border-line bg-panel/95 px-2.5 py-2 text-xs shadow-xl backdrop-blur-sm"
-          style={{
-            transform: `translate(${hx + m.left > w / 2 ? hx + m.left - 12 : hx + m.left + 12}px, ${m.top}px) translateX(${hx + m.left > w / 2 ? '-100%' : '0'})`,
-            transition: 'transform 90ms cubic-bezier(0.22, 1, 0.36, 1)',
-          }}
-        >
-          <div className="mb-1 font-semibold text-muted">{tooltipTitle ? tooltipTitle(lead.x, lead) : xFormat(lead.x)}</div>
+      {!compact && w > 0 && (
+        <Hover
+          uid={uid}
+          series={series}
+          points={hoverPts}
+          lead={lead}
+          px={x}
+          py={y}
+          left={m.left}
+          top={m.top}
+          iw={iw}
+          ih={ih}
+          title={lead ? (tooltipTitle ? tooltipTitle(lead.x, lead) : xFormat(lead.x)) : null}
+          pill={lead ? (pillLabel ?? xFormat)(lead.x) : ''}
+          yFormat={yFormat}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * The hover layer: crosshair, haloed dots, the trailing tooltip card and the axis pill. Positions
+ * run on springs written straight to the DOM, so everything glides from point to point.
+ */
+function Hover({
+  uid,
+  series,
+  points,
+  lead,
+  px,
+  py,
+  left,
+  top,
+  iw,
+  ih,
+  title,
+  pill,
+  yFormat,
+}: {
+  uid: string;
+  series: readonly ChartSeries[];
+  points: (ChartPoint | null)[];
+  lead: ChartPoint | null;
+  px: (x: number) => number;
+  py: (y: number) => number;
+  left: number;
+  top: number;
+  iw: number;
+  ih: number;
+  title: ReactNode;
+  pill: string;
+  yFormat: (y: number) => string;
+}) {
+  const cross = useRef<SVGGElement>(null);
+  const dots = useRef<(SVGGElement | null)[]>([]);
+  const card = useRef<HTMLDivElement>(null);
+  const pillEl = useRef<HTMLDivElement>(null);
+  const shown = useRef(false);
+  const springs = useSprings((v) => {
+    if (cross.current && v.x !== undefined) cross.current.setAttribute('transform', `translate(${v.x},0)`);
+    dots.current.forEach((d, i) => {
+      if (d && v[`y${i}`] !== undefined && v[`x${i}`] !== undefined) d.setAttribute('transform', `translate(${v[`x${i}`]},${v[`y${i}`]})`);
+    });
+    if (card.current && v.card !== undefined) card.current.style.transform = `translate(${v.card}px, ${top + 6}px)`;
+    if (pillEl.current && v.pill !== undefined) pillEl.current.style.transform = `translate(${v.pill}px, ${top + ih + 8}px) translateX(-50%)`;
+  });
+
+  const visible = lead !== null;
+  const hx = lead ? px(lead.x) : 0;
+  useLayoutEffect(() => {
+    if (!lead) {
+      shown.current = false;
+      return;
+    }
+    const jump = !shown.current;
+    shown.current = true;
+    springs.set('x', hx, FOLLOW, jump);
+    points.forEach((p, i) => {
+      if (!p || p.y === null) return;
+      springs.set(`x${i}`, px(p.x), FOLLOW, jump);
+      springs.set(`y${i}`, py(p.y), FOLLOW, jump);
+    });
+    // The card sits beside the crosshair, on whichever side has room; switching sides glides.
+    const cw = card.current?.offsetWidth ?? 160;
+    const right = hx + left + 20;
+    const cardX = right + cw <= left + iw + 8 ? right : hx + left - 20 - cw;
+    springs.set('card', Math.max(0, cardX), CARD, jump);
+    springs.set('pill', Math.min(left + iw, Math.max(left, hx + left)), PILL, jump);
+  });
+
+  return (
+    <>
+      <svg className="pointer-events-none absolute inset-0 h-full w-full overflow-visible" aria-hidden="true">
+        <g transform={`translate(${left},${top})`} style={{ opacity: visible ? 1 : 0, transition: 'opacity 160ms ease' }}>
+          <g ref={cross}>
+            <rect x={-0.75} width={1.5} y={0} height={ih} fill={`url(#${uid}-xh)`} />
+          </g>
           {series.map((s, i) => {
-            const p = hoverPts[i];
+            const p = points[i];
+            const on = !!p && p.y !== null;
+            const color = typeof s.dots === 'function' && p ? s.dots(p) : s.color;
+            return (
+              <g key={s.id} ref={(el) => (dots.current[i] = el)} style={{ opacity: on ? 1 : 0, transition: 'opacity 120ms ease' }}>
+                <circle r={13} fill={color} opacity={0.3} className={on ? 'chart-halo' : ''} />
+                <circle r={5} fill={color} stroke="rgb(var(--c-panel))" strokeWidth={1.5} className={on ? 'chart-halo' : ''} />
+              </g>
+            );
+          })}
+        </g>
+      </svg>
+      <div
+        ref={card}
+        className="pointer-events-none absolute left-0 top-0 z-10 min-w-[10rem] overflow-hidden rounded-xl border border-line bg-panel/90 text-sm shadow-xl backdrop-blur-md"
+        style={{ opacity: visible ? 1 : 0, transition: 'opacity 160ms ease' }}
+      >
+        <div className="border-b border-line px-3.5 py-2 font-medium">{title}</div>
+        <div className="space-y-1.5 px-3.5 py-2.5">
+          {series.map((s, i) => {
+            const p = points[i];
             if (!p || p.y === null) return null;
             return (
-              <div key={s.id} className="flex items-center gap-2 whitespace-nowrap">
-                <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: typeof s.dots === 'function' ? s.dots(p) : s.color }} />
-                {series.length > 1 && <span className="text-muted">{s.label}</span>}
-                <span className="ml-auto font-mono font-semibold tabular text-fg">{(s.format ?? yFormat)(p.y)}</span>
+              <div key={s.id} className="flex items-center justify-between gap-6 whitespace-nowrap">
+                <span className="flex min-w-0 items-center gap-2">
+                  <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: typeof s.dots === 'function' ? s.dots(p) : s.color }} />
+                  <span className="truncate text-muted">{s.label}</span>
+                </span>
+                <span className="font-mono font-semibold tabular">{(s.format ?? yFormat)(p.y)}</span>
               </div>
             );
           })}
         </div>
-      )}
-    </div>
+      </div>
+      <div
+        ref={pillEl}
+        className="pointer-events-none absolute left-0 top-0 z-10 overflow-hidden rounded-full bg-fg px-3 py-0.5 text-xs font-semibold text-bg shadow-lg"
+        style={{ opacity: visible ? 1 : 0, transition: 'opacity 160ms ease' }}
+      >
+        {/* The label rolls up when it changes. */}
+        <span key={pill} className="chart-roll block whitespace-nowrap tabular">
+          {pill}
+        </span>
+      </div>
+    </>
   );
 }

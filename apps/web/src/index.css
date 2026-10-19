@@ -292,6 +292,11 @@ select {
 /* Charts: lines draw themselves in once, fills and dots fade in after them. */
 .chart-draw { stroke-dasharray: 1; stroke-dashoffset: 1; animation: lt-tour-draw 900ms var(--ease-expo) forwards; }
 .chart-fade { animation: lt-fade-in 400ms var(--ease-enter) backwards; }
+/* Hover: the dot and its halo spring in; the axis pill's label rolls up to the new value. */
+.chart-halo { transform-box: fill-box; transform-origin: center; animation: lt-chart-pop 380ms var(--ease-overshoot) backwards; }
+.chart-roll { animation: lt-chart-roll 220ms var(--ease-enter) backwards; }
+@keyframes lt-chart-pop { from { transform: scale(0); } }
+@keyframes lt-chart-roll { from { opacity: 0; transform: translateY(70%); } }
 
 /* Reduced motion: nothing travels or scales; things still fade so state changes stay visible. */
 @media (prefers-reduced-motion: reduce) {
@@ -311,6 +316,7 @@ select {
   .tour-spot::after { animation: none; opacity: 0.9; }
   .tour-dot { transition: none; }
   .chart-draw { animation: lt-fade-in 300ms ease backwards; stroke-dasharray: none; stroke-dashoffset: 0; }
+  .chart-halo, .chart-roll { animation: none; }
   /* Pressing does not shrink; looping pulses stop. Colour fades stay. */
   .press:active:not(:disabled) { transform: none; }
   .animate-pulse { animation: none; }

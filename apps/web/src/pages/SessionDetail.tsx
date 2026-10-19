@@ -108,7 +108,6 @@ function SessionView({ session, circuit, onDeleted, speedUnit, distanceUnit }: {
         <div className="grid grid-cols-2 gap-4 rounded border border-line bg-panel p-4 sm:grid-cols-3 lg:grid-cols-6">
           <Stat label="Fastest lap" value={formatLapTime(best?.timeMs)} hint={best ? `Lap ${num(best.lap)}` : undefined} />
           <Stat label="Laps" value={summary.laps} hint={`${summary.validLaps} valid`} />
-          <Stat label="Average (valid)" value={formatLapTime(summary.averageValidLapMs)} />
           <Stat
             label="Theoretical best"
             value={formatLapTime(theoretical?.timeMs)}

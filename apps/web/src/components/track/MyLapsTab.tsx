@@ -28,6 +28,9 @@ export function MyLapsTab({ circuit, sessions }: { circuit: Circuit; sessions: S
   const { settings } = useSettings();
   const [params] = useSearchParams();
   const focusSession = params.get('session');
+  // `?session=<id>&lap=<n>`: that lap is lap A (shown even if it did not count).
+  const focusKey = focusSession && params.get('lap') ? lapKey(focusSession, Number(params.get('lap'))) : null;
+  const focusInvalid = !!focusKey && sessions.some((s) => s.laps.some((l) => lapKey(s.id, l.lap) === focusKey && !l.valid));
 
   const hasSim = sessions.some((s) => s.source === 'simulated' && s.laps.length);
   const hasReal = sessions.some((s) => s.source === 'gps' && s.laps.length);
@@ -35,7 +38,7 @@ export function MyLapsTab({ circuit, sessions }: { circuit: Circuit; sessions: S
   // arriving from a simulated session (so the laps just driven are visible).
   const focusIsSim = sessions.some((s) => s.id === focusSession && s.source === 'simulated');
   const [showSim, setShowSim] = useState(settings.includeSimulatedInBests || !hasReal || focusIsSim);
-  const [validOnly, setValidOnly] = useState(true);
+  const [validOnly, setValidOnly] = useState(!focusInvalid);
   const [sortBy, setSortBy] = useState<'time' | 'date'>('time');
 
   const all: Entry[] = useMemo(() => {
@@ -57,7 +60,7 @@ export function MyLapsTab({ circuit, sessions }: { circuit: Circuit; sessions: S
   const [keyB, setKeyB] = useState<string | null>(null);
   useEffect(() => {
     if (keyA !== null || !visible.length) return;
-    const fromSession = focusSession ? byTime.find((e) => e.session.id === focusSession) : undefined;
+    const fromSession = (focusKey ? byTime.find((e) => e.key === focusKey) : undefined) ?? (focusSession ? byTime.find((e) => e.session.id === focusSession) : undefined);
     const a = fromSession ?? best ?? byTime[0];
     // B: the personal best; if A already is the PB, the best lap of the most recent other session.
     const otherSessions = chronological.filter((e) => e.session.id !== a.session.id);
@@ -66,7 +69,7 @@ export function MyLapsTab({ circuit, sessions }: { circuit: Circuit; sessions: S
     const b = a.key !== best?.key && best ? best : bestOfLastOther ?? chronological.filter((e) => e.key !== a.key).at(-1);
     setKeyA(a.key);
     setKeyB(b?.key ?? null);
-  }, [visible, byTime, chronological, best, focusSession, keyA]);
+  }, [visible, byTime, chronological, best, focusSession, focusKey, keyA]);
 
   const A = all.find((e) => e.key === keyA) ?? null;
   const B = all.find((e) => e.key === keyB && e.key !== keyA) ?? null;
