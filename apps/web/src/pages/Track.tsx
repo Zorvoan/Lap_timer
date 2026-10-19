@@ -129,7 +129,7 @@ export function Track() {
         {!featured && data?.circuit && acc.status === 'signed_in' && acc.profile && (
           <div className="mt-4 rounded-lg border border-[#d08a4e]/50 bg-[#d08a4e]/10 p-4">
             <h2 className="font-display text-lg font-black leading-tight">Share this road</h2>
-            <p className="mt-1 text-sm text-muted">Make it public: everyone sees it on the map and races it on its own leaderboard. Once public it can&apos;t be edited; unpublish it to change it.</p>
+            <p className="mt-1 text-sm text-muted">Make it public so everyone can race it. Public roads can&apos;t be edited.</p>
             {/* Big and in the road's colour for public roads: the one thing to do here after Drive. */}
             <button
               type="button"
@@ -167,7 +167,7 @@ export function Track() {
 
         {mine && (
           <div className="mt-8 border-t border-line pt-4">
-            <p className="text-sm text-muted">Everyone can see and race this road. It can&apos;t be edited while it is public, so all drivers are timed on the same lines.</p>
+            <p className="text-sm text-muted">Everyone can race this road. Unpublish it to edit.</p>
             <ConfirmButton size="sm" className="mt-3" disabled={shareBusy} onConfirm={unpublish} confirmLabel="Tap again: unpublish and delete its leaderboard">
               {shareBusy ? 'Unpublishing…' : 'Unpublish'}
             </ConfirmButton>

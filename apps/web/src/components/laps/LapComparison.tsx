@@ -162,7 +162,7 @@ export function ComparisonCharts({
           {A && B ? (
             <DeltaDistanceChart rows={rows} distanceUnit={distanceUnit} gaps={gaps} onHover={setChartDistance} />
           ) : (
-            <p className="text-sm text-muted">Select a lap B to see where lap A gained (green, below zero) or lost (red) time. Laps are aligned by distance along the circuit.</p>
+            <p className="text-sm text-muted">Pick a lap B.</p>
           )}
         </div>
       </Panel>
@@ -249,8 +249,7 @@ function StylePanel({ A, B, labelA, labelB, speedUnit }: { A: LapRecord; B: LapR
         </table>
       </div>
       <p className="mt-3 text-xs text-muted">
-        Corner speed is the average of the slowest points through the corners ({sa.corners} found on A, {sb.corners} on B). Acceleration and braking are averages while speeding up and slowing
-        down, in g. Further out is better; each axis is scaled to these two laps.
+        Further out is better. Acceleration and braking in g.
       </p>
     </Panel>
   );
