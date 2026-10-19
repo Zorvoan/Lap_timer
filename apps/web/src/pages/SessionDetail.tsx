@@ -186,7 +186,7 @@ function SessionView({ session, circuit, onDeleted, speedUnit, distanceUnit }: {
                   <LapTimesChart laps={session.laps} bestLap={best?.lap ?? null} onSelect={setLapA} lapLabel={num} />
                 </div>
               </Panel>
-              <ComparisonCharts A={A} B={B} labelA={A ? `lap ${num(A.lap)}` : '—'} labelB={B ? `lap ${num(B.lap)}` : null} rows={rows} speedUnit={speedUnit} distanceUnit={distanceUnit} />
+              <ComparisonCharts A={A} B={B} labelA={A ? `lap ${num(A.lap)}` : '—'} labelB={B ? `lap ${num(B.lap)}` : null} rows={rows} speedUnit={speedUnit} distanceUnit={distanceUnit} circuit={circuit} />
             </div>
 
             {A && <ReplayPanel circuit={circuit} lapA={A} lapB={B} labelA={`lap ${num(A.lap)}`} labelB={B ? `lap ${num(B.lap)}` : null} rows={rows} lengthM={lengthM} speedUnit={speedUnit} />}
