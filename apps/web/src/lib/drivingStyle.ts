@@ -18,8 +18,8 @@ export interface DrivingStyle {
 const CORNER_DIP_MS = 2.5;
 /** …and is the slowest point within this distance either side. */
 const CORNER_SPAN_M = 120;
-/** Corners taken at 60 km/h or more count as fast, slower ones (hairpins, junctions) as slow. */
-export const FAST_CORNER_MS = 60 / 3.6;
+/** Corners taken at 80 km/h or more count as fast, slower ones as slow. */
+export const FAST_CORNER_MS = 80 / 3.6;
 
 function smooth(pts: LapTracePoint[]): number[] {
   return pts.map((_, i) => {
