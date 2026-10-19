@@ -84,6 +84,7 @@ export function SpeedDistanceChart({
   labelA,
   labelB,
   gaps = [],
+  onHover,
 }: {
   rows: AlignedRow[];
   speedUnit: SpeedUnit;
@@ -92,6 +93,8 @@ export function SpeedDistanceChart({
   labelB: string | null;
   /** Distances without GPS fixes; the lines break there instead of bridging them. */
   gaps?: ChartGap[];
+  /** Distance under the finger as it moves. */
+  onHover?: (d: number | null) => void;
 }) {
   const unit = speedLabel(speedUnit);
   const fmt = (v: number) => `${v.toFixed(1)} ${unit}`;
@@ -110,12 +113,23 @@ export function SpeedDistanceChart({
       yMin={0}
       tooltipTitle={distTitle(distanceUnit)}
       pillLabel={distTitle(distanceUnit, 2)}
+      onHover={onHover}
     />
   );
 }
 
 /** Delta of lap A relative to lap B by distance. Below zero (green) = A ahead. */
-export function DeltaDistanceChart({ rows, distanceUnit, gaps = [] }: { rows: AlignedRow[]; distanceUnit: DistanceUnit; gaps?: ChartGap[] }) {
+export function DeltaDistanceChart({
+  rows,
+  distanceUnit,
+  gaps = [],
+  onHover,
+}: {
+  rows: AlignedRow[];
+  distanceUnit: DistanceUnit;
+  gaps?: ChartGap[];
+  onHover?: (d: number | null) => void;
+}) {
   const points = rows.map((r) => ({ x: r.d, y: r.deltaMs / 1000 }));
   return (
     <LineChart
@@ -127,6 +141,7 @@ export function DeltaDistanceChart({ rows, distanceUnit, gaps = [] }: { rows: Al
       yFormat={(v) => formatDelta(v * 1000, 1)}
       tooltipTitle={distTitle(distanceUnit)}
       pillLabel={distTitle(distanceUnit, 2)}
+      onHover={onHover}
     />
   );
 }

@@ -66,6 +66,8 @@ export interface LineChartProps {
   compact?: boolean;
   /** Tapping a point of the first series. */
   onSelect?: (p: ChartPoint) => void;
+  /** The x under the finger or pointer as it moves; null when it leaves. */
+  onHover?: (x: number | null) => void;
   ariaLabel: string;
 }
 
@@ -178,11 +180,15 @@ export function LineChart({
   bands = [],
   compact = false,
   onSelect,
+  onHover,
   ariaLabel,
 }: LineChartProps) {
   const uid = useId().replace(/:/g, '');
   const [box, { w, h }] = useSize<HTMLDivElement>();
   const [hoverX, setHoverX] = useState<number | null>(null);
+  const hoverCb = useRef(onHover);
+  hoverCb.current = onHover;
+  useEffect(() => hoverCb.current?.(hoverX), [hoverX]);
 
   // On a phone the tooltip gets its own strip above the plot instead of covering the lines.
   // (Short charts, e.g. the editor's elevation strip, keep the floating card: no room for a strip.)
