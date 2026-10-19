@@ -295,9 +295,6 @@ select {
 .chart-roll { animation: lt-chart-roll 220ms var(--ease-enter) backwards; }
 @keyframes lt-chart-pop { from { transform: scale(0); } }
 @keyframes lt-chart-roll { from { opacity: 0; transform: translateY(70%); } }
-/* Me: the rating gauge sweeps to the score, the skill bars grow to theirs. */
-.gauge-fill { transition: stroke-dashoffset 1400ms cubic-bezier(0.85, 0, 0.15, 1) 100ms; }
-.gauge-bar { transition: width 1000ms cubic-bezier(0.22, 1, 0.36, 1) 250ms; }
 /* Rolling digits: each column springs to its new digit, a touch past it and back. */
 .roll-col { transition: transform 750ms cubic-bezier(0.3, 1.35, 0.5, 1); }
 /* Loading charts: a pulse runs along a placeholder line, light sweeps the field, the label shimmers. */
@@ -333,7 +330,6 @@ select {
   .tour-spot::after { animation: none; opacity: 0.9; }
   .tour-dot { transition: none; }
   .roll-col { transition: none; }
-  .gauge-fill, .gauge-bar { transition: none; }
   .chart-pulse, .chart-sweep, .shimmer-text { animation: none; }
   .shimmer-text { color: rgb(var(--c-muted)); background: none; }
   .chart-halo, .chart-roll { animation: none; }

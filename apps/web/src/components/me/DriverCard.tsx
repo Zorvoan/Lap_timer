@@ -3,7 +3,7 @@
  * fastest driver on the same roads, where time is lost, progress, totals and the rating drive by
  * drive.
  */
-import { useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { convertDistance, convertSpeed, speedLabel, type DistanceUnit, type SpeedUnit } from '@laptimer/core';
 import { LineChart } from '../charts/LineChart';
@@ -38,13 +38,39 @@ function Change({ value }: { value: number | null }) {
   );
 }
 
-/** A half-circle gauge whose arc fills to the score once it is scrolled into view. */
+/**
+ * Counts from 0 (or the last value) up to `target` once `run` is true, slow at the end. The number
+ * and its arc or bar read the same value, so they arrive together.
+ */
+function useCountUp(target: number | null, run: boolean, ms = 1400): number {
+  const [value, setValue] = useState(0);
+  const current = useRef(0);
+  useEffect(() => {
+    if (!run || target === null) return;
+    if (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      current.current = target;
+      setValue(target);
+      return;
+    }
+    const from = current.current;
+    const t0 = performance.now();
+    let raf = requestAnimationFrame(function tick(now) {
+      const k = Math.min(1, (now - t0) / ms);
+      const v = from + (target - from) * (1 - (1 - k) ** 4);
+      current.current = v;
+      setValue(v);
+      if (k < 1) raf = requestAnimationFrame(tick);
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [target, run, ms]);
+  return value;
+}
+
+/** A half-circle gauge filled to `score` (0–100). */
 function Gauge({ score }: { score: number }) {
-  const ref = useRef<SVGSVGElement>(null);
-  const seen = useSeen(ref);
   const arc = 'M -90 0 A 90 90 0 0 1 90 0';
   return (
-    <svg ref={ref} viewBox="-104 -100 208 108" className="block w-full overflow-visible" aria-hidden="true">
+    <svg viewBox="-104 -100 208 108" className="block w-full overflow-visible" aria-hidden="true">
       <defs>
         <linearGradient id="gauge-fill" x1="0" x2="1" y1="0" y2="0">
           <stop offset="0%" stopColor="#7a0f0b" />
@@ -61,8 +87,7 @@ function Gauge({ score }: { score: number }) {
           strokeWidth={14}
           strokeLinecap="round"
           strokeDasharray="1 1"
-          strokeDashoffset={seen ? 1 - score / 100 : 1}
-          className="gauge-fill"
+          strokeDashoffset={1 - score / 100}
           style={{ filter: 'drop-shadow(0 0 8px rgb(var(--c-accent) / 0.45))' }}
         />
       )}
@@ -77,11 +102,14 @@ export function DriverCard({ rating, speedUnit, distanceUnit }: { rating: Driver
   const strongest = scored.reduce<(typeof scored)[number] | null>((b, s) => (s.skill && (!b?.skill || s.skill.score > b.skill.score) ? s : b), null);
   const top = rating.topShare !== null ? Math.max(1, Math.ceil((rating.topShare * 100) / 5) * 5) : null;
   const overall = rating.overall === null ? null : Math.round(rating.overall);
+  const card = useRef<HTMLElement>(null);
+  const seen = useSeen(card);
+  const shown = useCountUp(overall, seen);
   const dist = (m: number) => convertDistance(m, distanceUnit).toFixed(distanceUnit === 'km' ? 1 : 2);
 
   return (
     <div className="space-y-3 px-4">
-      <section className="rounded-2xl border border-line bg-panel px-5 pb-5 pt-4" aria-label={overall === null ? 'Driver rating not available yet' : `Driver rating ${overall} of 100`}>
+      <section ref={card} className="rounded-2xl border border-line bg-panel px-5 pb-5 pt-4" aria-label={overall === null ? 'Driver rating not available yet' : `Driver rating ${overall} of 100`}>
         <div className="flex items-center justify-between">
           <span className="label">Driver rating</span>
           {rating.change !== null && Math.abs(rating.change) >= 0.5 && (
@@ -92,9 +120,9 @@ export function DriverCard({ rating, speedUnit, distanceUnit }: { rating: Driver
           )}
         </div>
         <div className="relative mx-auto mt-2 max-w-[18rem]">
-          <Gauge score={overall ?? 0} />
+          <Gauge score={shown} />
           <div className="absolute inset-x-0 bottom-0 text-center">
-            <div className="font-display text-[3.6rem] font-black leading-none tracking-tight tabular">{overall === null ? '—' : <Rolling text={String(overall)} from delay={150} />}</div>
+            <div className="font-display text-[3.6rem] font-black leading-none tracking-tight tabular">{overall === null ? '—' : Math.round(shown)}</div>
           </div>
         </div>
         <div className="mt-3 flex flex-wrap justify-center gap-1.5">
@@ -112,14 +140,7 @@ export function DriverCard({ rating, speedUnit, distanceUnit }: { rating: Driver
 
       <div className="grid grid-cols-2 gap-3">
         {scored.map(({ key, label, skill }) => (
-          <section key={key} className={`rounded-2xl border bg-panel p-4 ${strongest?.key === key ? 'border-accent/60' : 'border-line'}`}>
-            <div className="label">{label}</div>
-            <div className="mt-2 font-display text-[2.4rem] font-black leading-none tabular">{skill ? <Rolling text={String(Math.round(skill.score))} from delay={250} /> : '—'}</div>
-            <div className="mt-1.5 text-xs text-muted">{detail(key, skill, speedUnit)}</div>
-            <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-raised">
-              <Bar value={skill?.score ?? 0} />
-            </div>
-          </section>
+          <SkillTile key={key} label={label} skill={skill} detail={detail(key, skill, speedUnit)} lit={strongest?.key === key} />
         ))}
 
         <section className="rounded-2xl border border-line bg-panel p-4">
@@ -201,9 +222,20 @@ export function DriverCard({ rating, speedUnit, distanceUnit }: { rating: Driver
   );
 }
 
-/** A skill's bar, growing to its score once it is scrolled into view. */
-function Bar({ value }: { value: number }) {
-  const ref = useRef<HTMLDivElement>(null);
+/** A skill: its score counts up and its bar grows with it once the tile is scrolled into view. */
+function SkillTile({ label, skill, detail, lit }: { label: string; skill: Skill | null; detail: string; lit: boolean }) {
+  const ref = useRef<HTMLElement>(null);
   const seen = useSeen(ref);
-  return <div ref={ref} className="gauge-bar h-full rounded-full bg-accent" style={{ width: `${seen ? value : 0}%` }} />;
+  const score = skill ? Math.round(skill.score) : null;
+  const shown = useCountUp(score, seen, 1100);
+  return (
+    <section ref={ref} className={`rounded-2xl border bg-panel p-4 ${lit ? 'border-accent/60' : 'border-line'}`}>
+      <div className="label">{label}</div>
+      <div className="mt-2 font-display text-[2.4rem] font-black leading-none tabular">{score === null ? '—' : Math.round(shown)}</div>
+      <div className="mt-1.5 text-xs text-muted">{detail}</div>
+      <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-raised">
+        <div className="h-full rounded-full bg-accent" style={{ width: `${shown}%` }} />
+      </div>
+    </section>
+  );
 }
