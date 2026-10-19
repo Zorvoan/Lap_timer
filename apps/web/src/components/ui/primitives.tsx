@@ -81,7 +81,7 @@ export function LinkButton({ variant = 'secondary', size = 'md', className = '',
 
 export function Panel({ title, actions, children, className = '', bodyClass = 'p-4' }: { title?: ReactNode; actions?: ReactNode; children: ReactNode; className?: string; bodyClass?: string }) {
   return (
-    <section className={`rounded border border-line bg-panel ${className}`}>
+    <section className={`overflow-hidden rounded-2xl border border-line bg-panel ${className}`}>
       {(title || actions) && (
         <header className="flex min-h-11 items-center justify-between gap-3 border-b border-line px-4 py-2">
           {title && <h2 className="label">{title}</h2>}

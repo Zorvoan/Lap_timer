@@ -105,7 +105,7 @@ function SessionView({ session, circuit, onDeleted, speedUnit, distanceUnit }: {
       />
 
       <div className="mx-auto max-w-7xl space-y-4 p-4 md:p-6">
-        <div className="grid grid-cols-2 gap-4 rounded border border-line bg-panel p-4 sm:grid-cols-3 lg:grid-cols-6">
+        <div className="grid grid-cols-2 gap-4 rounded-2xl border border-line bg-panel p-4 sm:grid-cols-3 lg:grid-cols-6">
           <Stat label="Fastest lap" value={formatLapTime(best?.timeMs)} hint={best ? `Lap ${num(best.lap)}` : undefined} />
           <Stat label="Laps" value={summary.laps} hint={`${summary.validLaps} valid`} />
           <Stat
