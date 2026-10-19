@@ -186,9 +186,6 @@ export function LeaderboardCompare() {
 
             <ComparisonCharts A={a.lap} B={b.lap} labelA={labelA} labelB={labelB} rows={rows} speedUnit={settings.speedUnit} distanceUnit={settings.distanceUnit} />
             <ReplayPanel circuit={track} lapA={a.lap} lapB={b.lap} labelA={labelA} labelB={labelB} rows={rows} lengthM={lengthM} speedUnit={settings.speedUnit} chooseFollow />
-            <p className="text-xs text-muted">
-              Leaderboard laps are published with up to 2000 points of time, distance and speed; positions are placed on the track by distance. Times come from each driver&apos;s phone GPS.
-            </p>
           </>
         ) : (
           <Notice>Pick a lap A.</Notice>
