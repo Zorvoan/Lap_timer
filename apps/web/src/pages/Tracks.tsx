@@ -262,7 +262,7 @@ export function Tracks() {
           Share a road
         </h2>
         <p className="mt-0.5 text-sm text-muted">
-          Everyone will see it and race it on its own leaderboard. A public road can&apos;t be edited. {myPublic} of {PUBLIC_ROAD_LIMIT} used.
+          Everyone can race it. Public roads can&apos;t be edited. {myPublic} of {PUBLIC_ROAD_LIMIT} used.
         </p>
         {circuits.own.length === 0 ? (
           <div className="mt-4">
