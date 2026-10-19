@@ -12,7 +12,9 @@ import { LapRows, lapRows } from './Sessions';
 import { DriverCard } from '../components/me/DriverCard';
 import { loadBoard } from '../components/track/LeaderboardTab';
 import { leaderboardTracks } from '../lib/cloud/account';
-import { driverRating, type BoardTimes } from '../lib/driverRating';
+import { driverRating, type RoadBoard } from '../lib/driverRating';
+import { lapFromPublished } from '../lib/cloud/leaderboard';
+import { lapLength } from '../lib/references';
 
 /** Everything that is not a track: the account, past drives and settings. */
 export function Me() {
@@ -22,30 +24,42 @@ export function Me() {
   const { settings } = useSettings();
   const { data: sessions, loading } = useData(() => listSessions(), []);
   const laps = useMemo(() => lapRows(sessions ?? [], settings.includeSimulatedInBests), [sessions, settings.includeSimulatedInBests]);
-  // Leaderboards of the roads the user has driven, for pace and position; the rating works without them.
+  // Leaderboards of the roads the user has driven, with the fastest other driver's lap on each:
+  // the rating compares against them.
   const uid = acc.user?.uid ?? null;
-  const boardIds = useMemo(() => {
+  const roads = useMemo(() => {
     const driven = new Set((sessions ?? []).filter((s) => s.source !== 'simulated').map((s) => s.circuitId));
-    return leaderboardTracks(acc)
-      .map((f) => f.id)
-      .filter((id) => driven.has(id))
-      .join(',');
+    return leaderboardTracks(acc).filter((f) => driven.has(f.id));
   }, [sessions, acc]);
   const { data: boards } = useData(
-    async (): Promise<BoardTimes[]> => {
+    async (): Promise<RoadBoard[]> => {
+      const cloud = await import('../lib/cloud/community');
       const all = await Promise.all(
-        boardIds
-          .split(',')
-          .filter(Boolean)
-          .map(async (id) => {
-            // A board that could not be loaded (offline) is left out rather than read as empty.
-            const board = await loadBoard(id, 200).catch(() => null);
-            return board ? { circuitId: id, othersMs: board.filter((e) => e.uid !== uid).map((e) => e.timeMs) } : null;
-          }),
+        roads.map(async (f): Promise<RoadBoard | null> => {
+          // A board that could not be loaded (offline) is left out rather than read as empty.
+          const board = await loadBoard(f.id, 200).catch(() => null);
+          if (!board) return null;
+          const others = board.filter((e) => e.uid !== uid).sort((a, b) => a.timeMs - b.timeMs);
+          let lengthM = f.lengthM;
+          try {
+            lengthM = lapLength(f);
+          } catch {
+            // Keep the stored length.
+          }
+          const fastest = others[0];
+          const trace = fastest ? await cloud.getPublishedTrace(f.id, fastest.uid).catch(() => null) : null;
+          let ref: RoadBoard['ref'] = null;
+          try {
+            ref = fastest && trace ? { uid: fastest.uid, nickname: fastest.nickname, lap: lapFromPublished(fastest, trace, f, lengthM) } : null;
+          } catch {
+            ref = null;
+          }
+          return { circuitId: f.id, name: f.name, lengthM, othersMs: others.map((e) => e.timeMs), ref };
+        }),
       );
-      return all.filter((b): b is BoardTimes => !!b);
+      return all.filter((b): b is RoadBoard => !!b);
     },
-    [boardIds, uid],
+    [roads.map((f) => f.id).join(','), uid],
   );
   const rating = useMemo(() => (sessions ? driverRating(sessions, boards ?? []) : null), [sessions, boards]);
 
@@ -80,7 +94,7 @@ export function Me() {
       {rating && (
         <>
           <h2 className="label px-4 pb-2 pt-6">My driving</h2>
-          <DriverCard rating={rating} speedUnit={settings.speedUnit} />
+          <DriverCard rating={rating} speedUnit={settings.speedUnit} distanceUnit={settings.distanceUnit} />
         </>
       )}
 

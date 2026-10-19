@@ -1,85 +1,153 @@
-import type { Session } from '@laptimer/core';
+import { compareLaps, gainLoss, type LapRecord, type Session } from '@laptimer/core';
 import { drivingStyle } from './drivingStyle';
 
 /**
- * A driver's rating from their own laps, 0–100: how hard they brake, how fast they carry speed
- * through corners, how hard they accelerate, how consistent their times are on a road and, where
- * leaderboards are known, how close their best times are to the record.
+ * A driver's rating, measured against the other drivers on the same roads rather than on fixed
+ * scales, so it rewards being quick, not braking hard or cornering fast for its own sake:
+ *
+ * - the rating is how close the driver's best times are to the record on the leaderboard roads
+ *   they drive;
+ * - braking, corners and acceleration compare their best lap with the fastest other driver's lap
+ *   on the same road;
+ * - consistency is the spread of their last laps on a road;
+ * - "where you lose time" lists the stretches that cost the most against that fastest lap.
  */
 export interface DriverRating {
-  overall: number;
-  /** How much the latest drive moved the rating; null with a single drive. */
+  /** 0–100; null until the driver has a time on a road with other drivers on it. */
+  overall: number | null;
+  /** Few laps behind the rating yet. */
+  provisional: boolean;
+  /** How much the latest drive moved the rating; null with a single rated drive. */
   change: number | null;
-  skills: Record<SkillKey, Skill | null>;
-  /** Closeness to the record on leaderboard roads, 0–100; null when none is known. */
-  pace: number | null;
-  /** Average leaderboard position as a share of the field (0.2 = top 20%); null when unknown. */
+  /** Average leaderboard position as a share of the field (0.2 = top 20%), from fields of 5 or more; else null. */
   topShare: number | null;
-  /** One point per drive, oldest first: the overall rating right after that drive. */
+  skills: Record<SkillKey, Skill | null>;
+  /** The rating as it stood after each of the last drives, oldest first. */
   history: { t: number; score: number }[];
   /** How much faster the best times are than the first drive's, % averaged over roads; null if no road was driven twice. */
   progressPct: number | null;
-  /** The last 7 days, oldest first, ending today: whether a lap was driven that day. */
-  days: { date: Date; drove: boolean }[];
+  /** The stretches losing the most time against the fastest driver, worst first. */
+  losses: Loss[];
+  totals: { laps: number; km: number; roads: number };
 }
 
 export type SkillKey = 'braking' | 'corners' | 'accel' | 'consistency';
 
 export interface Skill {
   score: number;
-  /** The measured value behind the score: g for braking and acceleration, m/s for corners, % spread for consistency. */
+  /**
+   * Braking and acceleration: g against the fastest driver (negative = softer);
+   * corners: apex speed against the fastest driver in m/s; consistency: % spread of the last laps.
+   */
   value: number;
 }
 
-/** A road's leaderboard as far as the rating needs it: everyone's best times. */
-export interface BoardTimes {
+/** A leaderboard road the driver has driven: the other drivers' times and the fastest of them. */
+export interface RoadBoard {
   circuitId: string;
-  /** Best time of each driver, the user's own excluded. */
+  name: string;
+  lengthM: number;
+  /** Best time of each other driver. */
   othersMs: number[];
+  /** The fastest other driver's lap, when its telemetry is published. */
+  ref: { uid: string; nickname: string; lap: LapRecord } | null;
+}
+
+export interface Loss {
+  circuitId: string;
+  name: string;
+  fromD: number;
+  toD: number;
+  lossMs: number;
+  refUid: string;
+  refName: string;
+  /** The driver's lap the loss was measured on. */
+  sessionId: string;
+  lap: number;
 }
 
 const G = 9.81;
-/** Laps the skills are read from: the most recent ones. */
-const RECENT_LAPS = 15;
-/** Drives shown in the rating's history. */
+/** Below this many laps on leaderboard roads the rating is marked provisional. */
+const PROVISIONAL_LAPS = 5;
+/** Fields smaller than this say little about position. */
+const MIN_FIELD = 5;
+/** Laps per road the consistency is read from: the most recent ones. */
+const CONSISTENCY_LAPS = 5;
 const HISTORY = 12;
 
 /** 0 at `lo`, 100 at `hi`, straight in between (either direction). */
 const scale = (v: number, lo: number, hi: number) => Math.max(0, Math.min(100, ((v - lo) / (hi - lo)) * 100));
 const mean = (xs: number[]) => xs.reduce((s, x) => s + x, 0) / xs.length;
-const median = (xs: number[]) => {
-  const s = [...xs].sort((a, b) => a - b);
-  const m = s.length >> 1;
-  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
-};
 
-// Scales for road driving on a phone's GPS: a gentle drive sits near the bottom, a committed one
-// on a twisty road near the top.
-const brakingScore = (g: number) => scale(g, 0.08, 0.45);
-const accelScore = (g: number) => scale(g, 0.05, 0.3);
-const cornerScore = (ms: number) => scale(ms * 3.6, 25, 90);
-/** Spread of lap times on one road (standard deviation over mean): 1% is very consistent, 10% is not. */
-const consistencyScore = (spread: number) => scale(spread, 0.1, 0.01);
 /** Best time over the record: at the record 100, 20% slower 0. */
 const paceScore = (ratio: number) => scale(ratio, 0.8, 1);
+/** Own value over the fastest driver's: as hard / as fast as them is 100, 30% less is 0. */
+const matchScore = (ratio: number) => scale(ratio, 0.7, 1);
+/** Spread of lap times (standard deviation over mean): 1% is very consistent, 10% is not. */
+const consistencyScore = (spread: number) => scale(spread, 0.1, 0.01);
 
 export function ratingLabel(score: number): string {
   return score >= 85 ? 'Elite' : score >= 70 ? 'Strong' : score >= 50 ? 'Solid' : score >= 30 ? 'Rookie' : 'Learning';
 }
 
-/** The rating from these drives (real ones, oldest first). */
-function score(real: readonly Session[], boards: readonly BoardTimes[]) {
-  const laps = real.flatMap((s) => s.laps.filter((l) => l.valid).map((lap) => ({ s, lap })));
-  if (!laps.length) return null;
+type Owned = { s: Session; lap: LapRecord };
 
-  const recent = laps.slice(-RECENT_LAPS);
-  const styles = recent.map((x) => drivingStyle(x.lap)).filter((x): x is NonNullable<typeof x> => !!x);
-  const skill = (vals: number[], score: (v: number) => number): Skill | null => (vals.length ? { value: median(vals), score: score(median(vals)) } : null);
+function bestLaps(real: readonly Session[]): Map<string, Owned> {
+  const best = new Map<string, Owned>();
+  for (const s of real) for (const lap of s.laps) if (lap.valid && lap.timeMs < (best.get(s.circuitId)?.lap.timeMs ?? Infinity)) best.set(s.circuitId, { s, lap });
+  return best;
+}
 
-  // Consistency: on each road with three or more laps, how far the times spread.
-  const byRoad = new Map<string, number[]>();
-  for (const { s, lap } of laps) byRoad.set(s.circuitId, [...(byRoad.get(s.circuitId) ?? []), lap.timeMs]);
-  const spreads = [...byRoad.values()]
+/** The pace rating from these drives: mean over leaderboard roads of best time against the record. */
+function paceRating(real: readonly Session[], boards: readonly RoadBoard[]): number | null {
+  const best = bestLaps(real);
+  const paces = boards
+    .filter((b) => b.othersMs.length && best.has(b.circuitId))
+    .map((b) => {
+      const mine = best.get(b.circuitId)!.lap.timeMs;
+      return paceScore(Math.min(mine, ...b.othersMs) / mine);
+    });
+  return paces.length ? mean(paces) : null;
+}
+
+export function driverRating(sessions: readonly Session[], boards: readonly RoadBoard[] = []): DriverRating | null {
+  // Real drives only: simulated runs say nothing about the driver.
+  const all = sessions.filter((s) => s.source !== 'simulated').sort((a, b) => a.startedAt - b.startedAt);
+  const real = all.filter((s) => s.laps.some((l) => l.valid));
+  if (!real.length) return null;
+  const best = bestLaps(real);
+  const rated = boards.filter((b) => b.othersMs.length && best.has(b.circuitId));
+  const ratedIds = new Set(rated.map((b) => b.circuitId));
+
+  const overall = paceRating(real, rated);
+  const ratedLaps = real.filter((s) => ratedIds.has(s.circuitId)).reduce((n, s) => n + s.laps.filter((l) => l.valid).length, 0);
+
+  // Position, from fields big enough to mean something.
+  const shares = rated
+    .filter((b) => b.othersMs.length + 1 >= MIN_FIELD)
+    .map((b) => {
+      const mine = best.get(b.circuitId)!.lap.timeMs;
+      return (1 + b.othersMs.filter((t) => t < mine).length) / (b.othersMs.length + 1);
+    });
+
+  // Skills: the best lap against the fastest other driver's lap on the same road.
+  const pairs = rated
+    .filter((b) => b.ref)
+    .map((b) => ({ b, mine: drivingStyle(best.get(b.circuitId)!.lap), ref: drivingStyle(b.ref!.lap) }))
+    .filter((p) => p.mine && p.ref) as { b: RoadBoard; mine: NonNullable<ReturnType<typeof drivingStyle>>; ref: NonNullable<ReturnType<typeof drivingStyle>> }[];
+  const relative = (pick: (s: NonNullable<ReturnType<typeof drivingStyle>>) => number, toValue: (d: number) => number): Skill | null => {
+    const usable = pairs.filter((p) => pick(p.ref) > 0);
+    if (!usable.length) return null;
+    return {
+      score: mean(usable.map((p) => matchScore(pick(p.mine) / pick(p.ref)))),
+      value: mean(usable.map((p) => toValue(pick(p.mine) - pick(p.ref)))),
+    };
+  };
+
+  // Consistency: the last laps on each road driven three or more times.
+  const recentByRoad = new Map<string, number[]>();
+  for (const s of real) for (const l of s.laps) if (l.valid) recentByRoad.set(s.circuitId, [...(recentByRoad.get(s.circuitId) ?? []), l.timeMs].slice(-CONSISTENCY_LAPS));
+  const spreads = [...recentByRoad.values()]
     .filter((ts) => ts.length >= 3)
     .map((ts) => {
       const m = mean(ts);
@@ -87,76 +155,62 @@ function score(real: readonly Session[], boards: readonly BoardTimes[]) {
     });
 
   const skills: DriverRating['skills'] = {
-    braking: skill(styles.map((s) => s.braking / G), brakingScore),
-    corners: skill(styles.map((s) => s.cornerSpeed), cornerScore),
-    accel: skill(styles.map((s) => s.accel / G), accelScore),
-    consistency: spreads.length ? { value: mean(spreads) * 100, score: consistencyScore(mean(spreads)) } : null,
+    braking: relative((s) => s.braking, (d) => d / G),
+    corners: relative((s) => s.cornerSpeed, (d) => d),
+    accel: relative((s) => s.accel, (d) => d / G),
+    consistency: spreads.length ? { score: consistencyScore(mean(spreads)), value: mean(spreads) * 100 } : null,
   };
 
-  // Pace and position on the roads with a leaderboard.
-  const best = new Map<string, number>();
-  for (const [id, ts] of byRoad) best.set(id, Math.min(...ts));
-  const paces: number[] = [];
-  const shares: number[] = [];
-  for (const b of boards) {
-    const mine = best.get(b.circuitId);
-    if (mine === undefined) continue;
-    const record = Math.min(mine, ...b.othersMs);
-    paces.push(paceScore(record / mine));
-    if (b.othersMs.length) shares.push((1 + b.othersMs.filter((t) => t < mine).length) / (b.othersMs.length + 1));
-  }
-  const pace = paces.length ? mean(paces) : null;
-
-  const parts = [skills.braking, skills.corners, skills.accel, skills.consistency].filter((x): x is Skill => !!x).map((x) => x.score);
-  const style = parts.length ? mean(parts) : null;
-  const overall = style === null ? (pace ?? 0) : pace === null ? style : (style + pace) / 2;
-  return { overall, skills, pace, topShare: shares.length ? mean(shares) : null, best };
-}
-
-export function driverRating(sessions: readonly Session[], boards: readonly BoardTimes[] = [], now = Date.now()): DriverRating | null {
-  // Real drives only: simulated runs say nothing about the driver.
-  const real = sessions.filter((s) => s.source !== 'simulated' && s.laps.some((l) => l.valid)).sort((a, b) => a.startedAt - b.startedAt);
-  const current = score(real, boards);
-  if (!current) return null;
-  const { overall, skills, pace, topShare, best } = current;
-
-  // The rating as it stood after each of the last drives, so the latest point is today's rating.
+  // The rating after each of the last drives on leaderboard roads.
   const history: { t: number; score: number }[] = [];
-  for (let i = Math.max(0, real.length - HISTORY); i < real.length; i++) {
-    const r = i === real.length - 1 ? current : score(real.slice(0, i + 1), boards);
-    if (r) history.push({ t: real[i].startedAt, score: r.overall });
+  const ratedDrives = real.map((s, i) => ({ s, i })).filter((x) => ratedIds.has(x.s.circuitId));
+  for (const { s, i } of ratedDrives.slice(-HISTORY)) {
+    const r = paceRating(real.slice(0, i + 1), rated);
+    if (r !== null) history.push({ t: s.startedAt, score: r });
   }
   const change = history.length >= 2 ? history[history.length - 1].score - history[history.length - 2].score : null;
 
-  // Progress: per road driven on more than one day, the first drive's best against the best since.
+  // Progress: per road driven more than once, the first drive's best against the best since.
   const firstBest = new Map<string, number>();
   const drives = new Map<string, number>();
   for (const s of real) {
     const ts = s.laps.filter((l) => l.valid).map((l) => l.timeMs);
-    if (!ts.length) continue;
     drives.set(s.circuitId, (drives.get(s.circuitId) ?? 0) + 1);
     if (!firstBest.has(s.circuitId)) firstBest.set(s.circuitId, Math.min(...ts));
   }
-  const gains = [...firstBest].filter(([id]) => (drives.get(id) ?? 0) > 1).map(([id, first]) => ((first - best.get(id)!) / first) * 100);
+  const gains = [...firstBest].filter(([id]) => (drives.get(id) ?? 0) > 1).map(([id, first]) => ((first - best.get(id)!.lap.timeMs) / first) * 100);
 
-  const today = new Date(now);
-  today.setHours(0, 0, 0, 0);
-  const days = Array.from({ length: 7 }, (_, i) => {
-    const date = new Date(today);
-    date.setDate(today.getDate() - 6 + i);
-    const end = new Date(date);
-    end.setDate(date.getDate() + 1);
-    return { date, drove: real.some((s) => s.laps.length > 0 && s.startedAt >= date.getTime() && s.startedAt < end.getTime()) };
-  });
+  // Where the best lap loses the most against the fastest driver.
+  const losses: Loss[] = rated
+    .filter((b) => b.ref && b.lengthM > 0)
+    .flatMap((b) => {
+      const own = best.get(b.circuitId)!;
+      let rows;
+      try {
+        rows = compareLaps(own.lap, b.ref!.lap, b.lengthM, Math.max(2, b.lengthM / 600));
+      } catch {
+        return [];
+      }
+      return gainLoss(rows, Math.max(150, b.lengthM / 20))
+        .filter((g) => g.changeMs > 100)
+        .map((g) => ({ circuitId: b.circuitId, name: b.name, fromD: g.fromD, toD: g.toD, lossMs: g.changeMs, refUid: b.ref!.uid, refName: b.ref!.nickname, sessionId: own.s.id, lap: own.lap.lap }));
+    })
+    .sort((x, y) => y.lossMs - x.lossMs)
+    .slice(0, 3);
 
   return {
     overall,
+    provisional: overall !== null && ratedLaps < PROVISIONAL_LAPS,
     change,
+    topShare: shares.length ? mean(shares) : null,
     skills,
-    pace,
-    topShare,
     history,
     progressPct: gains.length ? mean(gains) : null,
-    days,
+    losses,
+    totals: {
+      laps: all.reduce((n, s) => n + s.laps.length, 0),
+      km: all.reduce((m, s) => m + s.laps.reduce((x, l) => x + l.distanceM, 0), 0) / 1000,
+      roads: new Set(all.filter((s) => s.laps.length).map((s) => s.circuitId)).size,
+    },
   };
 }
