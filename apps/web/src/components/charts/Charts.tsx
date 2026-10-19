@@ -1,20 +1,4 @@
 import {
-  Area,
-  Bar,
-  CartesianGrid,
-  ComposedChart,
-  Line,
-  LineChart,
-  ReferenceArea,
-  ReferenceLine,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-  AreaChart,
-  Cell,
-} from 'recharts';
-import {
   convertDistance,
   convertSpeed,
   formatDelta,
@@ -28,17 +12,14 @@ import {
   type LapRecord,
   type SpeedUnit,
 } from '@laptimer/core';
+import { LineChart, type ChartMarker, type ChartPoint } from './LineChart';
 
 export const COLOR_A = '#e10600';
 export const COLOR_B = '#a1a5ad';
 export const COLOR_GAIN = '#16c768';
 export const COLOR_LOSS = '#ff4036';
-const GRID = 'rgba(140,143,150,0.18)';
-const AXIS = { fontSize: 11, fill: '#8a8e96' };
-const tooltipStyle = {
-  contentStyle: { background: '#050506', border: '1px solid #2a2c30', borderRadius: 4, fontSize: 12 },
-  labelStyle: { color: '#8a8e96' },
-};
+const DIM = '#5b5f66';
+const INVALID = '#3a3c40';
 
 /** A stretch without GPS fixes, in the chart's x units. */
 export interface ChartGap {
@@ -46,25 +27,12 @@ export interface ChartGap {
   to: number;
 }
 
-/** Shades the stretches where the phone had no GPS fix, so a missing line reads as missing data. */
-function gapAreas(gaps: readonly ChartGap[]) {
-  return gaps.map((g, i) => (
-    <ReferenceArea
-      key={`gap${i}`}
-      x1={g.from}
-      x2={g.to}
-      fill="#8a8e96"
-      fillOpacity={0.12}
-      stroke="none"
-      ifOverflow="hidden"
-      label={{ value: 'No GPS', position: 'insideTop', fill: '#8a8e96', fontSize: 10 }}
-    />
-  ));
-}
-
-function distTick(unit: DistanceUnit) {
-  return (m: number) => convertDistance(m, unit).toFixed(unit === 'km' ? 1 : 2);
-}
+const noGps = (gaps: readonly ChartGap[]) => gaps.map((g) => ({ ...g, label: 'No GPS' }));
+const distTick = (unit: DistanceUnit) => (m: number) => `${convertDistance(m, unit).toFixed(unit === 'km' ? 1 : 2)}`;
+const distTitle = (unit: DistanceUnit, digits = 3) => (m: number) => `${convertDistance(m, unit).toFixed(digits)} ${unit}`;
+/** "1:12.4" for an axis; the full time in tooltips. */
+const shortTime = (s: number) => formatLapTime(s * 1000).replace(/^0(\d:)/, '$1').slice(0, -2);
+const lapTime = (s: number) => formatLapTime(s * 1000);
 
 export function LapTimesChart({
   laps,
@@ -78,26 +46,35 @@ export function LapTimesChart({
   /** Display number for a session lap (e.g. the circuit-wide lap number). */
   lapLabel?: (lap: number) => number;
 }) {
-  const data = laps.map((l) => ({ lap: l.lap, label: lapLabel(l.lap), time: l.timeMs / 1000, valid: l.valid }));
-  const valid = data.filter((d) => d.valid).map((d) => d.time);
-  const min = valid.length ? Math.min(...valid) : 0;
-  const max = valid.length ? Math.max(...valid) : 1;
-  const pad = Math.max(0.5, (max - min) * 0.3);
+  const byX = new Map(laps.map((l) => [lapLabel(l.lap), l]));
+  const points: ChartPoint[] = laps.map((l) => ({ x: lapLabel(l.lap), y: l.timeMs / 1000, id: String(l.lap) }));
+  const best = laps.find((l) => l.lap === bestLap);
+  const markers: ChartMarker[] = best ? [{ x: lapLabel(best.lap), label: '★', color: COLOR_A, title: 'Best lap' }] : [];
   return (
-    <ResponsiveContainer width="100%" height="100%">
-      <ComposedChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
-        <CartesianGrid stroke={GRID} vertical={false} />
-        <XAxis dataKey="label" tick={AXIS} tickLine={false} axisLine={false} />
-        <YAxis domain={[Math.max(0, min - pad), max + pad]} tick={AXIS} tickLine={false} axisLine={false} width={56} tickFormatter={(v: number) => formatLapTime(v * 1000).replace(/^00:/, '').slice(0, -2)} />
-        <Tooltip {...tooltipStyle} formatter={(v: number) => [formatLapTime(v * 1000), 'Lap time']} labelFormatter={(l) => `Lap ${l}`} />
-        <Bar dataKey="time" maxBarSize={28} isAnimationActive={false} onClick={(d: { lap?: number }) => d.lap !== undefined && onSelect?.(d.lap)} cursor="pointer">
-          {data.map((d) => (
-            <Cell key={d.lap} fill={!d.valid ? '#3a3c40' : d.lap === bestLap ? COLOR_A : '#5b5f66'} />
-          ))}
-        </Bar>
-        <Line dataKey="time" stroke="#f4f4f5" strokeWidth={1.5} dot={false} isAnimationActive={false} />
-      </ComposedChart>
-    </ResponsiveContainer>
+    <LineChart
+      ariaLabel="Lap times"
+      integerX
+      yPad={0.3}
+      series={[
+        {
+          id: 'time',
+          label: 'Lap time',
+          color: 'rgb(var(--c-fg))',
+          width: 1.75,
+          points,
+          format: lapTime,
+          dots: (p) => {
+            const l = byX.get(p.x);
+            return !l?.valid ? INVALID : l.lap === bestLap ? COLOR_A : COLOR_B;
+          },
+        },
+      ]}
+      markers={markers}
+      xFormat={(x) => String(x)}
+      yFormat={shortTime}
+      tooltipTitle={(x) => `Lap ${x}${byX.get(x)?.valid === false ? ' (not counted)' : ''}`}
+      onSelect={onSelect ? (p) => onSelect(Number(p.id)) : undefined}
+    />
   );
 }
 
@@ -117,94 +94,78 @@ export function SpeedDistanceChart({
   /** Distances without GPS fixes; the lines break there instead of bridging them. */
   gaps?: ChartGap[];
 }) {
-  const data = rows.map((r) => ({ d: r.d, a: r.vA === null ? null : convertSpeed(r.vA, speedUnit), b: r.vB === null ? null : convertSpeed(r.vB, speedUnit) }));
+  const unit = speedLabel(speedUnit);
+  const fmt = (v: number) => `${v.toFixed(1)} ${unit}`;
+  const a = rows.map((r) => ({ x: r.d, y: r.vA === null ? null : convertSpeed(r.vA, speedUnit) }));
+  const b = rows.map((r) => ({ x: r.d, y: r.vB === null ? null : convertSpeed(r.vB, speedUnit) }));
   return (
-    <ResponsiveContainer width="100%" height="100%">
-      <LineChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
-        <CartesianGrid stroke={GRID} />
-        <XAxis dataKey="d" type="number" domain={['dataMin', 'dataMax']} tick={AXIS} tickFormatter={distTick(distanceUnit)} unit={` ${distanceUnit}`} />
-        <YAxis tick={AXIS} width={44} unit="" />
-        <Tooltip
-          {...tooltipStyle}
-          labelFormatter={(d: number) => `${convertDistance(d, distanceUnit).toFixed(3)} ${distanceUnit}`}
-          formatter={(v: number, name: string) => [`${v.toFixed(1)} ${speedLabel(speedUnit)}`, name === 'a' ? labelA : labelB ?? '']}
-        />
-        {gapAreas(gaps)}
-        <Line dataKey="a" stroke={COLOR_A} dot={false} strokeWidth={1.8} isAnimationActive={false} />
-        {labelB && <Line dataKey="b" stroke={COLOR_B} dot={false} strokeWidth={1.5} isAnimationActive={false} />}
-      </LineChart>
-    </ResponsiveContainer>
+    <LineChart
+      ariaLabel={`Speed by distance, ${unit}`}
+      series={[
+        { id: 'a', label: labelA, color: COLOR_A, points: a, format: fmt, area: labelB ? undefined : 'gradient' },
+        ...(labelB ? [{ id: 'b', label: labelB, color: COLOR_B, points: b, width: 1.5, format: fmt }] : []),
+      ]}
+      bands={noGps(gaps)}
+      xFormat={distTick(distanceUnit)}
+      yFormat={(v) => String(Math.round(v))}
+      tooltipTitle={distTitle(distanceUnit)}
+    />
   );
 }
 
 export function SpeedTimeChart({ laps, speedUnit, colors }: { laps: LapRecord[]; speedUnit: SpeedUnit; colors: string[] }) {
+  const unit = speedLabel(speedUnit);
   // A null point inside each signal gap breaks the line there rather than drawing a straight one across.
-  const series = laps.map((l) => {
-    const out: { t: number; v: number | null }[] = [];
+  const series = laps.map((l, i) => {
+    const points: ChartPoint[] = [];
     for (const p of l.trace) {
       if (p.v === null) continue;
-      const prev = out[out.length - 1];
-      if (prev && p.t / 1000 - prev.t > TRACE_GAP_MS / 1000) out.push({ t: (prev.t + p.t / 1000) / 2, v: null });
-      out.push({ t: p.t / 1000, v: convertSpeed(p.v, speedUnit) });
+      const prev = points[points.length - 1];
+      if (prev && p.t / 1000 - prev.x > TRACE_GAP_MS / 1000) points.push({ x: (prev.x + p.t / 1000) / 2, y: null });
+      points.push({ x: p.t / 1000, y: convertSpeed(p.v, speedUnit) });
     }
-    return out;
+    return { id: String(l.lap), label: `Lap ${l.lap}`, color: colors[i], points, width: 1.75, format: (v: number) => `${v.toFixed(1)} ${unit}` };
   });
   const gaps = laps.flatMap((l) => traceGaps(l.trace).map((g) => ({ from: g.fromT / 1000, to: g.toT / 1000 })));
   return (
-    <ResponsiveContainer width="100%" height="100%">
-      <LineChart margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
-        <CartesianGrid stroke={GRID} />
-        <XAxis dataKey="t" type="number" domain={[0, 'dataMax']} tick={AXIS} tickFormatter={(v: number) => `${Math.round(v)} s`} allowDuplicatedCategory={false} />
-        <YAxis tick={AXIS} width={44} />
-        <Tooltip {...tooltipStyle} labelFormatter={(t: number) => `${t.toFixed(1)} s`} formatter={(v: number) => [`${v.toFixed(1)} ${speedLabel(speedUnit)}`, 'Speed']} />
-        {gapAreas(gaps)}
-        {series.map((s, i) => (
-          <Line key={i} data={s} dataKey="v" name={`Lap ${laps[i].lap}`} stroke={colors[i]} dot={false} strokeWidth={1.6} isAnimationActive={false} />
-        ))}
-      </LineChart>
-    </ResponsiveContainer>
+    <LineChart
+      ariaLabel={`Speed by time, ${unit}`}
+      series={series}
+      bands={noGps(gaps)}
+      xFormat={(t) => `${Math.round(t)} s`}
+      yFormat={(v) => String(Math.round(v))}
+      tooltipTitle={(t) => `${t.toFixed(1)} s`}
+    />
   );
 }
 
 /** Delta of lap A relative to lap B by distance. Below zero (green) = A ahead. */
 export function DeltaDistanceChart({ rows, distanceUnit, gaps = [] }: { rows: AlignedRow[]; distanceUnit: DistanceUnit; gaps?: ChartGap[] }) {
-  const data = rows.map((r) => ({ d: r.d, delta: r.deltaMs / 1000 }));
-  const vals = data.map((d) => d.delta);
-  const max = Math.max(...vals, 0);
-  const min = Math.min(...vals, 0);
-  const off = max - min > 0 ? max / (max - min) : 0;
+  const points = rows.map((r) => ({ x: r.d, y: r.deltaMs / 1000 }));
   return (
-    <ResponsiveContainer width="100%" height="100%">
-      <AreaChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
-        <defs>
-          <linearGradient id="deltaSplit" x1="0" y1="0" x2="0" y2="1">
-            <stop offset={off} stopColor={COLOR_LOSS} stopOpacity={0.55} />
-            <stop offset={off} stopColor={COLOR_GAIN} stopOpacity={0.55} />
-          </linearGradient>
-        </defs>
-        <CartesianGrid stroke={GRID} />
-        <XAxis dataKey="d" type="number" domain={['dataMin', 'dataMax']} tick={AXIS} tickFormatter={distTick(distanceUnit)} unit={` ${distanceUnit}`} />
-        <YAxis tick={AXIS} width={48} tickFormatter={(v: number) => formatDelta(v * 1000, 1)} />
-        <ReferenceLine y={0} stroke="#8a8e96" />
-        <Tooltip {...tooltipStyle} labelFormatter={(d: number) => `${convertDistance(d, distanceUnit).toFixed(3)} ${distanceUnit}`} formatter={(v: number) => [`${formatDelta(v * 1000)} s`, 'Delta']} />
-        {gapAreas(gaps)}
-        <Area dataKey="delta" stroke="#f4f4f5" strokeWidth={1.2} fill="url(#deltaSplit)" isAnimationActive={false} />
-      </AreaChart>
-    </ResponsiveContainer>
+    <LineChart
+      ariaLabel="Gap of lap A to lap B by distance"
+      zeroLine
+      series={[{ id: 'delta', label: 'Gap', color: 'rgb(var(--c-fg))', width: 1.5, points, area: 'split', format: (v) => `${formatDelta(v * 1000)} s` }]}
+      bands={noGps(gaps)}
+      xFormat={distTick(distanceUnit)}
+      yFormat={(v) => formatDelta(v * 1000, 1)}
+      tooltipTitle={distTitle(distanceUnit)}
+    />
   );
 }
 
 export function ElevationChart({ points, distanceUnit, compact = false }: { points: ElevationPoint[]; distanceUnit: DistanceUnit; compact?: boolean }) {
   return (
-    <ResponsiveContainer width="100%" height="100%">
-      <AreaChart data={points} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
-        {!compact && <CartesianGrid stroke={GRID} />}
-        <XAxis dataKey="d" type="number" domain={['dataMin', 'dataMax']} hide={compact} tick={AXIS} tickFormatter={distTick(distanceUnit)} />
-        <YAxis dataKey="elevation" domain={['dataMin - 5', 'dataMax + 5']} hide={compact} tick={AXIS} width={40} unit=" m" />
-        <Tooltip {...tooltipStyle} labelFormatter={(d: number) => `${convertDistance(d, distanceUnit).toFixed(2)} ${distanceUnit}`} formatter={(v: number) => [`${v.toFixed(0)} m`, 'Elevation']} />
-        <Area dataKey="elevation" stroke="#a1a5ad" fill="#a1a5ad" fillOpacity={0.15} isAnimationActive={false} />
-      </AreaChart>
-    </ResponsiveContainer>
+    <LineChart
+      ariaLabel="Elevation along the road"
+      compact={compact}
+      yPad={0.15}
+      series={[{ id: 'elev', label: 'Elevation', color: COLOR_B, width: 1.75, points: points.map((p) => ({ x: p.d, y: p.elevation })), area: 'gradient', format: (v) => `${v.toFixed(0)} m` }]}
+      xFormat={distTick(distanceUnit)}
+      yFormat={(v) => `${Math.round(v)} m`}
+      tooltipTitle={distTitle(distanceUnit, 2)}
+    />
   );
 }
 
@@ -221,39 +182,40 @@ export interface HistoryPoint {
 
 /** Every lap on a circuit in the order it was driven, across sessions. */
 export function LapHistoryChart({ points, onSelect }: { points: HistoryPoint[]; onSelect?: (key: string) => void }) {
-  const data = points.map((p) => ({ ...p, time: p.timeMs / 1000 }));
-  const times = data.map((d) => d.time);
-  const min = times.length ? Math.min(...times) : 0;
-  const max = times.length ? Math.max(...times) : 1;
-  const pad = Math.max(0.5, (max - min) * 0.3);
+  const byN = new Map(points.map((p) => [p.n, p]));
+  const markers: ChartMarker[] = [];
+  for (const p of points) {
+    if (p.isA) markers.push({ x: p.n, label: 'A', color: COLOR_A, title: 'Lap A' });
+    else if (p.isB) markers.push({ x: p.n, label: 'B', color: 'rgb(var(--c-fg))', title: 'Lap B' });
+    else if (p.isBest) markers.push({ x: p.n, label: '★', color: COLOR_A, title: 'Best lap' });
+  }
   return (
-    <ResponsiveContainer width="100%" height="100%">
-      <ComposedChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
-        <CartesianGrid stroke={GRID} vertical={false} />
-        <XAxis dataKey="n" tick={AXIS} tickLine={false} axisLine={false} />
-        <YAxis
-          domain={[Math.max(0, min - pad), max + pad]}
-          tick={AXIS}
-          tickLine={false}
-          axisLine={false}
-          width={56}
-          tickFormatter={(v: number) => formatLapTime(v * 1000).replace(/^00:/, '').slice(0, -2)}
-        />
-        <Tooltip
-          {...tooltipStyle}
-          formatter={(v: number) => [formatLapTime(v * 1000), 'Lap time']}
-          labelFormatter={(_l, payload) => {
-            const p = payload?.[0]?.payload as HistoryPoint | undefined;
-            return p ? new Date(p.date).toLocaleString() : '';
-          }}
-        />
-        <Bar dataKey="time" maxBarSize={24} cursor="pointer" isAnimationActive={false} onClick={(d: { id?: string }) => d.id && onSelect?.(d.id)}>
-          {data.map((d) => (
-            <Cell key={d.id} fill={d.isA ? COLOR_A : d.isB ? '#f4f4f5' : d.isBest ? '#8a1410' : '#5b5f66'} />
-          ))}
-        </Bar>
-        <Line dataKey="time" stroke="#a1a5ad" strokeWidth={1} dot={false} isAnimationActive={false} />
-      </ComposedChart>
-    </ResponsiveContainer>
+    <LineChart
+      ariaLabel="Lap times in the order they were driven"
+      integerX
+      yPad={0.3}
+      series={[
+        {
+          id: 'time',
+          label: 'Lap time',
+          color: COLOR_B,
+          width: 1.5,
+          points: points.map((p) => ({ x: p.n, y: p.timeMs / 1000, id: p.id })),
+          format: lapTime,
+          dots: (c) => {
+            const p = byN.get(c.x);
+            return p?.isA ? COLOR_A : p?.isB ? '#f4f4f5' : p?.isBest ? '#8a1410' : DIM;
+          },
+        },
+      ]}
+      markers={markers}
+      xFormat={(x) => String(x)}
+      yFormat={shortTime}
+      tooltipTitle={(x) => {
+        const p = byN.get(x);
+        return p ? new Date(p.date).toLocaleString(undefined, { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' }) : `Lap ${x}`;
+      }}
+      onSelect={onSelect ? (p) => p.id && onSelect(p.id) : undefined}
+    />
   );
 }
