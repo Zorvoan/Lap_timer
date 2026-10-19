@@ -45,7 +45,7 @@ export default defineConfig({
           {
             // Map tiles you have seen (or that were loaded ahead along a road) stay on the phone
             // for a month, so maps of roads you know open instantly, even without signal.
-            urlPattern: ({ url }) => url.hostname.endsWith('basemaps.cartocdn.com'),
+            urlPattern: ({ url }) => url.hostname.endsWith('basemaps.cartocdn.com') || url.hostname.endsWith('tile.openstreetmap.org'),
             handler: 'CacheFirst',
             options: {
               cacheName: 'map-tiles',

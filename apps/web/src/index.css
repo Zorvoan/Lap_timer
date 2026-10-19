@@ -95,6 +95,10 @@ select {
 /* While tiles load, the map shows the colour of the tiles themselves, not Leaflet's light grey. */
 .leaflet-container.map-dark { background: #0e0e0f; }
 .leaflet-container.map-light { background: #f2efe9; }
+/* OpenStreetMap tiles (no CARTO key) turned dark on the phone. */
+.map-darken .leaflet-tile-pane {
+  filter: invert(1) hue-rotate(180deg) brightness(0.92) contrast(0.88) saturate(0.35);
+}
 
 .leaflet-control-attribution {
   @apply !bg-panel/80 !text-muted text-[10px];

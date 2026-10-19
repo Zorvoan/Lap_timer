@@ -94,11 +94,11 @@ export function BaseMap({
       doubleClickZoom={interactive}
       boxZoom={interactive}
       keyboard={interactive}
-      className={`isolate h-full w-full ${settings.mapStyle === 'dark' ? 'map-dark' : 'map-light'} ${className}`}
+      className={`isolate h-full w-full ${settings.mapStyle === 'dark' ? `map-dark ${config.tiles.darken ? 'map-darken' : ''}` : 'map-light'} ${className}`}
       attributionControl
     >
       {/* Extra rows of tiles kept around the view, so panning never shows a blank edge. */}
-      <TileLayer key={settings.mapStyle} url={tileTemplate(settings.mapStyle)} subdomains={config.tileSubdomains} attribution={config.tileAttribution} maxZoom={20} keepBuffer={4} />
+      <TileLayer key={settings.mapStyle} url={tileTemplate(settings.mapStyle)} subdomains={config.tiles.subdomains} attribution={config.tiles.attribution} maxZoom={config.tiles.maxZoom} keepBuffer={4} />
       {interactive && <ZoomControl position="bottomright" />}
       {interactive && <RememberView />}
       <TrackSize />
@@ -107,11 +107,11 @@ export function BaseMap({
   );
 }
 
-const tileTemplate = (style: string) => (style === 'dark' ? config.tiles.dark : config.tiles.light);
+const tileTemplate = (style: string): string => (style === 'dark' ? config.tiles.dark : config.tiles.light);
 
 /** The tile URL Leaflet itself would request, so a prefetched tile is a cache hit later. */
 function tileUrl(style: string, z: number, x: number, y: number): string {
-  const subs = config.tileSubdomains;
+  const subs = config.tiles.subdomains;
   return tileTemplate(style)
     .replace('{s}', subs ? subs[Math.abs(x + y) % subs.length] : '')
     .replace('{z}', String(z))
@@ -128,7 +128,7 @@ export function PrefetchRoute({ points, zooms, active, max = 240 }: { points: re
   const map = useMap();
   const { settings } = useSettings();
   useEffect(() => {
-    if (!active || points.length < 2) return;
+    if (!active || points.length < 2 || !config.tiles.prefetch) return;
     const want = new Set<string>();
     for (const z of zooms) {
       for (const [lat, lon] of points) {

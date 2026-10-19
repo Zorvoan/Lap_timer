@@ -5,17 +5,33 @@ function str(v: unknown, fallback: string): string {
   return typeof v === 'string' && v.trim() !== '' ? v.trim() : fallback;
 }
 
+const OSM = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+
+/**
+ * CARTO basemaps (Dark Matter, Voyager; sharp @2x tiles) when a CARTO API key is set, which CARTO
+ * requires for raster tiles. Without one, OpenStreetMap's standard tiles, darkened on the phone
+ * for the dark style; those may not be loaded ahead in bulk (OSM tile usage policy).
+ */
+function tiles(key: string) {
+  if (!key) {
+    const url = str(env.VITE_TILE_URL, 'https://tile.openstreetmap.org/{z}/{x}/{y}.png');
+    return { dark: url, light: url, subdomains: '', attribution: str(env.VITE_TILE_ATTRIBUTION, OSM), maxZoom: 19, darken: true, prefetch: false };
+  }
+  const q = `?key=${encodeURIComponent(key)}`;
+  return {
+    dark: `https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png${q}`,
+    light: `https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png${q}`,
+    subdomains: 'abcd',
+    attribution: `${OSM} &copy; <a href="https://carto.com/attributions">CARTO</a>`,
+    maxZoom: 20,
+    darken: false,
+    prefetch: true,
+  };
+}
+
 export const config = {
   /** Map tiles, one set per map style ({s} subdomain, {r} "@2x" on sharp screens). */
-  tiles: {
-    dark: str(env.VITE_TILE_URL_DARK, 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'),
-    light: str(env.VITE_TILE_URL, 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png'),
-  },
-  tileSubdomains: str(env.VITE_TILE_SUBDOMAINS, 'abcd'),
-  tileAttribution: str(
-    env.VITE_TILE_ATTRIBUTION,
-    '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
-  ),
+  tiles: tiles(str(env.VITE_CARTO_KEY, '')),
   osrmUrl: str(env.VITE_OSRM_URL, 'https://router.project-osrm.org').replace(/\/+$/, ''),
   osrmProfile: str(env.VITE_OSRM_PROFILE, 'driving'),
   geocoderUrl: str(env.VITE_GEOCODER_URL, 'https://nominatim.openstreetmap.org').replace(/\/+$/, ''),
