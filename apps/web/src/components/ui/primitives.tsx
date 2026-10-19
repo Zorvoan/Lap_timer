@@ -1,4 +1,5 @@
 import { useEffect, useState, type ButtonHTMLAttributes, type ReactNode, type InputHTMLAttributes, type SelectHTMLAttributes } from 'react';
+import { Rolling } from './Rolling';
 import { Link, type LinkProps } from 'react-router-dom';
 
 type Variant = 'primary' | 'secondary' | 'ghost' | 'danger';
@@ -98,7 +99,7 @@ export function Stat({ label, value, unit, hint, className = '' }: { label: stri
     <div className={className}>
       <div className="label">{label}</div>
       <div className="mt-1 font-mono text-xl tabular">
-        {value}
+        {typeof value === 'string' ? <Rolling text={value} /> : value}
         {unit && <span className="ml-1 text-xs text-muted">{unit}</span>}
       </div>
       {hint && <div className="mt-0.5 text-xs text-muted">{hint}</div>}

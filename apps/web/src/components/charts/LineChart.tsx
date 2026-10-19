@@ -1,8 +1,9 @@
 /**
  * One small line chart for the whole app, styled after Bklit UI's charts (MIT,
- * github.com/bklit/bklit-ui): smooth curves that draw themselves in on a dotted field, and a hover
+ * github.com/bklit/bklit-ui): smooth curves revealed left to right on a dotted field, and a hover
  * that glides: a fading crosshair, a haloed dot on every line, a tooltip card that trails behind on
- * a softer spring, and a pill under the axis whose label rolls as it changes.
+ * a softer spring, and a pill under the axis whose label rolls as it changes. With more than one
+ * line, a legend lifts the line under the finger and fades the others.
  */
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { area as d3area, curveMonotoneX, line as d3line } from 'd3-shape';
@@ -71,6 +72,57 @@ export interface LineChartProps {
   ariaLabel: string;
 }
 
+/** Bklit's reveal: the plot uncovers left to right over 1.1 s, slow at both ends. */
+const REVEAL_MS = 1100;
+const revealEase = bezier(0.85, 0, 0.15, 1);
+
+/** A CSS cubic-bezier timing function as a function of progress 0–1. */
+function bezier(x1: number, y1: number, x2: number, y2: number) {
+  const at = (a: number, b: number, t: number) => 3 * a * t * (1 - t) ** 2 + 3 * b * t * t * (1 - t) + t ** 3;
+  return (x: number) => {
+    let lo = 0;
+    let hi = 1;
+    for (let i = 0; i < 24; i++) {
+      const mid = (lo + hi) / 2;
+      if (at(x1, x2, mid) < x) lo = mid;
+      else hi = mid;
+    }
+    return at(y1, y2, (lo + hi) / 2);
+  };
+}
+
+/**
+ * Animates a clip rect's width from 0 to `width` whenever `epoch` changes (new data), and follows
+ * `width` directly when the chart is only resized.
+ */
+function useReveal(width: number, epoch: string) {
+  const rect = useRef<SVGRectElement>(null);
+  const done = useRef<string | null>(null);
+  const target = useRef(width);
+  target.current = width;
+  useEffect(() => {
+    const el = rect.current;
+    if (!el || width <= 0) return;
+    if (done.current === epoch || matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      done.current = epoch;
+      el.setAttribute('width', String(width));
+      return;
+    }
+    done.current = epoch;
+    const t0 = performance.now();
+    let raf = requestAnimationFrame(function tick(now) {
+      const k = Math.min(1, (now - t0) / REVEAL_MS);
+      el.setAttribute('width', String(target.current * revealEase(k)));
+      if (k < 1) raf = requestAnimationFrame(tick);
+    });
+    return () => {
+      cancelAnimationFrame(raf);
+      el.setAttribute('width', String(target.current));
+    };
+  }, [width, epoch]);
+  return rect;
+}
+
 const MUTED = 'rgb(var(--c-muted))';
 const LINE = 'rgb(var(--c-line))';
 /** Bklit's springs: the crosshair and dots follow tightly, the card trails, the pill in between. */
@@ -78,7 +130,7 @@ const FOLLOW = { stiffness: 300, damping: 30 };
 const CARD = { stiffness: 100, damping: 20 };
 const PILL = { stiffness: 400, damping: 35 };
 
-function useSize<T extends HTMLElement>() {
+export function useSize<T extends HTMLElement>() {
   const ref = useRef<T>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
   useEffect(() => {
@@ -186,6 +238,9 @@ export function LineChart({
   const uid = useId().replace(/:/g, '');
   const [box, { w, h }] = useSize<HTMLDivElement>();
   const [hoverX, setHoverX] = useState<number | null>(null);
+  // Legend: the series under the finger (or tapped on a phone) is lifted, the rest fade.
+  const [focus, setFocus] = useState<number | null>(null);
+  const legend = !compact && series.length > 1;
   const hoverCb = useRef(onHover);
   hoverCb.current = onHover;
   useEffect(() => hoverCb.current?.(hoverX), [hoverX]);
@@ -194,7 +249,8 @@ export function LineChart({
   // (Short charts, e.g. the editor's elevation strip, keep the floating card: no room for a strip.)
   const narrow = w > 0 && w < 560 && h >= 170;
   const strip = narrow ? 42 : 0;
-  const m = compact ? { top: 2, right: 2, bottom: 2, left: 2 } : { top: (markers.length ? 32 : 12) + strip, right: 12, bottom: 34, left: 46 };
+  const legendRow = legend && !narrow ? 26 : 0;
+  const m = compact ? { top: 2, right: 2, bottom: 2, left: 2 } : { top: (markers.length ? 32 : 12) + strip + legendRow, right: 12, bottom: 34, left: 46 };
   const iw = Math.max(0, w - m.left - m.right);
   const ih = Math.max(0, h - m.top - m.bottom);
 
@@ -256,6 +312,11 @@ export function LineChart({
   const lead = hoverPts.find(Boolean) ?? null;
   const zero = y(0);
 
+  // A new set of lines plays the reveal again; a resize only stretches it.
+  const epoch = series.map((s) => `${s.id}:${s.points.length}:${s.points[0]?.x ?? ''}:${s.points[s.points.length - 1]?.y ?? ''}`).join('|');
+  const revealRect = useReveal(iw + 8, epoch);
+  const faded = (i: number) => focus !== null && focus !== i;
+
   function toX(e: React.PointerEvent | React.MouseEvent): number {
     const r = (e.currentTarget as Element).getBoundingClientRect();
     return x.invert(Math.min(iw, Math.max(0, e.clientX - r.left)));
@@ -311,7 +372,7 @@ export function LineChart({
               <stop offset="100%" stopColor="rgb(var(--c-fg))" stopOpacity={0} />
             </linearGradient>
             <clipPath id={`${uid}-clip`}>
-              <rect x={-4} y={-6} width={iw + 8} height={ih + 12} />
+              <rect ref={revealRect} x={-4} y={-6} width={0} height={ih + 12} />
             </clipPath>
           </defs>
           <g transform={`translate(${m.left},${m.top})`}>
@@ -350,7 +411,9 @@ export function LineChart({
               ))}
             <g clipPath={`url(#${uid}-clip)`} mask={compact ? undefined : `url(#${uid}-linemask)`}>
               {series.map((_s, i) =>
-                paths[i].area ? <path key={`a${i}`} d={paths[i].area!} fill={`url(#${uid}-a${i})`} className="chart-fade" style={{ animationDelay: '250ms' }} /> : null,
+                paths[i].area ? (
+                  <path key={`a${i}`} d={paths[i].area!} fill={`url(#${uid}-a${i})`} opacity={faded(i) ? 0.15 : 1} style={{ transition: 'opacity 150ms ease' }} />
+                ) : null,
               )}
               {series.map((s, i) => (
                 <path
@@ -359,11 +422,11 @@ export function LineChart({
                   pathLength={1}
                   fill="none"
                   stroke={s.color}
-                  strokeWidth={s.width ?? 2}
+                  strokeWidth={(s.width ?? 2) + (focus === i ? 1 : 0)}
                   strokeLinecap="round"
                   strokeLinejoin="round"
-                  className="chart-draw"
-                  style={{ animationDelay: `${i * 120}ms` }}
+                  opacity={faded(i) ? 0.2 : 1}
+                  style={{ transition: 'opacity 150ms ease, stroke-width 150ms ease', filter: focus === i ? `drop-shadow(0 0 6px ${s.color})` : undefined }}
                 />
               ))}
               {series.map((s, i) =>
@@ -378,8 +441,7 @@ export function LineChart({
                           fill={typeof s.dots === 'function' ? s.dots(p) : s.color}
                           stroke="rgb(var(--c-panel))"
                           strokeWidth={2}
-                          className="chart-fade"
-                          style={{ animationDelay: `${300 + k * 25}ms` }}
+                          opacity={faded(i) ? 0.2 : 1}
                         />
                       ),
                     )
@@ -404,7 +466,26 @@ export function LineChart({
           </g>
         </svg>
       )}
-      {narrow && !compact && !lead && (
+      {legend && !(narrow && lead) && (
+        <div className={`chart-fade absolute inset-x-0 top-1.5 flex flex-wrap justify-center gap-1.5 px-2 ${narrow ? '' : 'sm:justify-end'}`} role="group" aria-label="Lines">
+          {series.map((s, i) => (
+            <button
+              key={s.id}
+              type="button"
+              aria-pressed={focus === i}
+              onPointerEnter={(e) => e.pointerType === 'mouse' && setFocus(i)}
+              onPointerLeave={(e) => e.pointerType === 'mouse' && setFocus(null)}
+              onClick={() => setFocus((f) => (f === i ? null : i))}
+              className="flex max-w-[48%] items-center gap-1.5 rounded-full border border-line px-2.5 py-1 text-xs"
+              style={{ opacity: faded(i) ? 0.4 : 1, transition: 'opacity 150ms ease, border-color 150ms ease', borderColor: focus === i ? s.color : undefined }}
+            >
+              <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: s.color, boxShadow: focus === i ? `0 0 8px ${s.color}` : undefined }} />
+              <span className="truncate">{s.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      {narrow && !compact && !lead && !legend && (
         <p className="chart-fade pointer-events-none absolute inset-x-0 top-2.5 text-center text-xs text-muted/70">Slide a finger across the chart</p>
       )}
       {!compact && w > 0 && (

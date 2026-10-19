@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Rolling } from '../components/ui/Rolling';
 import { useParams } from 'react-router-dom';
 import { formatLapTime, splitTimes, type LapRecord } from '@laptimer/core';
 import { loadBoard } from '../components/track/LeaderboardTab';
@@ -106,7 +107,7 @@ export function DriveResult() {
         {lap ? (
           <>
             <div className="mt-1 font-mono text-[clamp(2.9rem,14vw,3.6rem)] font-extrabold leading-none tabular">
-              {reveal ? <LandingDigits text={formatLapTime(lap.timeMs)} /> : formatLapTime(lap.timeMs)}
+              <Rolling text={formatLapTime(lap.timeMs)} from={reveal} delay={180} />
             </div>
             {gapMs !== null && gapMs >= 0 && <div className="mt-2 text-sm font-semibold text-loss">{formatGap(gapMs, 3)} s to your best</div>}
             {result.laps > 1 && <div className="mt-1 text-xs text-muted">Best of {result.laps} laps</div>}
@@ -125,7 +126,9 @@ export function DriveResult() {
               return (
                 <div key={k} className="flex items-baseline gap-3 py-1.5">
                   <span className="flex-1 text-muted">Part {k + 1}</span>
-                  <span className={`font-mono text-lg font-bold tabular ${ms <= bestParts[k] ? PURPLE : ''}`}>{(ms / 1000).toFixed(2)}</span>
+                  <span className={`font-mono text-lg font-bold tabular ${ms <= bestParts[k] ? PURPLE : ''}`}>
+                    <Rolling text={(ms / 1000).toFixed(2)} from={reveal} delay={350 + k * 90} />
+                  </span>
                   {gap !== null && <span className={`w-16 text-right font-mono text-sm font-semibold tabular ${gap < 0 ? 'text-gain' : 'text-loss'}`}>{formatGap(gap)}</span>}
                 </div>
               );
@@ -186,22 +189,6 @@ export function DriveResult() {
         )}
       </div>
     </div>
-  );
-}
-
-/** The stage time, its characters landing one after another (the card's one flourish). */
-function LandingDigits({ text }: { text: string }) {
-  return (
-    <>
-      <span className="sr-only">{text}</span>
-      <span aria-hidden="true">
-        {[...text].map((ch, i) => (
-          <span key={i} className="tc-digit" style={{ animationDelay: `${180 + i * 35}ms` }}>
-            {ch}
-          </span>
-        ))}
-      </span>
-    </>
   );
 }
 
