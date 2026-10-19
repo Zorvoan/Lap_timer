@@ -24,7 +24,7 @@ import { IconPause, IconPlay } from '../ui/icons';
 import { BaseMap, FitBounds, PrefetchRoute } from '../map/BaseMap';
 import { RouteLayer } from '../map/RouteLayer';
 import { TimingLineView } from '../map/TimingLines';
-import { COLOR_A, COLOR_B, COLOR_GAIN, COLOR_LOSS, DeltaDistanceChart, SpeedDistanceChart, SpeedTimeChart } from '../charts/Charts';
+import { COLOR_A, COLOR_B, COLOR_GAIN, COLOR_LOSS, DeltaDistanceChart, SpeedDistanceChart } from '../charts/Charts';
 import { RadarChart, type RadarMetric } from '../charts/RadarChart';
 import { drivingStyle, type DrivingStyle } from '../../lib/drivingStyle';
 import { lapLength } from '../../lib/references';
@@ -141,9 +141,6 @@ export function ComparisonCharts({
         <div className="h-56">
           {A && rows.length ? <SpeedDistanceChart rows={rows} speedUnit={speedUnit} distanceUnit={distanceUnit} labelA={labelA} labelB={B ? labelB : null} gaps={gaps} /> : <Unavailable />}
         </div>
-      </Panel>
-      <Panel title={`Speed vs time (${speedLabel(speedUnit)})`}>
-        <div className="h-56">{A ? <SpeedTimeChart laps={B ? [A, B] : [A]} speedUnit={speedUnit} colors={[COLOR_A, COLOR_B]} /> : <Unavailable />}</div>
       </Panel>
     </>
   );
