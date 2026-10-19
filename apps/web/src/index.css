@@ -297,9 +297,6 @@ select {
 @keyframes lt-chart-roll { from { opacity: 0; transform: translateY(70%); } }
 /* Rolling digits: each column springs to its new digit, a touch past it and back. */
 .roll-col { transition: transform 750ms cubic-bezier(0.3, 1.35, 0.5, 1); }
-/* Bars grow out of the baseline with a little overshoot, one after another. */
-.bar-grow { transform-box: fill-box; animation: lt-bar-grow 700ms cubic-bezier(0.34, 1.4, 0.64, 1) var(--d, 0ms) backwards; }
-@keyframes lt-bar-grow { from { transform: scaleY(0); } }
 /* Loading charts: a pulse runs along a placeholder line, light sweeps the field, the label shimmers. */
 .chart-pulse { stroke-dasharray: 0.35 1.65; animation: lt-chart-pulse 2.2s cubic-bezier(0.85, 0, 0.15, 1) infinite; }
 @keyframes lt-chart-pulse { from { stroke-dashoffset: 0.35; } to { stroke-dashoffset: -1.65; } }
@@ -333,7 +330,6 @@ select {
   .tour-spot::after { animation: none; opacity: 0.9; }
   .tour-dot { transition: none; }
   .roll-col { transition: none; }
-  .bar-grow { animation-name: lt-fade-in; }
   .chart-pulse, .chart-sweep, .shimmer-text { animation: none; }
   .shimmer-text { color: rgb(var(--c-muted)); background: none; }
   .chart-halo, .chart-roll { animation: none; }
