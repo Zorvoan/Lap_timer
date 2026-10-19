@@ -57,9 +57,13 @@ describe('driver rating', () => {
   });
 
   it('compares skills with the fastest driver', () => {
-    // The fastest driver carries 4 m/s more through the corners.
-    expect(r.skills.corners!.value).toBeLessThan(0);
-    expect(r.skills.corners!.score).toBeLessThan(100);
+    // The fastest driver carries more speed through the same corners. Both laps are measured on
+    // them, classed by the average of the two apex speeds (just over 60 km/h here), even though
+    // this driver takes them below 60.
+    expect(r.skills.fastCorners!.value).toBeLessThan(-1);
+    expect(r.skills.fastCorners!.score).toBeLessThan(100);
+    expect(r.skills.slowCorners).toBeNull();
+    expect(r.skills.topSpeed!.value).toBeCloseTo(0, 5);
     expect(r.skills.consistency).not.toBeNull();
     expect(r.losses.length).toBeGreaterThan(0);
     expect(r.losses[0].refName).toBe('Fast');

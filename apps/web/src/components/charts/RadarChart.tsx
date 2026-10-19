@@ -10,7 +10,7 @@ import { useSeen } from '../../hooks/useSeen';
 export interface RadarMetric {
   key: string;
   label: string;
-  /** Shorter name around the web (narrow screens); the tooltip uses `label`. */
+  /** Shorter name around the web (narrow screens), `\n` for a second line; the tooltip uses `label`. */
   short?: string;
 }
 
@@ -145,12 +145,12 @@ export function RadarChart({ metrics, series, ariaLabel }: { metrics: readonly R
             const lx = (x / (r || 1)) * (r + 20) * t;
             const ly = (y / (r || 1)) * (r + 20) * t;
             const anchor = Math.abs(x) < 4 ? 'middle' : x > 0 ? 'start' : 'end';
+            const lines = (m.short ?? m.label).split('\n');
             return (
               <text
                 key={m.key}
                 x={lx}
                 y={ly}
-                dy="0.35em"
                 textAnchor={anchor}
                 fontSize={12}
                 fontWeight={hm === i ? 700 : 500}
@@ -158,7 +158,11 @@ export function RadarChart({ metrics, series, ariaLabel }: { metrics: readonly R
                 opacity={t}
                 style={{ transition: 'fill 150ms ease' }}
               >
-                {m.short ?? m.label}
+                {lines.map((line, k) => (
+                  <tspan key={k} x={lx} dy={k === 0 ? `${0.35 - (lines.length - 1) * 0.6}em` : '1.2em'}>
+                    {line}
+                  </tspan>
+                ))}
               </text>
             );
           })}

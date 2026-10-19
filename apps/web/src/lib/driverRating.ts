@@ -1,13 +1,13 @@
 import { compareLaps, gainLoss, type LapRecord, type Session } from '@laptimer/core';
-import { drivingStyle } from './drivingStyle';
+import { drivingStyle, pairedCorners } from './drivingStyle';
 
 /**
  * A driver's rating, measured against the other drivers on the same roads rather than on fixed
- * scales, so it rewards being quick, not braking hard or cornering fast for its own sake:
+ * scales, so it rewards being quick:
  *
  * - the rating is how close the driver's best times are to the record on the leaderboard roads
  *   they drive;
- * - braking, corners and acceleration compare their best lap with the fastest other driver's lap
+ * - top speed and the speed through fast and slow corners compare their best lap with the fastest other driver's lap
  *   on the same road;
  * - consistency is the spread of their last laps on a road;
  * - "where you lose time" lists the stretches that cost the most against that fastest lap.
@@ -31,13 +31,12 @@ export interface DriverRating {
   totals: { laps: number; km: number; roads: number };
 }
 
-export type SkillKey = 'braking' | 'corners' | 'accel' | 'consistency';
+export type SkillKey = 'topSpeed' | 'fastCorners' | 'slowCorners' | 'consistency';
 
 export interface Skill {
   score: number;
   /**
-   * Braking and acceleration: g against the fastest driver (negative = softer);
-   * corners: apex speed against the fastest driver in m/s; consistency: % spread of the last laps.
+   * Speeds: m/s against the fastest driver (negative = slower); consistency: % spread of the last laps.
    */
   value: number;
 }
@@ -66,7 +65,6 @@ export interface Loss {
   lap: number;
 }
 
-const G = 9.81;
 /** Below this many laps on leaderboard roads the rating is marked provisional. */
 const PROVISIONAL_LAPS = 5;
 /** Fields smaller than this say little about position. */
@@ -81,7 +79,7 @@ const mean = (xs: number[]) => xs.reduce((s, x) => s + x, 0) / xs.length;
 
 /** Best time over the record: at the record 100, 20% slower 0. */
 const paceScore = (ratio: number) => scale(ratio, 0.8, 1);
-/** Own value over the fastest driver's: as hard / as fast as them is 100, 30% less is 0. */
+/** Own speed over the fastest driver's: as fast as them is 100, 30% slower is 0. */
 const matchScore = (ratio: number) => scale(ratio, 0.7, 1);
 /** Spread of lap times (standard deviation over mean): 1% is very consistent, 10% is not. */
 const consistencyScore = (spread: number) => scale(spread, 0.1, 0.01);
@@ -135,13 +133,11 @@ export function driverRating(sessions: readonly Session[], boards: readonly Road
     .filter((b) => b.ref)
     .map((b) => ({ b, mine: drivingStyle(best.get(b.circuitId)!.lap), ref: drivingStyle(b.ref!.lap) }))
     .filter((p) => p.mine && p.ref) as { b: RoadBoard; mine: NonNullable<ReturnType<typeof drivingStyle>>; ref: NonNullable<ReturnType<typeof drivingStyle>> }[];
-  const relative = (pick: (s: NonNullable<ReturnType<typeof drivingStyle>>) => number, toValue: (d: number) => number): Skill | null => {
-    const usable = pairs.filter((p) => pick(p.ref) > 0);
+  // Each lap's speed against the fastest driver's: top speed, or the same corners on both laps.
+  const relative = (pick: (p: (typeof pairs)[number]) => { mine: number; ref: number } | null): Skill | null => {
+    const usable = pairs.map(pick).filter((p): p is { mine: number; ref: number } => p !== null && p.ref > 0);
     if (!usable.length) return null;
-    return {
-      score: mean(usable.map((p) => matchScore(pick(p.mine) / pick(p.ref)))),
-      value: mean(usable.map((p) => toValue(pick(p.mine) - pick(p.ref)))),
-    };
+    return { score: mean(usable.map((p) => matchScore(p.mine / p.ref))), value: mean(usable.map((p) => p.mine - p.ref)) };
   };
 
   // Consistency: the last laps on each road driven three or more times.
@@ -155,9 +151,15 @@ export function driverRating(sessions: readonly Session[], boards: readonly Road
     });
 
   const skills: DriverRating['skills'] = {
-    braking: relative((s) => s.braking, (d) => d / G),
-    corners: relative((s) => s.cornerSpeed, (d) => d),
-    accel: relative((s) => s.accel, (d) => d / G),
+    topSpeed: relative((p) => ({ mine: p.mine.topSpeed, ref: p.ref.topSpeed })),
+    fastCorners: relative((p) => {
+      const c = pairedCorners(p.mine, p.ref).fast;
+      return c && { mine: c.a, ref: c.b };
+    }),
+    slowCorners: relative((p) => {
+      const c = pairedCorners(p.mine, p.ref).slow;
+      return c && { mine: c.a, ref: c.b };
+    }),
     consistency: spreads.length ? { score: consistencyScore(mean(spreads)), value: mean(spreads) * 100 } : null,
   };
 

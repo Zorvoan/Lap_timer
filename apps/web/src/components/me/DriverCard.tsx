@@ -13,9 +13,9 @@ import { useSeen } from '../../hooks/useSeen';
 import { ratingLabel, type DriverRating, type Skill, type SkillKey } from '../../lib/driverRating';
 
 const SKILLS: { key: SkillKey; label: string }[] = [
-  { key: 'braking', label: 'Braking' },
-  { key: 'corners', label: 'Corners' },
-  { key: 'accel', label: 'Acceleration' },
+  { key: 'fastCorners', label: 'Fast corners' },
+  { key: 'slowCorners', label: 'Slow corners' },
+  { key: 'topSpeed', label: 'Top speed' },
   { key: 'consistency', label: 'Consistency' },
 ];
 
@@ -24,8 +24,7 @@ const signed = (v: number, digits: number) => `${v >= 0 ? '+' : '−'}${Math.abs
 function detail(key: SkillKey, s: Skill | null, unit: SpeedUnit): string {
   if (!s) return key === 'consistency' ? 'Drive a road 3 times' : 'Needs a leaderboard lap to compare';
   if (key === 'consistency') return `±${s.value.toFixed(1)}% over your last laps`;
-  if (key === 'corners') return `${signed(convertSpeed(s.value, unit), 0)} ${speedLabel(unit)} vs fastest`;
-  return `${signed(s.value, 2)} g vs fastest`;
+  return `${signed(convertSpeed(s.value, unit), 0)} ${speedLabel(unit)} vs fastest`;
 }
 
 function Change({ value }: { value: number | null }) {
