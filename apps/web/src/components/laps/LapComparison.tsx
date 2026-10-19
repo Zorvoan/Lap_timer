@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { CircleMarker, Polyline, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import {
@@ -95,11 +95,41 @@ export function ABButtons({ isA, isB, onA, onB }: { isA: boolean; isB: boolean; 
   );
 }
 
+/**
+ * The distance a finger is on in the comparison charts. The replay map below reads it and moves
+ * the cars there, so sliding along a chart shows where on the road that is.
+ */
+let chartDistance: number | null = null;
+const chartListeners = new Set<() => void>();
+function setChartDistance(d: number | null) {
+  if (d === chartDistance) return;
+  chartDistance = d;
+  chartListeners.forEach((l) => l());
+}
+function subscribeChartDistance(l: () => void) {
+  chartListeners.add(l);
+  return () => void chartListeners.delete(l);
+}
+
+/** When the lap reached distance d (ms), interpolated between trace points. */
+function timeAtDistance(trace: LapRecord['trace'], d: number): number | null {
+  if (!trace.length) return null;
+  if (d <= trace[0].d) return trace[0].t;
+  for (let i = 1; i < trace.length; i++) {
+    const b = trace[i];
+    if (b.d >= d) {
+      const a = trace[i - 1];
+      return a.t + (b.d > a.d ? (d - a.d) / (b.d - a.d) : 0) * (b.t - a.t);
+    }
+  }
+  return trace[trace.length - 1].t;
+}
+
 function Unavailable() {
   return <p className="text-sm text-muted">No data available.</p>;
 }
 
-/** Delta, speed-vs-distance and speed-vs-time charts for laps A and B. */
+/** Delta and speed-vs-distance charts and the driving style of laps A and B. */
 export function ComparisonCharts({
   A,
   B,
@@ -130,7 +160,7 @@ export function ComparisonCharts({
       >
         <div className="h-56">
           {A && B ? (
-            <DeltaDistanceChart rows={rows} distanceUnit={distanceUnit} gaps={gaps} />
+            <DeltaDistanceChart rows={rows} distanceUnit={distanceUnit} gaps={gaps} onHover={setChartDistance} />
           ) : (
             <p className="text-sm text-muted">Select a lap B to see where lap A gained (green, below zero) or lost (red) time. Laps are aligned by distance along the circuit.</p>
           )}
@@ -139,7 +169,7 @@ export function ComparisonCharts({
       {A && B && <StylePanel A={A} B={B} labelA={labelA} labelB={labelB ?? 'B'} speedUnit={speedUnit} />}
       <Panel title={`Speed vs distance (${speedLabel(speedUnit)})`}>
         <div className="h-56">
-          {A && rows.length ? <SpeedDistanceChart rows={rows} speedUnit={speedUnit} distanceUnit={distanceUnit} labelA={labelA} labelB={B ? labelB : null} gaps={gaps} /> : <Unavailable />}
+          {A && rows.length ? <SpeedDistanceChart rows={rows} speedUnit={speedUnit} distanceUnit={distanceUnit} labelA={labelA} labelB={B ? labelB : null} gaps={gaps} onHover={setChartDistance} /> : <Unavailable />}
         </div>
       </Panel>
     </>
@@ -295,6 +325,22 @@ export function ReplayPanel({
   const deltaA = posA ? deltaAt(posA.d) : null;
   const deltaB = posB ? deltaAt(posB.d) : null;
   const deltaHere = onB ? (deltaB === null ? null : -deltaB) : deltaA;
+
+  // Sliding along a chart above puts the followed car at that distance (the other one where it
+  // was at the same moment).
+  const scrubD = useSyncExternalStore(subscribeChartDistance, () => chartDistance);
+  const scrubTo = useRef((_d: number) => {});
+  scrubTo.current = (d) => {
+    // The charts' rows hold each lap's time at exactly the distances they plot.
+    const row = rows.length && lengthM > 0 ? rows[Math.min(rows.length - 1, Math.max(0, Math.round((d / lengthM) * (rows.length - 1))))] : null;
+    const at = row ? (onB ? row.tB : row.tA) : timeAtDistance(onB && lapB ? lapB.trace : lapA.trace, d);
+    if (at === null) return;
+    setPlaying(false);
+    setT(Math.min(endMs, Math.max(0, at)));
+  };
+  useEffect(() => {
+    if (scrubD !== null) scrubTo.current(scrubD);
+  }, [scrubD]);
 
   const segments = useMemo(() => {
     if (!circuit || !lapB || !rows.length) return [];
