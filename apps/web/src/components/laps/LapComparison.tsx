@@ -21,7 +21,7 @@ import {
 } from '@laptimer/core';
 import { Badge, Button, Panel, Stat } from '../ui/primitives';
 import { IconPause, IconPlay } from '../ui/icons';
-import { BaseMap, FitBounds } from '../map/BaseMap';
+import { BaseMap, FitBounds, PrefetchRoute } from '../map/BaseMap';
 import { RouteLayer } from '../map/RouteLayer';
 import { TimingLineView } from '../map/TimingLines';
 import { COLOR_A, COLOR_B, COLOR_GAIN, COLOR_LOSS, DeltaDistanceChart, SpeedDistanceChart, SpeedTimeChart } from '../charts/Charts';
@@ -231,10 +231,16 @@ export function ReplayPanel({
     });
   }, [circuit, lapB, rows, lengthM]);
 
-  const bounds = useMemo(() => {
-    const pts = circuit ? circuit.geometry.map(([lon, lat]) => [lat, lon] as [number, number]) : lapA.trace.map((p) => [p.lat, p.lon] as [number, number]);
-    return pts.length > 1 ? L.latLngBounds(pts) : null;
-  }, [circuit, lapA]);
+  const route = useMemo(
+    () => (circuit ? circuit.geometry.map(([lon, lat]) => [lat, lon] as [number, number]) : lapA.trace.map((p) => [p.lat, p.lon] as [number, number])),
+    [circuit, lapA],
+  );
+  const bounds = useMemo(() => (route.length > 1 ? L.latLngBounds(route) : null), [route]);
+  // Once a replay starts, load the road ahead at the follow zoom so the map keeps up with the car.
+  const [warm, setWarm] = useState(false);
+  useEffect(() => {
+    if (playing) setWarm(true);
+  }, [playing]);
 
   return (
     <Panel title={lapB ? `Map · ${labelA} vs ${labelB}: green = A gained, red = A lost` : `Map replay · ${labelA}`} bodyClass="p-0">
@@ -251,6 +257,7 @@ export function ReplayPanel({
             {posB && <CircleMarker center={[posB.lat, posB.lon]} radius={7} pathOptions={{ color: '#000', weight: 2, fillColor: COLOR_B, fillOpacity: 1 }} />}
             {posA && <CircleMarker center={[posA.lat, posA.lon]} radius={8} pathOptions={{ color: '#fff', weight: 2, fillColor: COLOR_A, fillOpacity: 1 }} />}
             {followed ? <FollowCar position={followed} /> : <FitBounds bounds={bounds} fitKey={circuit?.id ?? labelA} padding={24} />}
+            <PrefetchRoute points={route} zooms={FOLLOW_ZOOMS} active={warm} />
           </BaseMap>
         </div>
         <div className="space-y-4 border-t border-line p-4 lg:border-l lg:border-t-0">
@@ -315,6 +322,7 @@ export function ReplayPanel({
 
 /** Zoom the replay map uses while following a car: a few hundred metres of road around it. */
 const FOLLOW_ZOOM = 16;
+const FOLLOW_ZOOMS = [FOLLOW_ZOOM];
 
 /**
  * Keeps the map centred on a moving car. It zooms in once; the user may still zoom with the

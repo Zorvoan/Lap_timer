@@ -100,7 +100,7 @@ export function SettingsPage() {
             <Field label="Map style">
               <Select value={settings.mapStyle} onChange={(e) => void update({ mapStyle: e.target.value as 'dark' | 'standard' })}>
                 <option value="dark">Dark</option>
-                <option value="standard">Standard OpenStreetMap</option>
+                <option value="standard">Light</option>
               </Select>
             </Field>
           </div>

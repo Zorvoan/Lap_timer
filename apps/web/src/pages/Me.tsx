@@ -1,21 +1,23 @@
-import { useState, useSyncExternalStore } from 'react';
+import { useMemo, useState, useSyncExternalStore } from 'react';
 import { Link } from 'react-router-dom';
-import { formatLapTime, summarizeSession } from '@laptimer/core';
 import { InstallCard } from '../components/InstallCard';
 import { NotifySwitch } from '../components/NotifySwitch';
-import { SimBadge, Spinner } from '../components/ui/primitives';
+import { Spinner } from '../components/ui/primitives';
 import { IconChevronRight, IconUser } from '../components/ui/icons';
 import { useAccount, useData } from '../hooks/useData';
 import { install } from '../lib/install';
 import { listSessions } from '../lib/repo';
+import { useSettings } from '../hooks/useSettings';
+import { LapRows, lapRows } from './Sessions';
 
 /** Everything that is not a track: the account, past drives and settings. */
 export function Me() {
   const acc = useAccount();
   const installed = useSyncExternalStore(install.subscribe, install.getState).installed;
   const [showInstall, setShowInstall] = useState(false);
+  const { settings } = useSettings();
   const { data: sessions, loading } = useData(() => listSessions(), []);
-  const recent = (sessions ?? []).slice(0, 3);
+  const laps = useMemo(() => lapRows(sessions ?? [], settings.includeSimulatedInBests), [sessions, settings.includeSimulatedInBests]);
 
   const signedIn = acc.status === 'signed_in';
   const name = acc.profile?.nickname ?? (signedIn ? acc.user?.email ?? 'Signed in' : 'Sign in');
@@ -45,44 +47,24 @@ export function Me() {
         </Link>
       )}
 
-      <h2 className="label px-4 pb-2 pt-6">My drives</h2>
-      <ul className="border-y border-line">
+      <h2 className="label px-4 pb-2 pt-6">My laps</h2>
+      <div className="border-y border-line">
         {loading && !sessions ? (
-          <li className="px-4 py-3">
+          <div className="px-4 py-3">
             <Spinner />
-          </li>
-        ) : recent.length === 0 ? (
-          <li className="px-4 py-3 text-sm text-muted">No drives yet. Pick a track and press Drive.</li>
+          </div>
+        ) : laps.length === 0 ? (
+          <p className="px-4 py-3 text-sm text-muted">No laps yet. Pick a road and press Drive.</p>
         ) : (
-          recent.map((s) => {
-            const sum = summarizeSession(s.laps);
-            return (
-              <li key={s.id} className="border-b border-line last:border-0">
-                <Link to={`/sessions/${s.id}`} className="flex items-center gap-3 px-4 py-3 hover:bg-raised active:bg-raised">
-                  <span className="min-w-0 flex-1">
-                    <span className="flex items-center gap-2 truncate font-semibold">
-                      {s.circuitName} {s.source === 'simulated' && <SimBadge />}
-                    </span>
-                    <span className="block text-xs text-muted">
-                      {new Date(s.startedAt).toLocaleDateString()}, {sum.laps} {sum.laps === 1 ? 'lap' : 'laps'}
-                    </span>
-                  </span>
-                  <span className="font-mono text-sm tabular">{formatLapTime(sum.bestLap?.timeMs)}</span>
-                  <IconChevronRight width={18} height={18} className="text-muted" />
-                </Link>
-              </li>
-            );
-          })
+          <LapRows rows={laps.slice(0, 3)} />
         )}
-        {(sessions?.length ?? 0) > recent.length && (
-          <li className="border-t border-line">
-            <Link to="/sessions" className="flex items-center px-4 py-3 text-sm text-muted hover:bg-raised active:bg-raised hover:text-fg">
-              <span className="flex-1">All drives ({sessions!.length})</span>
-              <IconChevronRight width={18} height={18} />
-            </Link>
-          </li>
+        {laps.length > 3 && (
+          <Link to="/sessions" className="flex items-center border-t border-line px-4 py-3 text-sm text-muted hover:bg-raised hover:text-fg active:bg-raised">
+            <span className="flex-1">All laps ({laps.length})</span>
+            <IconChevronRight width={18} height={18} />
+          </Link>
         )}
-      </ul>
+      </div>
 
       {signedIn && (
         <div className="mt-6 border-y border-line px-4 py-3.5">
