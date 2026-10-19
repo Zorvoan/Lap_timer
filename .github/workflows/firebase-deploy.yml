@@ -1,6 +1,7 @@
 # Builds the PWA and deploys it to Firebase Hosting (https://laptimer-okwph.web.app).
 # Needs the repository secret FIREBASE_SERVICE_ACCOUNT: the JSON key of a service account with
-# the "Firebase Hosting Admin" and "API Keys Viewer" roles on project laptimer-okwph.
+# the "Firebase Hosting Admin" and "API Keys Viewer" roles on project laptimer-okwph. Optional:
+# CARTO_API_KEY, a CARTO basemaps key for the maps (https://carto.com/basemaps/apikey/).
 name: Deploy to Firebase Hosting
 
 on:
@@ -32,6 +33,9 @@ jobs:
 
       - name: Build (Firebase mode)
         run: npm run build:firebase -w @laptimer/web
+        env:
+          # Optional CARTO basemaps key (sharper, faster maps); without it the maps use OpenStreetMap.
+          VITE_CARTO_KEY: ${{ secrets.CARTO_API_KEY }}
 
       - name: Deploy
         uses: FirebaseExtended/action-hosting-deploy@v0
