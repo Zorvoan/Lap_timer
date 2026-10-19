@@ -139,8 +139,9 @@ export function Onboarding({ paused }: { paused: boolean }) {
   return (
     <Tour
       nickname={acc.profile?.nickname ?? ''}
+      // Seen as soon as it is dismissed, even if the app is closed during the fade-out.
+      onSeen={() => markSeen(uid)}
       onDone={() => {
-        markSeen(uid);
         replay = false;
         setOpen(false);
       }}
@@ -152,7 +153,7 @@ function visible(sel: string): HTMLElement | null {
   return [...document.querySelectorAll<HTMLElement>(sel)].find((el) => el.getClientRects().length > 0) ?? null;
 }
 
-function Tour({ nickname, onDone }: { nickname: string; onDone: () => void }) {
+function Tour({ nickname, onSeen, onDone }: { nickname: string; onSeen: () => void; onDone: () => void }) {
   const reduce = useReducedMotion();
   const [i, setI] = useState(0);
   const [dir, setDir] = useState<'next' | 'back'>('next');
@@ -186,6 +187,7 @@ function Tour({ nickname, onDone }: { nickname: string; onDone: () => void }) {
   }
   function finish() {
     if (closing) return;
+    onSeen();
     setClosing(true);
     setTimeout(onDone, reduce ? 0 : 220);
   }

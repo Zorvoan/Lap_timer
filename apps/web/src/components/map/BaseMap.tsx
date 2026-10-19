@@ -94,16 +94,55 @@ export function BaseMap({
       doubleClickZoom={interactive}
       boxZoom={interactive}
       keyboard={interactive}
-      className={`isolate h-full w-full ${settings.mapStyle === 'dark' ? 'map-dark' : ''} ${className}`}
+      className={`isolate h-full w-full ${settings.mapStyle === 'dark' ? 'map-dark' : 'map-light'} ${className}`}
       attributionControl
     >
-      <TileLayer url={config.tileUrl} attribution={config.tileAttribution} maxZoom={19} />
+      {/* Extra rows of tiles kept around the view, so panning never shows a blank edge. */}
+      <TileLayer key={settings.mapStyle} url={tileTemplate(settings.mapStyle)} subdomains={config.tileSubdomains} attribution={config.tileAttribution} maxZoom={20} keepBuffer={4} />
       {interactive && <ZoomControl position="bottomright" />}
       {interactive && <RememberView />}
       <TrackSize />
       {children}
     </MapContainer>
   );
+}
+
+const tileTemplate = (style: string) => (style === 'dark' ? config.tiles.dark : config.tiles.light);
+
+/** The tile URL Leaflet itself would request, so a prefetched tile is a cache hit later. */
+function tileUrl(style: string, z: number, x: number, y: number): string {
+  const subs = config.tileSubdomains;
+  return tileTemplate(style)
+    .replace('{s}', subs ? subs[Math.abs(x + y) % subs.length] : '')
+    .replace('{z}', String(z))
+    .replace('{x}', String(x))
+    .replace('{y}', String(y))
+    .replace('{r}', L.Browser.retina ? '@2x' : '');
+}
+
+/**
+ * Loads the tiles along a route at the zooms given, ahead of a replay that follows the car, so the
+ * map never waits for the next stretch of road. At most `max` tiles; already cached ones are free.
+ */
+export function PrefetchRoute({ points, zooms, active, max = 240 }: { points: readonly [number, number][]; zooms: readonly number[]; active: boolean; max?: number }) {
+  const map = useMap();
+  const { settings } = useSettings();
+  useEffect(() => {
+    if (!active || points.length < 2) return;
+    const want = new Set<string>();
+    for (const z of zooms) {
+      for (const [lat, lon] of points) {
+        const p = map.project([lat, lon], z).divideBy(256).floor();
+        for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) want.add(`${z}/${p.x + dx}/${p.y + dy}`);
+        if (want.size >= max) break;
+      }
+    }
+    for (const k of [...want].slice(0, max)) {
+      const [z, x, y] = k.split('/').map(Number);
+      new Image().src = tileUrl(settings.mapStyle, z, x, y);
+    }
+  }, [active, points, zooms, max, map, settings.mapStyle]);
+  return null;
 }
 
 /** HTML overlay inside the map that does not pass clicks or scrolls through to the map. */

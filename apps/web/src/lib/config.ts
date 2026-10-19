@@ -6,8 +6,16 @@ function str(v: unknown, fallback: string): string {
 }
 
 export const config = {
-  tileUrl: str(env.VITE_TILE_URL, 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'),
-  tileAttribution: str(env.VITE_TILE_ATTRIBUTION, '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'),
+  /** Map tiles, one set per map style ({s} subdomain, {r} "@2x" on sharp screens). */
+  tiles: {
+    dark: str(env.VITE_TILE_URL_DARK, 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'),
+    light: str(env.VITE_TILE_URL, 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png'),
+  },
+  tileSubdomains: str(env.VITE_TILE_SUBDOMAINS, 'abcd'),
+  tileAttribution: str(
+    env.VITE_TILE_ATTRIBUTION,
+    '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+  ),
   osrmUrl: str(env.VITE_OSRM_URL, 'https://router.project-osrm.org').replace(/\/+$/, ''),
   osrmProfile: str(env.VITE_OSRM_PROFILE, 'driving'),
   geocoderUrl: str(env.VITE_GEOCODER_URL, 'https://nominatim.openstreetmap.org').replace(/\/+$/, ''),

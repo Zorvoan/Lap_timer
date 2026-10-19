@@ -43,13 +43,13 @@ export default defineConfig({
         importScripts: ['/push-sw.js'],
         runtimeCaching: [
           {
-            // Tiles you have viewed stay available offline for a week. No bulk prefetching:
-            // that would violate the OpenStreetMap tile usage policy.
-            urlPattern: ({ url }) => url.hostname.endsWith('tile.openstreetmap.org'),
+            // Map tiles you have seen (or that were loaded ahead along a road) stay on the phone
+            // for a month, so maps of roads you know open instantly, even without signal.
+            urlPattern: ({ url }) => url.hostname.endsWith('basemaps.cartocdn.com'),
             handler: 'CacheFirst',
             options: {
-              cacheName: 'osm-tiles',
-              expiration: { maxEntries: 1500, maxAgeSeconds: 7 * 24 * 3600 },
+              cacheName: 'map-tiles',
+              expiration: { maxEntries: 4000, maxAgeSeconds: 30 * 24 * 3600 },
               cacheableResponse: { statuses: [0, 200] },
             },
           },
