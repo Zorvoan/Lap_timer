@@ -22,9 +22,10 @@ const SKILLS: { key: SkillKey; label: string }[] = [
 const signed = (v: number, digits: number) => `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(digits)}`;
 
 function detail(key: SkillKey, s: Skill | null, unit: SpeedUnit): string {
-  if (!s) return key === 'consistency' ? 'Drive a road 3 times' : 'Needs a leaderboard lap to compare';
+  if (!s) return key === 'consistency' ? 'Drive a road 3 times' : key === 'topSpeed' ? 'Needs other drivers to compare' : 'No shared corners with other drivers yet';
   if (key === 'consistency') return `±${s.value.toFixed(1)}% over your last laps`;
-  return `${signed(convertSpeed(s.value, unit), 0)} ${speedLabel(unit)} vs fastest`;
+  const diff = `${signed(convertSpeed(s.value, unit), 0)} ${speedLabel(unit)} vs others`;
+  return key === 'topSpeed' ? diff : `${diff} · ${s.count} corner${s.count === 1 ? '' : 's'}`;
 }
 
 function Change({ value }: { value: number | null }) {

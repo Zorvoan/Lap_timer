@@ -96,3 +96,43 @@ export function pairedCorners(a: DrivingStyle, b: DrivingStyle): Record<'slow' |
   const out = (k: { a: number; b: number; count: number }) => (k.count ? { a: k.a / k.count, b: k.b / k.count, count: k.count } : null);
   return { slow: out(acc.slow), fast: out(acc.fast) };
 }
+
+/** One corner of a road as the driver and the others took it. */
+export interface FieldCorner {
+  /** Where it is along the driver's lap (m). */
+  d: number;
+  /** The driver's apex speed. */
+  mine: number;
+  /** Apex speeds of the other drivers who took the same corner. */
+  others: number[];
+  /** Fast corner by the average apex speed of everyone who took it. */
+  fast: boolean;
+}
+
+/**
+ * The driver's corners matched with the same corners on other drivers' laps of the same road
+ * (by position, within {@link SAME_CORNER_M}). Corners nobody else's lap shows are left out, so
+ * speeds are only ever compared on the same corner.
+ */
+export function fieldCorners(mine: DrivingStyle, others: readonly DrivingStyle[]): FieldCorner[] {
+  const used = others.map(() => new Set<number>());
+  const out: FieldCorner[] = [];
+  for (const c of mine.apexes) {
+    const speeds: number[] = [];
+    others.forEach((o, k) => {
+      let best = -1;
+      for (let j = 0; j < o.apexes.length; j++) {
+        if (used[k].has(j) || Math.abs(o.apexes[j].d - c.d) > SAME_CORNER_M) continue;
+        if (best < 0 || Math.abs(o.apexes[j].d - c.d) < Math.abs(o.apexes[best].d - c.d)) best = j;
+      }
+      if (best >= 0) {
+        used[k].add(best);
+        speeds.push(o.apexes[best].v);
+      }
+    });
+    if (!speeds.length) continue;
+    const avg = (c.v + speeds.reduce((s, x) => s + x, 0)) / (speeds.length + 1);
+    out.push({ d: c.d, mine: c.v, others: speeds, fast: avg >= FAST_CORNER_MS });
+  }
+  return out;
+}

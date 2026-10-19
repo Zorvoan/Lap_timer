@@ -16,6 +16,9 @@ import { driverRating, type RoadBoard } from '../lib/driverRating';
 import { lapFromPublished } from '../lib/cloud/leaderboard';
 import { lapLength } from '../lib/references';
 
+/** Other drivers' laps loaded per road for the corner-by-corner comparison. */
+const MAX_RIVALS = 10;
+
 /** Everything that is not a track: the account, past drives and settings. */
 export function Me() {
   const acc = useAccount();
@@ -24,8 +27,8 @@ export function Me() {
   const { settings } = useSettings();
   const { data: sessions, loading } = useData(() => listSessions(), []);
   const laps = useMemo(() => lapRows(sessions ?? [], settings.includeSimulatedInBests), [sessions, settings.includeSimulatedInBests]);
-  // Leaderboards of the roads the user has driven, with the fastest other driver's lap on each:
-  // the rating compares against them.
+  // Leaderboards of the roads the user has driven, with the other drivers' laps on each: the
+  // rating compares against them.
   const uid = acc.user?.uid ?? null;
   const roads = useMemo(() => {
     const driven = new Set((sessions ?? []).filter((s) => s.source !== 'simulated').map((s) => s.circuitId));
@@ -46,15 +49,18 @@ export function Me() {
           } catch {
             // Keep the stored length.
           }
-          const fastest = others[0];
-          const trace = fastest ? await cloud.getPublishedTrace(f.id, fastest.uid).catch(() => null) : null;
-          let ref: RoadBoard['ref'] = null;
-          try {
-            ref = fastest && trace ? { uid: fastest.uid, nickname: fastest.nickname, lap: lapFromPublished(fastest, trace, f, lengthM) } : null;
-          } catch {
-            ref = null;
-          }
-          return { circuitId: f.id, name: f.name, lengthM, othersMs: others.map((e) => e.timeMs), ref };
+          // The fastest other drivers' laps, to compare corner by corner.
+          const rivals = await Promise.all(
+            others.slice(0, MAX_RIVALS).map(async (e) => {
+              const trace = await cloud.getPublishedTrace(f.id, e.uid).catch(() => null);
+              try {
+                return trace ? { uid: e.uid, nickname: e.nickname, lap: lapFromPublished(e, trace, f, lengthM) } : null;
+              } catch {
+                return null;
+              }
+            }),
+          );
+          return { circuitId: f.id, name: f.name, lengthM, othersMs: others.map((e) => e.timeMs), rivals: rivals.filter((r): r is RoadBoard['rivals'][number] => !!r) };
         }),
       );
       return all.filter((b): b is RoadBoard => !!b);
