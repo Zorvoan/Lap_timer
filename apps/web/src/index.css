@@ -244,6 +244,47 @@ select {
 .tc-digit { display: inline-block; animation: lt-num-in 380ms var(--ease-enter) backwards; }
 .tc-stamp { animation: lt-stamp 420ms var(--ease-overshoot) 620ms backwards; }
 
+/* First-run tour. Seen once, so it may take its time: steps slide in the direction of travel,
+   drawings draw themselves, the lit tab glides from one tab to the next. */
+.tour .tour-dim { transition: opacity 300ms ease; }
+.tour .tour-card { animation: lt-dialog-in 320ms var(--ease-enter) backwards; }
+.tour[data-closing] { animation: lt-fade-out 200ms var(--ease-enter) forwards; }
+.tour-slide[data-dir='next'] { animation: lt-tour-next 340ms var(--ease-move) backwards; }
+.tour-slide[data-dir='back'] { animation: lt-tour-back 340ms var(--ease-move) backwards; }
+.tour-spot {
+  box-shadow: 0 0 0 200vmax rgb(0 0 0 / 0.75);
+  transition:
+    transform 440ms var(--ease-move),
+    width 440ms var(--ease-move),
+    height 440ms var(--ease-move),
+    opacity 300ms ease;
+}
+.tour-spot::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  border: 2px solid rgb(var(--c-accent));
+  animation: lt-tour-ring 1.6s var(--ease-enter) infinite;
+}
+.tour-dot { transition: transform 300ms var(--ease-move); }
+.tour-draw { stroke-dasharray: 1; stroke-dashoffset: 1; animation: lt-tour-draw 1000ms var(--ease-expo) var(--d, 0ms) forwards; }
+.tour-rise { animation: lt-rise 480ms var(--ease-expo) var(--d, 0ms) backwards; }
+.tour-pop { transform-box: fill-box; transform-origin: bottom left; animation: lt-pop 360ms var(--ease-overshoot) var(--d, 0ms) backwards; }
+.tour-swap-up { animation: lt-rise 480ms var(--ease-expo) var(--d, 0ms) backwards, lt-tour-up 520ms var(--ease-move) 1100ms forwards; }
+.tour-swap-down { animation: lt-rise 480ms var(--ease-expo) var(--d, 0ms) backwards, lt-tour-down 520ms var(--ease-move) 1100ms forwards; }
+.tour-note { animation: lt-tour-note 420ms var(--ease-overshoot) 1700ms backwards; }
+.tour-fan { transform: translateY(var(--y)) scale(var(--s)); transform-origin: top center; animation: lt-tour-fan 520ms var(--ease-expo) var(--d, 0ms) backwards; }
+@keyframes lt-tour-next { from { opacity: 0; transform: translateX(32px); } }
+@keyframes lt-tour-back { from { opacity: 0; transform: translateX(-32px); } }
+@keyframes lt-tour-ring { from { opacity: 0.9; transform: scale(1); } to { opacity: 0; transform: scale(1.18, 1.35); } }
+@keyframes lt-tour-draw { to { stroke-dashoffset: 0; } }
+/* Rows are 32px tall with 4px between them. */
+@keyframes lt-tour-up { to { transform: translateY(-36px); } }
+@keyframes lt-tour-down { to { transform: translateY(36px); } }
+@keyframes lt-tour-note { from { opacity: 0; transform: translate(-50%, -10px) scale(0.9); } to { opacity: 1; transform: translate(-50%, 0) scale(1); } }
+@keyframes lt-tour-fan { from { opacity: 0; transform: translateY(calc(var(--y) + 24px)) scale(var(--s)); } }
+
 /* Reduced motion: nothing travels or scales; things still fade so state changes stay visible. */
 @media (prefers-reduced-motion: reduce) {
   .anim-page, .anim-reveal, .anim-num, .anim-icon, .anim-pop, .anim-bar, .anim-toast, .anim-stagger,
@@ -252,6 +293,15 @@ select {
   }
   .sheet[data-closing], .sheet[data-center][data-closing] { animation-name: lt-fade-out; }
   .anim-shake { animation: none; }
+  /* The tour: steps and drawings fade in place; nothing travels, the lit tab jumps, no pulse. */
+  .tour-slide[data-dir], .tour .tour-card, .tour-rise, .tour-pop, .tour-note, .tour-fan { animation-name: lt-fade-in; }
+  .tour-swap-up, .tour-swap-down { animation: lt-fade-in 200ms ease backwards; }
+  .tour-swap-up { transform: translateY(-36px); }
+  .tour-swap-down { transform: translateY(36px); }
+  .tour-draw { animation: none; stroke-dashoffset: 0; }
+  .tour-spot { transition: opacity 200ms ease; }
+  .tour-spot::after { animation: none; opacity: 0.9; }
+  .tour-dot { transition: none; }
   /* Pressing does not shrink; looping pulses stop. Colour fades stay. */
   .press:active:not(:disabled) { transform: none; }
   .animate-pulse { animation: none; }

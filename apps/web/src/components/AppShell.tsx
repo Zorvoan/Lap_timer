@@ -6,6 +6,7 @@ import { getActiveSession } from '../lib/repo';
 import { applyUpdateIfReady } from '../lib/update';
 import { buttonClass } from './ui/primitives';
 import { NotifyPrompt } from './NotifyPrompt';
+import { Onboarding, useTourOpen } from './Onboarding';
 import { IconArrowLeft, IconMap, IconTimer, IconTrophy, IconUser, IconX } from './ui/icons';
 
 const Welcome = lazy(() => import('../pages/Welcome').then((m) => ({ default: m.Welcome })));
@@ -55,6 +56,7 @@ export function AppShell() {
   // Moving to another page is a natural moment to switch to a newly deployed version.
   useEffect(() => applyUpdateIfReady(), [loc.pathname]);
   const needsAccount = useNeedsAccount();
+  const touring = useTourOpen();
 
   // Everyone signs in before using the app; a run already being timed is never interrupted.
   if (needsAccount && !sessionActive) {
@@ -75,11 +77,11 @@ export function AppShell() {
             <span className="text-sm font-bold uppercase tracking-[0.2em]">Lap Timer</span>
           </div>
           <ul className="flex flex-col gap-0.5 p-2">
-            <SideItem to="/" label="Roads" icon={IconMap} active={tab === 'tracks'} />
-            <SideItem to="/me" label="Me" icon={IconUser} active={tab === 'me'} />
+            <SideItem to="/" label="Roads" icon={IconMap} active={tab === 'tracks'} tour="roads" />
+            <SideItem to="/me" label="Me" icon={IconUser} active={tab === 'me'} tour="me" />
           </ul>
           <div className="px-2">
-            <Link to="/live" className={`press flex h-11 items-center justify-center gap-2 rounded-lg font-bold text-white ${tab === 'drive' ? 'bg-accent ring-2 ring-fg/60' : 'bg-accent hover:brightness-110'}`}>
+            <Link to="/live" data-tour="drive" className={`press flex h-11 items-center justify-center gap-2 rounded-lg font-bold text-white ${tab === 'drive' ? 'bg-accent ring-2 ring-fg/60' : 'bg-accent hover:brightness-110'}`}>
               <IconTimer /> Drive
             </Link>
           </div>
@@ -98,18 +100,19 @@ export function AppShell() {
         </main>
       </div>
       {!immersive && <LeaderboardToast />}
-      {/* Not while driving or about to: the Drive screens stay uninterrupted. */}
-      <NotifyPrompt paused={sessionActive || loc.pathname.startsWith('/live')} />
+      {/* Not while driving or about to: the Drive screens stay uninterrupted. The tour comes first. */}
+      <Onboarding paused={sessionActive || loc.pathname.startsWith('/live') || loc.pathname.startsWith('/result')} />
+      <NotifyPrompt paused={sessionActive || loc.pathname.startsWith('/live') || touring} />
 
       {!immersive && (
-        <nav aria-label="Main" className="grid shrink-0 grid-cols-3 border-t border-line bg-panel pb-[env(safe-area-inset-bottom)] md:hidden">
-          <TabItem to="/" label="Roads" icon={IconMap} active={tab === 'tracks'} />
+        <nav aria-label="Main" data-tour-bar className="grid shrink-0 grid-cols-3 border-t border-line bg-panel pb-[env(safe-area-inset-bottom)] md:hidden">
+          <TabItem to="/" label="Roads" icon={IconMap} active={tab === 'tracks'} tour="roads" />
           <div className="flex items-center justify-center">
-            <Link to="/live" aria-current={tab === 'drive' ? 'page' : undefined} className="press flex h-12 w-[6.5rem] items-center justify-center gap-2 rounded-xl bg-accent text-[15px] font-extrabold text-white land:h-9">
+            <Link to="/live" data-tour="drive" aria-current={tab === 'drive' ? 'page' : undefined} className="press flex h-12 w-[6.5rem] items-center justify-center gap-2 rounded-xl bg-accent text-[15px] font-extrabold text-white land:h-9">
               <IconTimer /> Drive
             </Link>
           </div>
-          <TabItem to="/me" label="Me" icon={IconUser} active={tab === 'me'} />
+          <TabItem to="/me" label="Me" icon={IconUser} active={tab === 'me'} tour="me" />
         </nav>
       )}
     </div>
@@ -122,9 +125,9 @@ export function AppShell() {
  */
 type NavIcon = (p: React.SVGProps<SVGSVGElement>) => React.ReactElement;
 
-function TabItem({ to, label, icon: Icon, active }: { to: string; label: string; icon: NavIcon; active: boolean }) {
+function TabItem({ to, label, icon: Icon, active, tour }: { to: string; label: string; icon: NavIcon; active: boolean; tour?: string }) {
   return (
-    <Link to={to} aria-current={active ? 'page' : undefined} className={`press relative flex h-[4.25rem] flex-col items-center justify-center gap-1 text-xs font-semibold land:h-12 land:flex-row land:gap-2 land:text-sm ${active ? 'text-fg' : 'text-muted'}`}>
+    <Link to={to} data-tour={tour} aria-current={active ? 'page' : undefined} className={`press relative flex h-[4.25rem] flex-col items-center justify-center gap-1 text-xs font-semibold land:h-12 land:flex-row land:gap-2 land:text-sm ${active ? 'text-fg' : 'text-muted'}`}>
       {active && <span className="anim-bar absolute inset-x-[28%] top-0 h-[3px] rounded-b bg-accent" aria-hidden="true" />}
       <Icon width={22} height={22} />
       {label}
@@ -132,10 +135,10 @@ function TabItem({ to, label, icon: Icon, active }: { to: string; label: string;
   );
 }
 
-function SideItem({ to, label, icon: Icon, active }: { to: string; label: string; icon: NavIcon; active: boolean }) {
+function SideItem({ to, label, icon: Icon, active, tour }: { to: string; label: string; icon: NavIcon; active: boolean; tour?: string }) {
   return (
     <li>
-      <Link to={to} aria-current={active ? 'page' : undefined} className={`flex h-10 items-center gap-3 rounded px-3 text-sm font-medium ${active ? 'bg-raised text-fg' : 'text-muted hover:text-fg'}`}>
+      <Link to={to} data-tour={tour} aria-current={active ? 'page' : undefined} className={`flex h-10 items-center gap-3 rounded px-3 text-sm font-medium ${active ? 'bg-raised text-fg' : 'text-muted hover:text-fg'}`}>
         <span className={`h-4 w-0.5 ${active ? 'bg-accent' : 'bg-transparent'}`} aria-hidden="true" />
         <Icon />
         {label}

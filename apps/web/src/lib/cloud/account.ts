@@ -255,6 +255,8 @@ export async function signInWith(p: SocialProvider): Promise<void> {
 
 /** True while a new account is being created, before its profile is saved. */
 let registering = false;
+/** Bumped whenever the profile is set here, so a load that started earlier cannot overwrite it. */
+let profileVersion = 0;
 
 /** Creates an account with its public profile (nickname must be unique). */
 export async function register(email: string, password: string, nickname: string, car: string): Promise<void> {
@@ -268,6 +270,7 @@ export async function register(email: string, password: string, nickname: string
     await a.register(email.trim(), password);
     const uid = state.user?.uid ?? (await waitForUser());
     await c.saveProfile(uid, { nickname, car }, leaderboardTracks().map((f) => f.id));
+    profileVersion++;
     set({ profile: { nickname: nickname.trim(), car: car.trim() } });
   } finally {
     registering = false;
@@ -286,10 +289,12 @@ function waitForUser(): Promise<string> {
 }
 
 async function loadProfile(uid: string) {
+  const version = profileVersion;
   try {
     const p = await (await community()).getProfile(uid);
-    // A brand-new account has no profile until register() saves it; "none" then is not news.
-    if (state.user?.uid === uid && !(p === null && registering)) set({ profile: p });
+    // A brand-new account has no profile until register() saves it; "none" then is not news. A
+    // load that began before register() saved the profile answers "none" too, and must not win.
+    if (state.user?.uid === uid && version === profileVersion && !(p === null && registering)) set({ profile: p });
   } catch (e) {
     log.warn('profile could not be loaded', { error: String(e) });
   }
@@ -302,6 +307,7 @@ export async function updateProfile(next: Profile): Promise<void> {
   const uid = state.user?.uid;
   if (!uid) throw new Error('Sign in first.');
   await (await community()).saveProfile(uid, next, leaderboardTracks().map((f) => f.id));
+  profileVersion++;
   set({ profile: { nickname: next.nickname.trim(), car: next.car.trim() } });
   scheduleSync(0); // publishes laps if this was the first profile
 }

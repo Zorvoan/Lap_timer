@@ -132,7 +132,6 @@ export function LeaderboardTab({ track }: { track: FeaturedCircuit }) {
             : ', the fastest drivers\' best parts put together.'}
         </p>
       )}
-      <p className="px-2 pb-2 text-xs text-muted">Only real-GPS laps count. Times come from each driver's phone, so allow a few tenths either way. Drive legally.</p>
     </div>
   );
 }
