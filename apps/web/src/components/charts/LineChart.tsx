@@ -53,6 +53,8 @@ export interface LineChartProps {
   /** Text of the pill under the axis while hovering; default: xFormat. */
   pillLabel?: (x: number) => string;
   yDomain?: [number, number];
+  /** The y axis never goes below this (speeds: 0). */
+  yMin?: number;
   /** Extra room above and below the data, as a share of its range. */
   yPad?: number;
   /** Whole-number x ticks only (lap numbers). */
@@ -168,6 +170,7 @@ export function LineChart({
   tooltipTitle,
   pillLabel,
   yDomain,
+  yMin,
   yPad = 0.08,
   integerX = false,
   zeroLine = false,
@@ -181,7 +184,11 @@ export function LineChart({
   const [box, { w, h }] = useSize<HTMLDivElement>();
   const [hoverX, setHoverX] = useState<number | null>(null);
 
-  const m = compact ? { top: 2, right: 2, bottom: 2, left: 2 } : { top: markers.length ? 32 : 12, right: 12, bottom: 34, left: 46 };
+  // On a phone the tooltip gets its own strip above the plot instead of covering the lines.
+  // (Short charts, e.g. the editor's elevation strip, keep the floating card: no room for a strip.)
+  const narrow = w > 0 && w < 560 && h >= 170;
+  const strip = narrow ? 42 : 0;
+  const m = compact ? { top: 2, right: 2, bottom: 2, left: 2 } : { top: (markers.length ? 32 : 12) + strip, right: 12, bottom: 34, left: 46 };
   const iw = Math.max(0, w - m.left - m.right);
   const ih = Math.max(0, h - m.top - m.bottom);
 
@@ -208,11 +215,11 @@ export function LineChart({
     const inset = series.some((s) => s.dots) ? 14 : 0;
     const xs = scaleLinear().domain([x0, x1]).range([inset, Math.max(inset, iw - inset)]);
     const ys = scaleLinear()
-      .domain(yDomain ?? [y0 - pad, y1 + pad])
+      .domain(yDomain ?? [yMin !== undefined ? Math.max(yMin, y0 - pad) : y0 - pad, y1 + pad])
       .range([ih, 0]);
     if (!yDomain && !compact) ys.nice(4);
     return { x: xs, y: ys };
-  }, [series, iw, ih, yDomain, yPad, zeroLine, compact]);
+  }, [series, iw, ih, yDomain, yMin, yPad, zeroLine, compact]);
 
   const paths = useMemo(
     () =>
@@ -391,6 +398,9 @@ export function LineChart({
           </g>
         </svg>
       )}
+      {narrow && !compact && !lead && (
+        <p className="chart-fade pointer-events-none absolute inset-x-0 top-2.5 text-center text-xs text-muted/70">Slide a finger across the chart</p>
+      )}
       {!compact && w > 0 && (
         <Hover
           uid={uid}
@@ -401,6 +411,8 @@ export function LineChart({
           py={y}
           left={m.left}
           top={m.top}
+          width={w}
+          narrow={narrow}
           iw={iw}
           ih={ih}
           title={lead ? (tooltipTitle ? tooltipTitle(lead.x, lead) : xFormat(lead.x)) : null}
@@ -425,6 +437,8 @@ function Hover({
   py,
   left,
   top,
+  width,
+  narrow,
   iw,
   ih,
   title,
@@ -439,6 +453,8 @@ function Hover({
   py: (y: number) => number;
   left: number;
   top: number;
+  width: number;
+  narrow: boolean;
   iw: number;
   ih: number;
   title: ReactNode;
@@ -455,7 +471,7 @@ function Hover({
     dots.current.forEach((d, i) => {
       if (d && v[`y${i}`] !== undefined && v[`x${i}`] !== undefined) d.setAttribute('transform', `translate(${v[`x${i}`]},${v[`y${i}`]})`);
     });
-    if (card.current && v.card !== undefined) card.current.style.transform = `translate(${v.card}px, ${top + 6}px)`;
+    if (card.current && v.card !== undefined) card.current.style.transform = `translate(${v.card}px, ${narrow ? 2 : top + 6}px)`;
     if (pillEl.current && v.pill !== undefined) pillEl.current.style.transform = `translate(${v.pill}px, ${top + ih + 8}px) translateX(-50%)`;
   });
 
@@ -474,10 +490,11 @@ function Hover({
       springs.set(`x${i}`, px(p.x), FOLLOW, jump);
       springs.set(`y${i}`, py(p.y), FOLLOW, jump);
     });
-    // The card sits beside the crosshair, on whichever side has room; switching sides glides.
+    // The card sits beside the crosshair, on whichever side has room (switching sides glides);
+    // on a phone it rides the strip above the plot, centred on the crosshair.
     const cw = card.current?.offsetWidth ?? 160;
     const right = hx + left + 20;
-    const cardX = right + cw <= left + iw + 8 ? right : hx + left - 20 - cw;
+    const cardX = narrow ? Math.min(width - cw, Math.max(0, hx + left - cw / 2)) : right + cw <= left + iw + 8 ? right : hx + left - 20 - cw;
     springs.set('card', Math.max(0, cardX), CARD, jump);
     springs.set('pill', Math.min(left + iw, Math.max(left, hx + left)), PILL, jump);
   });
@@ -504,25 +521,43 @@ function Hover({
       </svg>
       <div
         ref={card}
-        className="pointer-events-none absolute left-0 top-0 z-10 min-w-[10rem] overflow-hidden rounded-xl border border-line bg-panel/90 text-sm shadow-xl backdrop-blur-md"
+        className={`pointer-events-none absolute left-0 top-0 z-10 overflow-hidden border border-line bg-panel/90 shadow-xl backdrop-blur-md ${narrow ? 'flex items-center gap-3 rounded-full px-3 py-1.5 text-xs' : 'min-w-[10rem] rounded-xl text-sm'}`}
         style={{ opacity: visible ? 1 : 0, transition: 'opacity 160ms ease' }}
       >
-        <div className="border-b border-line px-3.5 py-2 font-medium">{title}</div>
-        <div className="space-y-1.5 px-3.5 py-2.5">
-          {series.map((s, i) => {
-            const p = points[i];
-            if (!p || p.y === null) return null;
-            return (
-              <div key={s.id} className="flex items-center justify-between gap-6 whitespace-nowrap">
-                <span className="flex min-w-0 items-center gap-2">
+        {narrow ? (
+          <>
+            <span className="whitespace-nowrap font-medium">{title}</span>
+            {series.map((s, i) => {
+              const p = points[i];
+              if (!p || p.y === null) return null;
+              return (
+                <span key={s.id} className="flex items-center gap-1.5 whitespace-nowrap">
                   <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: typeof s.dots === 'function' ? s.dots(p) : s.color }} />
-                  <span className="truncate text-muted">{s.label}</span>
+                  <span className="font-mono font-semibold tabular">{(s.format ?? yFormat)(p.y)}</span>
                 </span>
-                <span className="font-mono font-semibold tabular">{(s.format ?? yFormat)(p.y)}</span>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </>
+        ) : (
+          <>
+            <div className="border-b border-line px-3.5 py-2 font-medium">{title}</div>
+            <div className="space-y-1.5 px-3.5 py-2.5">
+              {series.map((s, i) => {
+                const p = points[i];
+                if (!p || p.y === null) return null;
+                return (
+                  <div key={s.id} className="flex items-center justify-between gap-6 whitespace-nowrap">
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: typeof s.dots === 'function' ? s.dots(p) : s.color }} />
+                      <span className="truncate text-muted">{s.label}</span>
+                    </span>
+                    <span className="font-mono font-semibold tabular">{(s.format ?? yFormat)(p.y)}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
       </div>
       <div
         ref={pillEl}
