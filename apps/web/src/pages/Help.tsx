@@ -1,5 +1,7 @@
 import { PageHeader } from '../components/AppShell';
 import { ScreenWakeLock } from '../lib/wakeLock';
+import { openTour } from '../components/Onboarding';
+import { Button } from '../components/ui/primitives';
 
 /** How timing works and how to get good results, in plain words. */
 export function Help() {
@@ -7,6 +9,7 @@ export function Help() {
     <div className="pb-10">
       <PageHeader title="How it works" back={{ to: '/me', label: 'Me' }} />
       <div className="mx-auto max-w-2xl space-y-6 p-4 text-sm leading-relaxed md:p-6">
+        <Button onClick={openTour}>Show the tour again</Button>
         <section>
           <h2 className="mb-2 text-base font-bold">Timing</h2>
           <p className="text-muted">
