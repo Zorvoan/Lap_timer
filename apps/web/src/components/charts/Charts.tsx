@@ -109,6 +109,7 @@ export function SpeedDistanceChart({
       bands={noGps(gaps)}
       xFormat={distTick(distanceUnit)}
       yFormat={(v) => String(Math.round(v))}
+      yMin={0}
       tooltipTitle={distTitle(distanceUnit)}
       pillLabel={distTitle(distanceUnit, 2)}
     />
@@ -136,6 +137,7 @@ export function SpeedTimeChart({ laps, speedUnit, colors }: { laps: LapRecord[];
       bands={noGps(gaps)}
       xFormat={(t) => `${Math.round(t)} s`}
       yFormat={(v) => String(Math.round(v))}
+      yMin={0}
       tooltipTitle={(t) => `${t.toFixed(1)} s`}
       pillLabel={(t) => `${t.toFixed(1)} s`}
     />
