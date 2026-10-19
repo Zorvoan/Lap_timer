@@ -4,7 +4,6 @@ import L from 'leaflet';
 import {
   TrackModel,
   compareLaps,
-  convertDistance,
   convertSpeed,
   formatDelta,
   formatLapTime,
@@ -27,7 +26,6 @@ import { RouteLayer } from '../map/RouteLayer';
 import { TimingLineView } from '../map/TimingLines';
 import { COLOR_A, COLOR_B, COLOR_GAIN, COLOR_LOSS, DeltaDistanceChart, SpeedDistanceChart } from '../charts/Charts';
 import { RadarChart, type RadarMetric } from '../charts/RadarChart';
-import { BarChart, type Bar } from '../charts/BarChart';
 import { drivingStyle, type DrivingStyle } from '../../lib/drivingStyle';
 import { lapLength } from '../../lib/references';
 
@@ -131,7 +129,7 @@ function Unavailable() {
   return <p className="text-sm text-muted">No data available.</p>;
 }
 
-/** Delta, time by part, driving style and speed-vs-distance charts for laps A and B. */
+/** Delta, driving style and speed-vs-distance charts for laps A and B. */
 export function ComparisonCharts({
   A,
   B,
@@ -168,7 +166,6 @@ export function ComparisonCharts({
           )}
         </div>
       </Panel>
-      {A && B && rows.length > 1 && <PartsPanel rows={rows} distanceUnit={distanceUnit} />}
       {A && B && <StylePanel A={A} B={B} labelA={labelA} labelB={labelB ?? 'B'} speedUnit={speedUnit} />}
       <Panel title={`Speed vs distance (${speedLabel(speedUnit)})`}>
         <div className="h-56">
@@ -176,56 +173,6 @@ export function ComparisonCharts({
         </div>
       </Panel>
     </>
-  );
-}
-
-/**
- * The road cut into equal parts (about 750 m each, 4 to 10 of them) and how much time A gained
- * (green, down) or lost (red, up) against B in each. Picking a part moves the map to it.
- */
-function PartsPanel({ rows, distanceUnit }: { rows: AlignedRow[]; distanceUnit: DistanceUnit }) {
-  const bars = useMemo<(Bar & { mid: number })[]>(() => {
-    const len = rows[rows.length - 1].d;
-    const n = Math.max(4, Math.min(10, Math.round(len / 750)));
-    const rowAt = (d: number) => rows.find((r) => r.d >= d - 1e-6) ?? rows[rows.length - 1];
-    const dist = (m: number) => convertDistance(m, distanceUnit).toFixed(distanceUnit === 'km' ? 1 : 2);
-    return Array.from({ length: n }, (_, k) => {
-      const from = rowAt((len * k) / n);
-      const to = rowAt((len * (k + 1)) / n);
-      const a = to.tA - from.tA;
-      const b = to.tB - from.tB;
-      const delta = a - b;
-      return {
-        id: String(k),
-        label: String(k + 1),
-        value: delta / 1000,
-        color: delta > 0 ? COLOR_LOSS : COLOR_GAIN,
-        valueLabel: formatDelta(delta, 1),
-        detail: (
-          <span className="flex flex-wrap items-center justify-center gap-x-3 gap-y-0.5 whitespace-nowrap">
-            <span className="font-medium">
-              Part {k + 1} <span className="text-muted">· {dist(from.d)}–{dist(to.d)} {distanceUnit}</span>
-            </span>
-            <span className="font-mono tabular" style={{ color: COLOR_A }}>{(a / 1000).toFixed(2)}</span>
-            <span className="font-mono tabular" style={{ color: COLOR_B }}>{(b / 1000).toFixed(2)}</span>
-            <span className={`font-mono font-semibold tabular ${delta > 0 ? 'text-loss' : 'text-gain'}`}>{formatDelta(delta, 2)}</span>
-          </span>
-        ),
-        mid: (from.d + to.d) / 2,
-      };
-    });
-  }, [rows, distanceUnit]);
-  return (
-    <Panel title="Time by part of the road · A vs B">
-      <div className="h-56">
-        <BarChart
-          bars={bars}
-          ariaLabel="Time A gained or lost against B in each part of the road"
-          hint="Tap a part · up = A lost time, down = A gained"
-          onFocus={(i) => i !== null && setChartDistance(bars[i].mid)}
-        />
-      </div>
-    </Panel>
   );
 }
 
