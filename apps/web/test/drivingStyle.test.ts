@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { LapTracePoint } from '@laptimer/core';
-import { drivingStyle } from '../src/lib/drivingStyle';
+import { drivingStyle, pairedCorners } from '../src/lib/drivingStyle';
 
 /** A lap sampled once a second from a speed profile (m/s by second). */
 function lapFrom(speeds: number[]) {
@@ -14,17 +14,19 @@ function lapFrom(speeds: number[]) {
 }
 
 describe('driving style', () => {
-  // Straight at 30 m/s, brake to a 12 m/s corner, accelerate out, second corner at 16 m/s.
+  // Straight at 30 m/s, a hairpin at 10 m/s (36 km/h), then a fast bend at 22 m/s (79 km/h).
   const profile = [
-    ...Array(8).fill(30), 27, 24, 21, 18, 15, 12, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30,
-    ...Array(8).fill(30), 27, 24, 21, 18, 16, 16, 18, 20, 22, 24, 26, 28, 30, ...Array(6).fill(30),
+    ...Array(8).fill(30), 27, 24, 21, 18, 15, 12, 10, 10, 12, 15, 18, 21, 24, 27, 30,
+    ...Array(8).fill(30), 28, 26, 24, 22, 22, 24, 26, 28, 30, ...Array(6).fill(30),
   ];
   const s = drivingStyle(lapFrom(profile))!;
 
-  it('finds both corners and their apex speeds', () => {
-    expect(s.corners).toBe(2);
-    expect(s.cornerSpeed).toBeGreaterThan(12);
-    expect(s.cornerSpeed).toBeLessThan(18);
+  it('splits the corners into slow and fast ones', () => {
+    expect(s.slowCorners).toBe(1);
+    expect(s.fastCorners).toBe(1);
+    expect(s.slowCornerSpeed!).toBeLessThan(60 / 3.6);
+    expect(s.fastCornerSpeed!).toBeGreaterThanOrEqual(60 / 3.6);
+    expect(s.fastCornerSpeed!).toBeLessThan(26);
   });
 
   it('measures top and average speed', () => {
@@ -33,11 +35,21 @@ describe('driving style', () => {
     expect(s.avgSpeed).toBeLessThan(30);
   });
 
-  it('measures braking and acceleration from the speed changes', () => {
-    expect(s.braking).toBeGreaterThan(1.5);
-    expect(s.braking).toBeLessThan(3.5);
-    expect(s.accel).toBeGreaterThan(1);
-    expect(s.accel).toBeLessThan(2.5);
+  it('has no corners of a kind it never met', () => {
+    const fastOnly = drivingStyle(lapFrom([...Array(8).fill(30), 28, 26, 24, 22, 22, 24, 26, 28, ...Array(8).fill(30)]))!;
+    expect(fastOnly.slowCornerSpeed).toBeNull();
+    expect(fastOnly.fastCorners).toBe(1);
+  });
+
+  it('compares two laps on the same corners, whichever side of 60 km/h each takes them', () => {
+    const corner = (apex: number) => [...Array(8).fill(30), 26, 22, apex + 2, apex, apex, apex + 2, 22, 26, ...Array(8).fill(30)];
+    const a = drivingStyle(lapFrom(corner(15)))!;
+    const b = drivingStyle(lapFrom(corner(18.5)))!;
+    const p = pairedCorners(a, b);
+    expect(p.slow === null || p.fast === null).toBe(true);
+    const c = (p.slow ?? p.fast)!;
+    expect(c.count).toBe(1);
+    expect(c.b - c.a).toBeGreaterThan(2);
   });
 
   it('needs a trace with speeds', () => {
