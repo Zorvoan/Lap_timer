@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Rolling } from '../components/ui/Rolling';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useMapEvents } from 'react-leaflet';
 import { distanceMeters, formatDistance, formatLapTime, type Circuit } from '@laptimer/core';
@@ -384,7 +385,9 @@ function TrackRow({
   if (stats?.bestMs != null) {
     right = (
       <>
-        <div className="font-mono text-[17px] font-semibold tabular">{formatLapTime(stats.bestMs)}</div>
+        <div className="font-mono text-[17px] font-semibold tabular">
+          <Rolling text={formatLapTime(stats.bestMs)} from />
+        </div>
         {rank > 0 && <div className="text-xs font-bold text-gain">P{rank} of {board!.length}</div>}
       </>
     );

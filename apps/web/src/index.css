@@ -243,9 +243,8 @@ select {
   .sheet[data-center][data-closing] { animation-name: lt-dialog-out; animation-duration: 150ms; }
 }
 
-/* The time card: card rises, digits land one after another, then the stamp slams on. */
+/* The time card: card rises, its digits roll up (Rolling), then the stamp slams on. */
 .tc-card { animation: lt-rise 450ms var(--ease-expo) backwards; }
-.tc-digit { display: inline-block; animation: lt-num-in 380ms var(--ease-enter) backwards; }
 .tc-stamp { animation: lt-stamp 420ms var(--ease-overshoot) 620ms backwards; }
 
 /* First-run tour. Seen once, so it may take its time: steps slide in the direction of travel,
@@ -289,19 +288,37 @@ select {
 @keyframes lt-tour-note { from { opacity: 0; transform: translate(-50%, -10px) scale(0.9); } to { opacity: 1; transform: translate(-50%, 0) scale(1); } }
 @keyframes lt-tour-fan { from { opacity: 0; transform: translateY(calc(var(--y) + 24px)) scale(var(--s)); } }
 
-/* Charts: lines draw themselves in once, fills and dots fade in after them. */
-.chart-draw { stroke-dasharray: 1; stroke-dashoffset: 1; animation: lt-tour-draw 900ms var(--ease-expo) forwards; }
+/* Charts: the plot is uncovered left to right (in LineChart); badges and legends fade in. */
 .chart-fade { animation: lt-fade-in 400ms var(--ease-enter) backwards; }
 /* Hover: the dot and its halo spring in; the axis pill's label rolls up to the new value. */
 .chart-halo { transform-box: fill-box; transform-origin: center; animation: lt-chart-pop 380ms var(--ease-overshoot) backwards; }
 .chart-roll { animation: lt-chart-roll 220ms var(--ease-enter) backwards; }
 @keyframes lt-chart-pop { from { transform: scale(0); } }
 @keyframes lt-chart-roll { from { opacity: 0; transform: translateY(70%); } }
+/* Rolling digits: each column springs to its new digit, a touch past it and back. */
+.roll-col { transition: transform 750ms cubic-bezier(0.3, 1.35, 0.5, 1); }
+/* Bars grow out of the baseline with a little overshoot, one after another. */
+.bar-grow { transform-box: fill-box; animation: lt-bar-grow 700ms cubic-bezier(0.34, 1.4, 0.64, 1) var(--d, 0ms) backwards; }
+@keyframes lt-bar-grow { from { transform: scaleY(0); } }
+/* Loading charts: a pulse runs along a placeholder line, light sweeps the field, the label shimmers. */
+.chart-pulse { stroke-dasharray: 0.35 1.65; animation: lt-chart-pulse 2.2s cubic-bezier(0.85, 0, 0.15, 1) infinite; }
+@keyframes lt-chart-pulse { from { stroke-dashoffset: 0.35; } to { stroke-dashoffset: -1.65; } }
+.chart-sweep { transform-box: fill-box; animation: lt-chart-sweep 2.2s cubic-bezier(0.85, 0, 0.15, 1) infinite; }
+/* The band is 40% of the field wide: from just off the left edge to just off the right. */
+@keyframes lt-chart-sweep { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+.shimmer-text {
+  background: linear-gradient(90deg, rgb(var(--c-muted)) 35%, rgb(var(--c-fg)) 50%, rgb(var(--c-muted)) 65%) 0 0 / 300% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: lt-shimmer 2.2s linear infinite;
+}
+@keyframes lt-shimmer { from { background-position: 100% 0; } to { background-position: 0 0; } }
 
 /* Reduced motion: nothing travels or scales; things still fade so state changes stay visible. */
 @media (prefers-reduced-motion: reduce) {
   .anim-page, .anim-reveal, .anim-num, .anim-icon, .anim-pop, .anim-bar, .anim-toast, .anim-stagger,
-  .sheet, .tc-card, .tc-digit, .tc-stamp {
+  .sheet, .tc-card, .tc-stamp {
     animation-name: lt-fade-in;
   }
   .sheet[data-closing], .sheet[data-center][data-closing] { animation-name: lt-fade-out; }
@@ -315,7 +332,10 @@ select {
   .tour-spot { transition: opacity 200ms ease; }
   .tour-spot::after { animation: none; opacity: 0.9; }
   .tour-dot { transition: none; }
-  .chart-draw { animation: lt-fade-in 300ms ease backwards; stroke-dasharray: none; stroke-dashoffset: 0; }
+  .roll-col { transition: none; }
+  .bar-grow { animation-name: lt-fade-in; }
+  .chart-pulse, .chart-sweep, .shimmer-text { animation: none; }
+  .shimmer-text { color: rgb(var(--c-muted)); background: none; }
   .chart-halo, .chart-roll { animation: none; }
   /* Pressing does not shrink; looping pulses stop. Colour fades stay. */
   .press:active:not(:disabled) { transform: none; }

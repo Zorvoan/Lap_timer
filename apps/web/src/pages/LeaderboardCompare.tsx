@@ -1,4 +1,6 @@
 import { useEffect, useMemo } from 'react';
+import { Rolling } from '../components/ui/Rolling';
+import { ChartLoading } from '../components/charts/ChartLoading';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { formatDelta, formatDistance, formatLapTime, formatSpeed, speedLabel, splitTimes, type LapRecord, type Session } from '@laptimer/core';
 import { PageHeader } from '../components/AppShell';
@@ -127,7 +129,11 @@ export function LeaderboardCompare() {
         )}
 
         {a.loading || b.loading ? (
-          <Spinner label="Loading telemetry" />
+          <Panel title="Telemetry">
+            <div className="h-56">
+              <ChartLoading label="Loading telemetry" />
+            </div>
+          </Panel>
         ) : a.error || b.error ? (
           <Notice tone="error">{a.error ?? b.error}</Notice>
         ) : a.lap ? (
@@ -139,7 +145,9 @@ export function LeaderboardCompare() {
                 <div className="label">Gap A − B</div>
                 {b.lap ? (
                   <>
-                    <div className={`mt-1 font-mono text-2xl tabular ${a.lap.timeMs <= b.lap.timeMs ? 'text-gain' : 'text-loss'}`}>{formatDelta(a.lap.timeMs - b.lap.timeMs)} s</div>
+                    <div className={`mt-1 font-mono text-2xl tabular ${a.lap.timeMs <= b.lap.timeMs ? 'text-gain' : 'text-loss'}`}>
+                      <Rolling text={formatDelta(a.lap.timeMs - b.lap.timeMs)} from /> s
+                    </div>
                     <div className="mt-0.5 text-xs text-muted">{a.lap.timeMs <= b.lap.timeMs ? `${labelA} is faster` : `${labelB} is faster`}</div>
                   </>
                 ) : (
@@ -240,7 +248,9 @@ function TimeCard({ letter, color, label, lap }: { letter: string; color: string
       <div className="label flex items-center gap-2">
         <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: color }} aria-hidden="true" /> {letter} · <span className="truncate normal-case tracking-normal">{label}</span>
       </div>
-      <div className="mt-1 font-mono text-2xl tabular">{formatLapTime(lap.timeMs)}</div>
+      <div className="mt-1 font-mono text-2xl tabular">
+        <Rolling text={formatLapTime(lap.timeMs)} from />
+      </div>
       <div className="mt-0.5 text-xs text-muted">
         avg {formatSpeed(lap.avgSpeedMs, settings.speedUnit)} · max {formatSpeed(lap.maxSpeedMs, settings.speedUnit)} {speedLabel(settings.speedUnit)}
       </div>

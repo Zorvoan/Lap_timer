@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { Rolling } from '../ui/Rolling';
 import { Link, useNavigate } from 'react-router-dom';
 import { formatDelta, formatLapTime, formatSpeed, idealLap, speedLabel, splitTimes } from '@laptimer/core';
 import { Badge, Button, Empty, LinkButton, Notice, Spinner } from '../ui/primitives';
@@ -126,7 +127,7 @@ export function LeaderboardTab({ track }: { track: FeaturedCircuit }) {
       </table>
       {ideal && withSplits.length > 0 && (
         <p className="px-2 py-3 text-sm text-muted">
-          Best possible time <span className="font-mono font-bold tabular text-[#b36bff]">{formatLapTime(ideal.timeMs)}</span>
+          Best possible time <Rolling className="font-mono font-bold tabular text-[#b36bff]" text={formatLapTime(ideal.timeMs)} from />
           {ideal.from.every((i) => i === ideal.from[0])
             ? `: all three best parts are ${withSplits[ideal.from[0]].nickname}'s.`
             : ', the fastest drivers\' best parts put together.'}

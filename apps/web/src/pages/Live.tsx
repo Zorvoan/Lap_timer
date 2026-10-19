@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Rolling } from '../components/ui/Rolling';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { distanceMeters, formatLapTime, formatSpeed, speedLabel, type Circuit, type LatLon, type SectorSplit, type Session } from '@laptimer/core';
 import { Button, ConfirmButton, Empty, LinkButton, Notice, Sheet, Spinner, buttonClass } from '../components/ui/primitives';
@@ -810,8 +811,15 @@ function GapBox({
     return (
       <div key={`lap-${flash.lap}`} className={`${box} anim-pop ${flash.deltaMs === null ? 'border-line' : faster ? 'border-gain/50 bg-gain/10' : 'border-loss/50 bg-loss/10'}`} role="status" aria-live="assertive">
         <div className="label">Lap {flash.lap}</div>
-        <div className="mt-2 font-mono text-[clamp(2.75rem,min(15vw,8dvh),3.75rem)] font-extrabold leading-none tabular">{formatClock(flash.timeMs)}</div>
-        {flash.deltaMs !== null && <div className={`mt-3 font-mono text-2xl font-bold tabular ${faster ? 'text-gain' : 'text-loss'}`}>{formatGap(flash.deltaMs)}</div>}
+        <div className="mt-2 font-mono text-[clamp(2.75rem,min(15vw,8dvh),3.75rem)] font-extrabold leading-none tabular">
+          {/* The lap's time rolls up once; the live numbers above don't roll, so they read at a glance. */}
+          <Rolling text={formatClock(flash.timeMs)} from delay={120} />
+        </div>
+        {flash.deltaMs !== null && (
+          <div className={`mt-3 font-mono text-2xl font-bold tabular ${faster ? 'text-gain' : 'text-loss'}`}>
+            <Rolling text={formatGap(flash.deltaMs)} from delay={300} />
+          </div>
+        )}
       </div>
     );
   }
