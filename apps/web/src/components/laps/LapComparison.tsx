@@ -25,6 +25,8 @@ import { BaseMap, FitBounds, PrefetchRoute } from '../map/BaseMap';
 import { RouteLayer } from '../map/RouteLayer';
 import { TimingLineView } from '../map/TimingLines';
 import { COLOR_A, COLOR_B, COLOR_GAIN, COLOR_LOSS, DeltaDistanceChart, SpeedDistanceChart, SpeedTimeChart } from '../charts/Charts';
+import { RadarChart, type RadarMetric } from '../charts/RadarChart';
+import { drivingStyle, type DrivingStyle } from '../../lib/drivingStyle';
 import { lapLength } from '../../lib/references';
 
 export const FLAG_TEXT: Record<string, string> = {
@@ -134,6 +136,7 @@ export function ComparisonCharts({
           )}
         </div>
       </Panel>
+      {A && B && <StylePanel A={A} B={B} labelA={labelA} labelB={labelB ?? 'B'} speedUnit={speedUnit} />}
       <Panel title={`Speed vs distance (${speedLabel(speedUnit)})`}>
         <div className="h-56">
           {A && rows.length ? <SpeedDistanceChart rows={rows} speedUnit={speedUnit} distanceUnit={distanceUnit} labelA={labelA} labelB={B ? labelB : null} gaps={gaps} /> : <Unavailable />}
@@ -143,6 +146,86 @@ export function ComparisonCharts({
         <div className="h-56">{A ? <SpeedTimeChart laps={B ? [A, B] : [A]} speedUnit={speedUnit} colors={[COLOR_A, COLOR_B]} /> : <Unavailable />}</div>
       </Panel>
     </>
+  );
+}
+
+const STYLE_METRICS: (RadarMetric & { key: keyof Omit<DrivingStyle, 'corners'> })[] = [
+  { key: 'topSpeed', label: 'Top speed' },
+  { key: 'cornerSpeed', label: 'Corner speed', short: 'Corners' },
+  { key: 'accel', label: 'Acceleration', short: 'Accel' },
+  { key: 'braking', label: 'Braking' },
+  { key: 'avgSpeed', label: 'Average' },
+];
+
+/**
+ * How A and B were driven, side by side: top speed, the slowest speeds through the corners,
+ * how hard they accelerated and braked, average speed. Further out is better on every axis;
+ * each axis is scaled to the two laps so the difference shows.
+ */
+function StylePanel({ A, B, labelA, labelB, speedUnit }: { A: LapRecord; B: LapRecord; labelA: string; labelB: string; speedUnit: SpeedUnit }) {
+  const styles = useMemo(() => [drivingStyle(A), drivingStyle(B)] as const, [A, B]);
+  const [sa, sb] = styles;
+  if (!sa || !sb) return null;
+  const unit = speedLabel(speedUnit);
+  const show = (k: keyof DrivingStyle, v: number) => (k === 'accel' || k === 'braking' ? `${(v / 9.81).toFixed(2)} g` : `${convertSpeed(v, speedUnit).toFixed(0)} ${unit}`);
+  const score = (k: keyof DrivingStyle, v: number) => {
+    const lo = Math.min(sa[k], sb[k]) * 0.7;
+    const hi = Math.max(sa[k], sb[k]) * 1.05;
+    return hi > lo ? 20 + (80 * (v - lo)) / (hi - lo) : 80;
+  };
+  const series = [
+    { id: 'a', label: 'A', color: COLOR_A, s: sa },
+    { id: 'b', label: 'B', color: COLOR_B, s: sb },
+  ].map(({ id, label, color, s }) => ({
+    id,
+    label,
+    color,
+    scores: Object.fromEntries(STYLE_METRICS.map((m) => [m.key, score(m.key, s[m.key])])),
+    display: Object.fromEntries(STYLE_METRICS.map((m) => [m.key, show(m.key, s[m.key])])),
+  }));
+  return (
+    <Panel
+      title={
+        <span>
+          Driving style · <span style={{ color: COLOR_A }}>A {labelA}</span> vs <span style={{ color: COLOR_B }}>B {labelB}</span>
+        </span>
+      }
+    >
+      <div className="grid items-center gap-4 md:grid-cols-[1fr_16rem]">
+        <div className="mx-auto aspect-square w-full max-w-[22rem]">
+          <RadarChart metrics={STYLE_METRICS} series={series} ariaLabel="Driving style of lap A and lap B" />
+        </div>
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left">
+              <th className="label py-1.5 font-semibold" />
+              <th className="label py-1.5 text-right font-semibold" style={{ color: COLOR_A }}>
+                A
+              </th>
+              <th className="label py-1.5 text-right font-semibold" style={{ color: COLOR_B }}>
+                B
+              </th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-line border-t border-line">
+            {STYLE_METRICS.map((m) => {
+              const better = sa[m.key] > sb[m.key] ? 'a' : sa[m.key] < sb[m.key] ? 'b' : null;
+              return (
+                <tr key={m.key}>
+                  <td className="py-2 text-muted">{m.label}</td>
+                  <td className={`py-2 text-right font-mono tabular ${better === 'a' ? 'font-bold text-gain' : ''}`}>{show(m.key, sa[m.key])}</td>
+                  <td className={`py-2 text-right font-mono tabular ${better === 'b' ? 'font-bold text-gain' : ''}`}>{show(m.key, sb[m.key])}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p className="mt-3 text-xs text-muted">
+        Corner speed is the average of the slowest points through the corners ({sa.corners} found on A, {sb.corners} on B). Acceleration and braking are averages while speeding up and slowing
+        down, in g. Further out is better; each axis is scaled to these two laps.
+      </p>
+    </Panel>
   );
 }
 
