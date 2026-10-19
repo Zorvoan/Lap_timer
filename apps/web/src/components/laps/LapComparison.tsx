@@ -261,8 +261,18 @@ export function ReplayPanel({
             {!circuit && lapA.trace.length > 1 && <Polyline positions={lapA.trace.map((p) => [p.lat, p.lon] as [number, number])} pathOptions={{ color: COLOR_A, weight: 3 }} />}
             {circuit && <TimingLineView line={circuit.startLine} kind="start" label={circuit.kind === 'closed' ? 'Start / finish' : 'Start'} />}
             {circuit?.finishLine && <TimingLineView line={circuit.finishLine} kind="finish" label="Finish" />}
-            {posB && <CircleMarker center={[posB.lat, posB.lon]} radius={7} pathOptions={{ color: '#000', weight: 2, fillColor: COLOR_B, fillOpacity: 1 }} />}
-            {posA && <CircleMarker center={[posA.lat, posA.lon]} radius={8} pathOptions={{ color: '#fff', weight: 2, fillColor: COLOR_A, fillOpacity: 1 }} />}
+            {/* The followed car wears the white ring (and is drawn on top); the other one a dark edge. */}
+            {onB ? (
+              <>
+                {posA && <Car pos={posA} color={COLOR_A} />}
+                {posB && <Car pos={posB} color={COLOR_B} followed />}
+              </>
+            ) : (
+              <>
+                {posB && <Car pos={posB} color={COLOR_B} />}
+                {posA && <Car pos={posA} color={COLOR_A} followed />}
+              </>
+            )}
             {followed ? <FollowCar position={followed} /> : <FitBounds bounds={bounds} fitKey={circuit?.id ?? labelA} padding={24} />}
             <PrefetchRoute points={route} zooms={FOLLOW_ZOOMS} active={warm} />
           </BaseMap>
@@ -324,6 +334,17 @@ export function ReplayPanel({
         </div>
       </div>
     </Panel>
+  );
+}
+
+/** A car on the replay map; the one the map follows gets a white ring and a soft halo. */
+function Car({ pos, color, followed = false }: { pos: { lat: number; lon: number }; color: string; followed?: boolean }) {
+  const at: [number, number] = [pos.lat, pos.lon];
+  return (
+    <>
+      {followed && <CircleMarker center={at} radius={15} interactive={false} pathOptions={{ color: '#fff', weight: 1.5, opacity: 0.55, fillColor: '#fff', fillOpacity: 0.12 }} />}
+      <CircleMarker center={at} radius={followed ? 8 : 6.5} interactive={false} pathOptions={{ color: followed ? '#fff' : '#000', weight: followed ? 2.5 : 2, fillColor: color, fillOpacity: 1 }} />
+    </>
   );
 }
 
