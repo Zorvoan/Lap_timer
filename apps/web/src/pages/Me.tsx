@@ -9,6 +9,10 @@ import { install } from '../lib/install';
 import { listSessions } from '../lib/repo';
 import { useSettings } from '../hooks/useSettings';
 import { LapRows, lapRows } from './Sessions';
+import { DriverCard } from '../components/me/DriverCard';
+import { loadBoard } from '../components/track/LeaderboardTab';
+import { leaderboardTracks } from '../lib/cloud/account';
+import { driverRating, type BoardTimes } from '../lib/driverRating';
 
 /** Everything that is not a track: the account, past drives and settings. */
 export function Me() {
@@ -18,6 +22,32 @@ export function Me() {
   const { settings } = useSettings();
   const { data: sessions, loading } = useData(() => listSessions(), []);
   const laps = useMemo(() => lapRows(sessions ?? [], settings.includeSimulatedInBests), [sessions, settings.includeSimulatedInBests]);
+  // Leaderboards of the roads the user has driven, for pace and position; the rating works without them.
+  const uid = acc.user?.uid ?? null;
+  const boardIds = useMemo(() => {
+    const driven = new Set((sessions ?? []).filter((s) => s.source !== 'simulated').map((s) => s.circuitId));
+    return leaderboardTracks(acc)
+      .map((f) => f.id)
+      .filter((id) => driven.has(id))
+      .join(',');
+  }, [sessions, acc]);
+  const { data: boards } = useData(
+    async (): Promise<BoardTimes[]> => {
+      const all = await Promise.all(
+        boardIds
+          .split(',')
+          .filter(Boolean)
+          .map(async (id) => {
+            // A board that could not be loaded (offline) is left out rather than read as empty.
+            const board = await loadBoard(id, 200).catch(() => null);
+            return board ? { circuitId: id, othersMs: board.filter((e) => e.uid !== uid).map((e) => e.timeMs) } : null;
+          }),
+      );
+      return all.filter((b): b is BoardTimes => !!b);
+    },
+    [boardIds, uid],
+  );
+  const rating = useMemo(() => (sessions ? driverRating(sessions, boards ?? []) : null), [sessions, boards]);
 
   const signedIn = acc.status === 'signed_in';
   const name = acc.profile?.nickname ?? (signedIn ? acc.user?.email ?? 'Signed in' : 'Sign in');
@@ -45,6 +75,13 @@ export function Me() {
           </span>
           <IconChevronRight width={18} height={18} className="text-muted" />
         </Link>
+      )}
+
+      {rating && (
+        <>
+          <h2 className="label px-4 pb-2 pt-6">My driving</h2>
+          <DriverCard rating={rating} speedUnit={settings.speedUnit} />
+        </>
       )}
 
       <h2 className="label px-4 pb-2 pt-6">My laps</h2>
