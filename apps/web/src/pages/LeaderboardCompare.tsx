@@ -184,7 +184,7 @@ export function LeaderboardCompare() {
               </Panel>
             )}
 
-            <ComparisonCharts A={a.lap} B={b.lap} labelA={labelA} labelB={labelB} rows={rows} speedUnit={settings.speedUnit} distanceUnit={settings.distanceUnit} />
+            <ComparisonCharts A={a.lap} B={b.lap} labelA={labelA} labelB={labelB} rows={rows} speedUnit={settings.speedUnit} distanceUnit={settings.distanceUnit} circuit={track} />
             <ReplayPanel circuit={track} lapA={a.lap} lapB={b.lap} labelA={labelA} labelB={labelB} rows={rows} lengthM={lengthM} speedUnit={settings.speedUnit} chooseFollow />
           </>
         ) : (

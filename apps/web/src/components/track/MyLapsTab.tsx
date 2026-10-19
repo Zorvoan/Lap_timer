@@ -219,6 +219,7 @@ export function MyLapsTab({ circuit, sessions }: { circuit: Circuit; sessions: S
                 rows={cmpRows}
                 speedUnit={settings.speedUnit}
                 distanceUnit={settings.distanceUnit}
+                circuit={circuit}
               />
             </div>
 

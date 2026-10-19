@@ -15,6 +15,7 @@ import { leaderboardTracks } from '../lib/cloud/account';
 import { driverRating, type RoadBoard } from '../lib/driverRating';
 import { lapFromPublished } from '../lib/cloud/leaderboard';
 import { lapLength } from '../lib/references';
+import { roadCorners } from '../lib/corners';
 
 /** Other drivers' laps loaded per road for the corner-by-corner comparison. */
 const MAX_RIVALS = 10;
@@ -60,7 +61,7 @@ export function Me() {
               }
             }),
           );
-          return { circuitId: f.id, name: f.name, lengthM, othersMs: others.map((e) => e.timeMs), rivals: rivals.filter((r): r is RoadBoard['rivals'][number] => !!r) };
+          return { circuitId: f.id, name: f.name, lengthM, othersMs: others.map((e) => e.timeMs), rivals: rivals.filter((r): r is RoadBoard['rivals'][number] => !!r), corners: roadCorners(f, lengthM) };
         }),
       );
       return all.filter((b): b is RoadBoard => !!b);

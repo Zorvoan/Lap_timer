@@ -1,5 +1,6 @@
 import { compareLaps, gainLoss, type LapRecord, type Session } from '@laptimer/core';
-import { drivingStyle, fieldCorners } from './drivingStyle';
+import { drivingStyle } from './drivingStyle';
+import { cornerDuels, type RoadCorner } from './corners';
 
 /**
  * A driver's rating, measured against the other drivers on the same roads rather than on fixed
@@ -8,7 +9,8 @@ import { drivingStyle, fieldCorners } from './drivingStyle';
  * - the rating is how close the driver's best times are to the record on the leaderboard roads
  *   they drive;
  * - top speed and the speed through fast and slow corners compare their best lap with the other
- *   drivers' laps of the same road, corner by corner: only the same corner is ever compared;
+ *   drivers' laps of the same road; corners come from the road's shape, so only the same corner
+ *   is ever compared;
  * - consistency is the spread of their last laps on a road;
  * - "where you lose time" lists the stretches that cost the most against that fastest lap.
  */
@@ -51,6 +53,8 @@ export interface RoadBoard {
   othersMs: number[];
   /** Other drivers' best laps whose telemetry is published, fastest first. */
   rivals: { uid: string; nickname: string; lap: LapRecord }[];
+  /** The road's corners (from its shape). */
+  corners: RoadCorner[];
 }
 
 export interface Loss {
@@ -138,11 +142,11 @@ export function driverRating(sessions: readonly Session[], boards: readonly Road
   type Duel = { mine: number; others: number[] };
   const duels = { topSpeed: [] as Duel[], fast: [] as Duel[], slow: [] as Duel[] };
   for (const b of rated) {
-    const mine = drivingStyle(best.get(b.circuitId)!.lap);
+    const own = best.get(b.circuitId)!.lap;
+    const mine = drivingStyle(own);
     const others = b.rivals.map((r) => drivingStyle(r.lap)).filter((x): x is NonNullable<typeof x> => !!x);
-    if (!mine || !others.length) continue;
-    duels.topSpeed.push({ mine: mine.topSpeed, others: others.map((o) => o.topSpeed) });
-    for (const c of fieldCorners(mine, others)) (c.fast ? duels.fast : duels.slow).push({ mine: c.mine, others: c.others });
+    if (mine && others.length) duels.topSpeed.push({ mine: mine.topSpeed, others: others.map((o) => o.topSpeed) });
+    for (const c of cornerDuels(own, b.rivals.map((r) => r.lap), b.corners)) (c.fast ? duels.fast : duels.slow).push({ mine: c.mine, others: c.others });
   }
   const versus = (list: Duel[]): Skill | null =>
     list.length

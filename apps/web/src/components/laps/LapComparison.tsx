@@ -15,6 +15,7 @@ import {
   speedLabel,
   type AlignedRow,
   type Circuit,
+  type CircuitDefinition,
   type DistanceUnit,
   type LapRecord,
   type SpeedUnit,
@@ -26,7 +27,8 @@ import { RouteLayer } from '../map/RouteLayer';
 import { TimingLineView } from '../map/TimingLines';
 import { COLOR_A, COLOR_B, COLOR_GAIN, COLOR_LOSS, DeltaDistanceChart, SpeedDistanceChart } from '../charts/Charts';
 import { RadarChart, type RadarMetric } from '../charts/RadarChart';
-import { FAST_CORNER_MS, drivingStyle, pairedCorners } from '../../lib/drivingStyle';
+import { drivingStyle } from '../../lib/drivingStyle';
+import { FAST_CORNER_MS, cornerDuels, roadCorners } from '../../lib/corners';
 import { lapLength } from '../../lib/references';
 
 export const FLAG_TEXT: Record<string, string> = {
@@ -138,6 +140,7 @@ export function ComparisonCharts({
   rows,
   speedUnit,
   distanceUnit,
+  circuit = null,
 }: {
   A: LapRecord | null;
   B: LapRecord | null;
@@ -146,6 +149,8 @@ export function ComparisonCharts({
   rows: AlignedRow[];
   speedUnit: SpeedUnit;
   distanceUnit: DistanceUnit;
+  /** The road, for its corners. */
+  circuit?: CircuitDefinition | null;
 }) {
   // Stretches either lap drove without a GPS fix: the charts can't know what happened there.
   const gaps = useMemo(() => [A, B].flatMap((l) => (l ? traceGaps(l.trace).map((g) => ({ from: g.fromD, to: g.toD })) : [])), [A, B]);
@@ -166,7 +171,7 @@ export function ComparisonCharts({
           )}
         </div>
       </Panel>
-      {A && B && <StylePanel A={A} B={B} labelA={labelA} labelB={labelB ?? 'B'} speedUnit={speedUnit} />}
+      {A && B && <StylePanel A={A} B={B} labelA={labelA} labelB={labelB ?? 'B'} speedUnit={speedUnit} circuit={circuit} lengthM={rows[rows.length - 1]?.d ?? 0} />}
       <Panel title={`Speed vs distance (${speedLabel(speedUnit)})`}>
         <div className="h-56">
           {A && rows.length ? <SpeedDistanceChart rows={rows} speedUnit={speedUnit} distanceUnit={distanceUnit} labelA={labelA} labelB={B ? labelB : null} gaps={gaps} onHover={setChartDistance} /> : <Unavailable />}
@@ -189,15 +194,34 @@ const STYLE_METRICS: (RadarMetric & { key: SpeedKey })[] = [
  * corners, average speed. Further out is better on every axis; each axis is scaled to the two laps
  * so the difference shows.
  */
-function StylePanel({ A, B, labelA, labelB, speedUnit }: { A: LapRecord; B: LapRecord; labelA: string; labelB: string; speedUnit: SpeedUnit }) {
+function StylePanel({
+  A,
+  B,
+  labelA,
+  labelB,
+  speedUnit,
+  circuit,
+  lengthM,
+}: {
+  A: LapRecord;
+  B: LapRecord;
+  labelA: string;
+  labelB: string;
+  speedUnit: SpeedUnit;
+  circuit: CircuitDefinition | null;
+  lengthM: number;
+}) {
   const styles = useMemo(() => [drivingStyle(A), drivingStyle(B)] as const, [A, B]);
+  // The road's corners, from its shape: both laps are measured on exactly the same corners.
+  const duels = useMemo(() => (circuit && lengthM > 0 ? cornerDuels(A, [B], roadCorners(circuit, lengthM)) : []), [A, B, circuit, lengthM]);
   const [sa, sb] = styles;
   if (!sa || !sb) return null;
   const unit = speedLabel(speedUnit);
-  // Corners are compared on the same corners of both laps, classed by their average speed.
-  const corners = pairedCorners(sa, sb);
+  const kind = (fast: boolean) => duels.filter((d) => d.fast === fast);
+  const avg = (xs: number[]) => (xs.length ? xs.reduce((s, x) => s + x, 0) / xs.length : null);
+  const cornerSpeed = (fast: boolean, lap: 'a' | 'b') => avg(kind(fast).map((d) => (lap === 'a' ? d.mine : d.others[0])));
   const val = (lap: 'a' | 'b', k: SpeedKey): number | null =>
-    k === 'fastCornerSpeed' ? (corners.fast?.[lap] ?? null) : k === 'slowCornerSpeed' ? (corners.slow?.[lap] ?? null) : (lap === 'a' ? sa : sb)[k];
+    k === 'fastCornerSpeed' ? cornerSpeed(true, lap) : k === 'slowCornerSpeed' ? cornerSpeed(false, lap) : (lap === 'a' ? sa : sb)[k];
   const show = (v: number | null) => (v === null ? '—' : `${convertSpeed(v, speedUnit).toFixed(0)} ${unit}`);
   const score = (k: SpeedKey, v: number | null) => {
     const a = val('a', k);
@@ -259,7 +283,7 @@ function StylePanel({ A, B, labelA, labelB, speedUnit }: { A: LapRecord; B: LapR
         </table>
       </div>
       <p className="mt-3 text-xs text-muted">
-        Further out is better. Fast corners are taken at {convertSpeed(FAST_CORNER_MS, speedUnit).toFixed(0)} {unit} or more.
+        Further out is better. Slowest speed through the road&apos;s corners: {kind(true).length} fast ({convertSpeed(FAST_CORNER_MS, speedUnit).toFixed(0)} {unit} or more), {kind(false).length} slow.
       </p>
     </Panel>
   );

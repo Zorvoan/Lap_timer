@@ -1,22 +1,33 @@
 import { describe, expect, it } from 'vitest';
 import type { LapRecord, LapTracePoint, Session } from '@laptimer/core';
 import { driverRating, ratingLabel, type RoadBoard } from '../src/lib/driverRating';
+import type { RoadCorner } from '../src/lib/corners';
 
 const DAY = 86_400_000;
 const NOW = new Date(2026, 9, 19, 18).getTime();
 
-/** A lap sampled once a second: straights at 30 m/s, two corners at `apex` m/s. */
+/**
+ * A lap with a fix every 25 m (so every lap has its points at the same places on the road):
+ * straights at 30 m/s and two corners, around 300 m and 600 m, taken at `apex` m/s.
+ */
 function lap(n: number, apex = 14): LapRecord {
-  const speeds = [...Array(8).fill(30), 26, 22, 18, apex, apex, 18, 22, 26, ...Array(8).fill(30), 26, 22, apex, apex, 22, 26, ...Array(6).fill(30)];
+  const speeds = [...Array(10).fill(30), 26, 22, apex, apex, 22, 26, ...Array(8).fill(30), 26, apex, apex, 26, ...Array(6).fill(30)];
   const trace: LapTracePoint[] = [];
-  let d = 0;
+  let t = 0;
   speeds.forEach((v, i) => {
-    trace.push({ t: i * 1000, d, v, lat: 0, lon: 0, accuracy: 3 });
-    d += v;
+    trace.push({ t, d: i * 25, v, lat: 0, lon: 0, accuracy: 3 });
+    t += (25 / v) * 1000;
   });
-  const timeMs = (speeds.length - 1) * 1000;
-  return { lap: n, timeMs, distanceM: d, valid: true, flags: [], trace, sectorTimesMs: [], avgSpeedMs: d / (timeMs / 1000), maxSpeedMs: 30, startT: 0 } as unknown as LapRecord;
+  const distanceM = (speeds.length - 1) * 25;
+  const timeMs = trace[trace.length - 1].t;
+  return { lap: n, timeMs, distanceM, valid: true, flags: [], trace, sectorTimesMs: [], avgSpeedMs: distanceM / (timeMs / 1000), maxSpeedMs: 30, startT: 0 } as unknown as LapRecord;
 }
+
+/** The two corners of {@link lap}'s road. */
+const CORNERS: RoadCorner[] = [
+  { from: 290, to: 340, angle: 90, dir: 1 },
+  { from: 590, to: 640, angle: 70, dir: -1 },
+];
 
 /** The same lap with its time set (the trace stays; only the clock differs). */
 const timed = (l: LapRecord, timeMs: number) => ({ ...l, timeMs }) as LapRecord;
@@ -46,7 +57,7 @@ describe('driver rating', () => {
   ];
   const ref = timed(lap(1, 18), 57_000);
   const slowRival = timed(lap(1, 12), 63_000);
-  const board: RoadBoard = { circuitId: 'road', name: 'Road', lengthM: base.distanceM, othersMs: [57_000, 63_000, 66_000, 70_000], rivals: [{ uid: 'p1', nickname: 'Fast', lap: ref }, { uid: 'p2', nickname: 'Slow', lap: slowRival }] };
+  const board: RoadBoard = { circuitId: 'road', name: 'Road', lengthM: base.distanceM, othersMs: [57_000, 63_000, 66_000, 70_000], rivals: [{ uid: 'p1', nickname: 'Fast', lap: ref }, { uid: 'p2', nickname: 'Slow', lap: slowRival }], corners: CORNERS };
   const r = driverRating(sessions, [board])!;
 
   it('rates pace against the record and position in the field', () => {
@@ -58,12 +69,11 @@ describe('driver rating', () => {
   });
 
   it('compares the same corners with the other drivers', () => {
-    // On every corner one rival is faster (18 m/s) and one slower (12 m/s) than the driver (14).
+    // On both corners one rival is faster (18 m/s) and one slower (12 m/s) than the driver (14).
     expect(r.skills.slowCorners!.score).toBeCloseTo(50, 5);
     expect(r.skills.slowCorners!.count).toBe(2);
-    // The others' median (smoothed apexes) is a little faster than the driver.
-    expect(r.skills.slowCorners!.value).toBeLessThan(0);
-    expect(r.skills.slowCorners!.value).toBeGreaterThan(-2);
+    // The others' median (15 m/s) against the driver's 14.
+    expect(r.skills.slowCorners!.value).toBeCloseTo(-1, 5);
     expect(r.skills.fastCorners).toBeNull();
     // Same top speed as both rivals: half of them beaten on a tie.
     expect(r.skills.topSpeed!.score).toBeCloseTo(50, 5);
