@@ -285,6 +285,10 @@ select {
 @keyframes lt-tour-note { from { opacity: 0; transform: translate(-50%, -10px) scale(0.9); } to { opacity: 1; transform: translate(-50%, 0) scale(1); } }
 @keyframes lt-tour-fan { from { opacity: 0; transform: translateY(calc(var(--y) + 24px)) scale(var(--s)); } }
 
+/* Charts: lines draw themselves in once, fills and dots fade in after them. */
+.chart-draw { stroke-dasharray: 1; stroke-dashoffset: 1; animation: lt-tour-draw 900ms var(--ease-expo) forwards; }
+.chart-fade { animation: lt-fade-in 400ms var(--ease-enter) backwards; }
+
 /* Reduced motion: nothing travels or scales; things still fade so state changes stay visible. */
 @media (prefers-reduced-motion: reduce) {
   .anim-page, .anim-reveal, .anim-num, .anim-icon, .anim-pop, .anim-bar, .anim-toast, .anim-stagger,
@@ -302,6 +306,7 @@ select {
   .tour-spot { transition: opacity 200ms ease; }
   .tour-spot::after { animation: none; opacity: 0.9; }
   .tour-dot { transition: none; }
+  .chart-draw { animation: lt-fade-in 300ms ease backwards; stroke-dasharray: none; stroke-dashoffset: 0; }
   /* Pressing does not shrink; looping pulses stop. Colour fades stay. */
   .press:active:not(:disabled) { transform: none; }
   .animate-pulse { animation: none; }
