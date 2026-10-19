@@ -106,7 +106,7 @@ export function MyLapsTab({ circuit, sessions }: { circuit: Circuit; sessions: S
   return (
     <div>
       <div className="space-y-4">
-        <div className="grid grid-cols-2 gap-4 rounded border border-line bg-panel p-4 sm:grid-cols-5">
+        <div className="grid grid-cols-2 gap-4 rounded-2xl border border-line bg-panel p-4 sm:grid-cols-5">
           <Stat label="Personal best" value={formatLapTime(best?.lap.timeMs)} hint={best ? entryLabel(best) : undefined} />
           <Stat
             label="Best possible"

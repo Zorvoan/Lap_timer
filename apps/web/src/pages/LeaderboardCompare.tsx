@@ -141,7 +141,7 @@ export function LeaderboardCompare() {
             <div className="grid gap-3 sm:grid-cols-3">
               <TimeCard letter="A" color={COLOR_A} label={labelA} lap={a.lap} />
               {b.lap ? <TimeCard letter="B" color={COLOR_B} label={labelB ?? ''} lap={b.lap} /> : <div className="hidden sm:block" />}
-              <div className="rounded border border-line bg-panel p-4">
+              <div className="rounded-2xl border border-line bg-panel p-4">
                 <div className="label">Gap A − B</div>
                 {b.lap ? (
                   <>
@@ -241,7 +241,7 @@ function LapPicker({
 function TimeCard({ letter, color, label, lap }: { letter: string; color: string; label: string; lap: LapRecord }) {
   const { settings } = useSettings();
   return (
-    <div className="rounded border border-line bg-panel p-4">
+    <div className="rounded-2xl border border-line bg-panel p-4">
       <div className="label flex items-center gap-2">
         <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: color }} aria-hidden="true" /> {letter} · <span className="truncate normal-case tracking-normal">{label}</span>
       </div>
