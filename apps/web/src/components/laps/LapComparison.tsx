@@ -175,6 +175,8 @@ export function ReplayPanel({
   // The map follows one car, zoomed in: A, or B when the user picks it.
   const [followB, setFollowB] = useState(false);
   const raf = useRef(0);
+  // The replay runs until the slower of the two has finished.
+  const endMs = Math.max(lapA.timeMs, lapB?.timeMs ?? 0);
 
   useEffect(() => {
     setT(0);
@@ -189,9 +191,9 @@ export function ReplayPanel({
       last = now;
       setT((cur) => {
         const next = cur + dt;
-        if (next >= lapA.timeMs) {
+        if (next >= endMs) {
           setPlaying(false);
-          return lapA.timeMs;
+          return endMs;
         }
         return next;
       });
@@ -199,15 +201,20 @@ export function ReplayPanel({
     };
     raf.current = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf.current);
-  }, [playing, rate, lapA.timeMs]);
+  }, [playing, rate, endMs]);
 
   // Cars are drawn on the road at their distance along the circuit, not at the raw GPS fix.
   const onTrack = useMemo(() => (circuit ? lapDistanceToPosition(circuit) : null), [circuit]);
   const place = (p: ReturnType<typeof positionAtTime>) => (p && onTrack ? { ...p, ...onTrack(p.d) } : p);
   const posA = place(positionAtTime(lapA.trace, t));
   const posB = lapB ? place(positionAtTime(lapB.trace, t)) : null;
-  const followed = chooseFollow && followB && posB ? posB : posA;
-  const deltaHere = posA && rows.length && lapB ? rows[Math.min(rows.length - 1, Math.round((posA.d / lengthM) * (rows.length - 1)))]?.deltaMs : null;
+  // Following B, the numbers are B's: its distance, its speed, its gap to A where it is.
+  const onB = !!(chooseFollow && followB && posB);
+  const followed = onB ? posB : posA;
+  const deltaAt = (d: number) => (rows.length && lapB ? rows[Math.min(rows.length - 1, Math.max(0, Math.round((d / lengthM) * (rows.length - 1))))]?.deltaMs ?? null : null);
+  const deltaA = posA ? deltaAt(posA.d) : null;
+  const deltaB = posB ? deltaAt(posB.d) : null;
+  const deltaHere = onB ? (deltaB === null ? null : -deltaB) : deltaA;
 
   const segments = useMemo(() => {
     if (!circuit || !lapB || !rows.length) return [];
@@ -262,7 +269,7 @@ export function ReplayPanel({
         </div>
         <div className="space-y-4 border-t border-line p-4 lg:border-l lg:border-t-0">
           <div className="flex items-center gap-2">
-            <Button variant="primary" onClick={() => (t >= lapA.timeMs && setT(0), setPlaying((p) => !p))} aria-label={playing ? 'Pause replay' : 'Play replay'}>
+            <Button variant="primary" onClick={() => (t >= endMs && setT(0), setPlaying((p) => !p))} aria-label={playing ? 'Pause replay' : 'Play replay'}>
               {playing ? <IconPause width={18} height={18} /> : <IconPlay width={18} height={18} />}
             </Button>
             <select aria-label="Replay speed" value={rate} onChange={(e) => setRate(Number(e.target.value))} className="h-10 rounded border border-line bg-raised px-2 text-sm">
@@ -293,7 +300,7 @@ export function ReplayPanel({
             type="range"
             aria-label="Replay position"
             min={0}
-            max={lapA.timeMs}
+            max={endMs}
             step={50}
             value={t}
             onChange={(e) => (setPlaying(false), setT(Number(e.target.value)))}
@@ -301,9 +308,9 @@ export function ReplayPanel({
           />
           <div className="grid grid-cols-2 gap-3">
             <Stat label="Elapsed" value={formatLapTime(t)} />
-            <Stat label="Distance" value={posA ? `${Math.round(posA.d)}` : '—'} unit="m" />
-            <Stat label="Speed A" value={posA?.v != null ? convertSpeed(posA.v, speedUnit).toFixed(0) : '—'} unit={speedLabel(speedUnit)} />
-            <Stat label="Δ A vs B here" value={deltaHere != null ? formatDelta(deltaHere) : '—'} unit={deltaHere != null ? 's' : undefined} />
+            <Stat label={`Distance ${onB ? 'B' : 'A'}`} value={followed ? `${Math.round(followed.d)}` : '—'} unit="m" />
+            <Stat label={`Speed ${onB ? 'B' : 'A'}`} value={followed?.v != null ? convertSpeed(followed.v, speedUnit).toFixed(0) : '—'} unit={speedLabel(speedUnit)} />
+            <Stat label={onB ? 'Δ B vs A here' : 'Δ A vs B here'} value={deltaHere != null ? formatDelta(deltaHere) : '—'} unit={deltaHere != null ? 's' : undefined} />
           </div>
           <p className="text-xs text-muted">
             <span style={{ color: COLOR_A }}>●</span> A: {labelA}
