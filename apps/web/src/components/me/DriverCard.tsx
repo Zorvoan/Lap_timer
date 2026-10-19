@@ -104,12 +104,12 @@ export function DriverCard({ rating, speedUnit }: { rating: DriverRating; speedU
         {scored.map(({ key, label, skill }) => {
           const lit = strongest?.key === key;
           return (
-            <section key={key} className={`rounded-2xl border p-4 ${lit ? 'border-transparent bg-[#efe8dc] text-black' : 'border-line bg-panel'}`}>
-              <div className={`label ${lit ? '!text-black/60' : ''}`}>{label}</div>
+            <section key={key} className={`rounded-2xl border bg-panel p-4 ${lit ? 'border-accent/60' : 'border-line'}`}>
+              <div className="label">{label}</div>
               <div className="mt-2 font-display text-[2.4rem] font-black leading-none tabular">{skill ? <Rolling text={String(Math.round(skill.score))} from delay={250} /> : '—'}</div>
-              <div className={`mt-1.5 text-xs ${lit ? 'text-black/60' : 'text-muted'}`}>{detail(key, skill, speedUnit)}</div>
-              <div className={`mt-3 h-1.5 overflow-hidden rounded-full ${lit ? 'bg-black/10' : 'bg-raised'}`}>
-                <Bar value={skill?.score ?? 0} color={lit ? '#000' : 'rgb(var(--c-accent))'} />
+              <div className="mt-1.5 text-xs text-muted">{detail(key, skill, speedUnit)}</div>
+              <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-raised">
+                <Bar value={skill?.score ?? 0} color="rgb(var(--c-accent))" />
               </div>
             </section>
           );
