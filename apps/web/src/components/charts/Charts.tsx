@@ -72,6 +72,7 @@ export function LapTimesChart({
       markers={markers}
       xFormat={(x) => String(x)}
       yFormat={shortTime}
+      pillLabel={(x) => `Lap ${x}`}
       tooltipTitle={(x) => `Lap ${x}${byX.get(x)?.valid === false ? ' (not counted)' : ''}`}
       onSelect={onSelect ? (p) => onSelect(Number(p.id)) : undefined}
     />
@@ -109,6 +110,7 @@ export function SpeedDistanceChart({
       xFormat={distTick(distanceUnit)}
       yFormat={(v) => String(Math.round(v))}
       tooltipTitle={distTitle(distanceUnit)}
+      pillLabel={distTitle(distanceUnit, 2)}
     />
   );
 }
@@ -135,6 +137,7 @@ export function SpeedTimeChart({ laps, speedUnit, colors }: { laps: LapRecord[];
       xFormat={(t) => `${Math.round(t)} s`}
       yFormat={(v) => String(Math.round(v))}
       tooltipTitle={(t) => `${t.toFixed(1)} s`}
+      pillLabel={(t) => `${t.toFixed(1)} s`}
     />
   );
 }
@@ -151,6 +154,7 @@ export function DeltaDistanceChart({ rows, distanceUnit, gaps = [] }: { rows: Al
       xFormat={distTick(distanceUnit)}
       yFormat={(v) => formatDelta(v * 1000, 1)}
       tooltipTitle={distTitle(distanceUnit)}
+      pillLabel={distTitle(distanceUnit, 2)}
     />
   );
 }
@@ -165,6 +169,7 @@ export function ElevationChart({ points, distanceUnit, compact = false }: { poin
       xFormat={distTick(distanceUnit)}
       yFormat={(v) => `${Math.round(v)} m`}
       tooltipTitle={distTitle(distanceUnit, 2)}
+      pillLabel={distTitle(distanceUnit, 2)}
     />
   );
 }
@@ -211,6 +216,7 @@ export function LapHistoryChart({ points, onSelect }: { points: HistoryPoint[]; 
       markers={markers}
       xFormat={(x) => String(x)}
       yFormat={shortTime}
+      pillLabel={(x) => `Lap ${x}`}
       tooltipTitle={(x) => {
         const p = byN.get(x);
         return p ? new Date(p.date).toLocaleString(undefined, { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' }) : `Lap ${x}`;
