@@ -23,6 +23,23 @@ export interface RadarSeries {
   scores: Record<string, number>;
   /** What the tooltip says per metric key. */
   display: Record<string, string>;
+  /**
+   * What the series shows (e.g. which lap). When it changes the series grows out of the centre
+   * again; when only its scores change (the scale moved) it eases to its new shape.
+   */
+  dataKey?: string;
+}
+
+/** How long a series takes to ease to a new shape when only the scale moved. */
+const MORPH_MS = 450;
+
+interface SeriesMotion {
+  dataKey: string;
+  from: Record<string, number>;
+  to: Record<string, number>;
+  /** Initial entrance (on the shared clock), growing again (new data), or easing to a new shape. */
+  mode: 'enter' | 'grow' | 'morph';
+  t0: number;
 }
 
 const LEVELS = 5;
@@ -83,6 +100,49 @@ export function RadarChart({ metrics, series, ariaLabel }: { metrics: readonly R
   const total = areaStart + series.length * 150 + ENTER_MS;
   const entering = useEnterClock(total, seen && !revisit);
   const ms = revisit ? total : entering;
+
+  // Each series' own motion: the first entrance runs on the shared clock; afterwards a series
+  // whose data changed grows again on its own, and one whose scale moved eases to its new shape.
+  const motions = useRef(new Map<string, SeriesMotion>());
+  const [, setTick] = useState(0);
+  const now = performance.now();
+  const reduce = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const scoresOf = (m: SeriesMotion, si: number, key: string): number => {
+    const target = m.to[key] ?? 0;
+    if (m.mode === 'enter') return target * easeBack(phase(ms, areaStart + si * 150, ENTER_MS * 0.8));
+    const k = reduce ? 1 : Math.min(1, (now - m.t0) / (m.mode === 'grow' ? ENTER_MS * 0.8 : MORPH_MS));
+    if (m.mode === 'grow') return target * easeBack(k);
+    const from = m.from[key] ?? target;
+    return from + (target - from) * easeOut(k);
+  };
+  const motionOf = (s: RadarSeries, si: number) => {
+    const key = s.dataKey ?? s.id;
+    let m = motions.current.get(s.id);
+    if (!m) {
+      m = { dataKey: key, from: {}, to: s.scores, mode: 'enter', t0: now };
+      motions.current.set(s.id, m);
+    } else if (m.dataKey !== key) {
+      Object.assign(m, { dataKey: key, from: {}, to: s.scores, mode: 'grow', t0: now });
+    } else if (m.to !== s.scores && metrics.some((x) => m!.to[x.key] !== s.scores[x.key])) {
+      const current = Object.fromEntries(metrics.map((x) => [x.key, scoresOf(m!, si, x.key)]));
+      Object.assign(m, { from: current, to: s.scores, mode: 'morph', t0: now });
+    }
+    const mm = m;
+    const opacity =
+      reduce || mm.mode === 'morph'
+        ? 1
+        : mm.mode === 'enter'
+          ? Math.min(1, easeBack(phase(ms, areaStart + si * 150, ENTER_MS * 0.8)) * 2)
+          : Math.min(1, (now - mm.t0) / (ENTER_MS * 0.4));
+    return { score: (k: string) => scoresOf(mm, si, k), opacity };
+  };
+  // Keep drawing while a series is still growing or easing.
+  useEffect(() => {
+    const busy = [...motions.current.values()].some((m) => m.mode !== 'enter' && performance.now() - m.t0 < (m.mode === 'grow' ? ENTER_MS * 0.8 : MORPH_MS));
+    if (!busy || reduce) return;
+    const raf = requestAnimationFrame(() => setTick((x) => x + 1));
+    return () => cancelAnimationFrame(raf);
+  });
 
   const n = metrics.length;
   const r = Math.max(0, size / 2 - 70);
@@ -173,8 +233,8 @@ export function RadarChart({ metrics, series, ariaLabel }: { metrics: readonly R
           })}
           {/* Series grow out of the centre in turn; the hovered one lifts, the rest step back. */}
           {series.map((s, si) => {
-            const t = easeBack(phase(ms, areaStart + si * 150, ENTER_MS * 0.8));
-            const pts = metrics.map((m, i) => at(i, s.scores[m.key] * t));
+            const { score, opacity: t } = motionOf(s, si);
+            const pts = metrics.map((m, i) => at(i, score(m.key)));
             const lifted = hoverSeries === si;
             const dimmed = hoverSeries !== null && !lifted;
             return (

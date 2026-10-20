@@ -233,12 +233,14 @@ function StylePanel({
     return hi > lo ? 20 + (80 * (v - lo)) / (hi - lo) : 80;
   };
   const series = [
-    { id: 'a' as const, label: 'A', color: COLOR_A },
-    { id: 'b' as const, label: 'B', color: COLOR_B },
-  ].map(({ id, label, color }) => ({
+    { id: 'a' as const, label: 'A', color: COLOR_A, lap: A },
+    { id: 'b' as const, label: 'B', color: COLOR_B, lap: B },
+  ].map(({ id, label, color, lap }) => ({
     id,
     label,
     color,
+    // Swapping one lap grows only that lap's area again; the other eases to the new scale.
+    dataKey: `${lap.startT}:${lap.lap}:${lap.timeMs}`,
     scores: Object.fromEntries(STYLE_METRICS.map((m) => [m.key, score(m.key, val(id, m.key))])),
     display: Object.fromEntries(STYLE_METRICS.map((m) => [m.key, show(val(id, m.key))])),
   }));
