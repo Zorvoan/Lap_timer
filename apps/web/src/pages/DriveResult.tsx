@@ -3,7 +3,7 @@ import { Rolling } from '../components/ui/Rolling';
 import { useParams } from 'react-router-dom';
 import { formatLapTime, splitTimes, type LapRecord } from '@laptimer/core';
 import { loadBoard } from '../components/track/LeaderboardTab';
-import { LinkButton, Notice, Spinner } from '../components/ui/primitives';
+import { LinkButton, Notice, Spinner, PageSpinner } from '../components/ui/primitives';
 import { NotifySwitch } from '../components/NotifySwitch';
 import { pushOn } from '../lib/pushState';
 import { IconCloudOff, IconUndo } from '../components/ui/icons';
@@ -68,7 +68,7 @@ export function DriveResult() {
     return { place: 1 + others.filter((e) => e.timeMs < result.lap!.timeMs).length, of: others.length + 1 };
   }, [result?.lap?.timeMs, official, online, acc.user?.uid]);
 
-  if (loading && !data) return <div className="p-6"><Spinner /></div>;
+  if (loading && !data) return <PageSpinner />;
   if (!result) {
     return (
       <div className="space-y-3 p-6">

@@ -44,7 +44,7 @@ createRoot(document.getElementById('root')!).render(
       <BrowserRouter>
         <Suspense
           fallback={
-            <div className="p-6">
+            <div className="flex h-full items-center justify-center p-6">
               <Spinner />
             </div>
           }

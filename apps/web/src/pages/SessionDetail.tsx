@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { formatDelta, formatDistance, formatLapTime, formatSpeed, speedLabel, idealLap, splitTimes, summarizeSession, type Circuit, type Session } from '@laptimer/core';
 import { PageHeader } from '../components/AppShell';
-import { Badge, Button, ConfirmButton, LinkButton, Notice, Panel, SimBadge, Spinner, Stat } from '../components/ui/primitives';
+import { Badge, Button, ConfirmButton, LinkButton, Notice, Panel, SimBadge, Stat, PageSpinner } from '../components/ui/primitives';
 import { IconDownload, IconTimer, IconTrash } from '../components/ui/icons';
 import { LapTimesChart } from '../components/charts/Charts';
 import { ABButtons, ComparisonCharts, GpsQuality, ReplayPanel, useComparisonRows, useLapLength } from '../components/laps/LapComparison';
@@ -25,7 +25,7 @@ export function SessionDetail() {
     return { session, circuit };
   }, [id], `session:${id}`);
 
-  if (loading && !data) return <div className="p-6"><Spinner /></div>;
+  if (loading && !data) return <PageSpinner />;
   const session = data?.session;
   if (!session) return <div className="p-6"><Notice tone="error">Session not found.</Notice></div>;
   return <SessionView session={session} circuit={data?.circuit ?? null} onDeleted={() => navigate('/sessions')} speedUnit={settings.speedUnit} distanceUnit={settings.distanceUnit} />;

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Rolling } from '../components/ui/Rolling';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { distanceMeters, formatLapTime, formatSpeed, speedLabel, type Circuit, type LatLon, type SectorSplit, type Session } from '@laptimer/core';
-import { Button, ConfirmButton, Empty, LinkButton, Notice, Sheet, Spinner, buttonClass } from '../components/ui/primitives';
+import { Button, ConfirmButton, Empty, LinkButton, Notice, Sheet, buttonClass, PageSpinner } from '../components/ui/primitives';
 import { IconAlert, IconCheck, IconChevronRight, IconPin, IconPlay, IconSpinner, IconStop, IconTrophy, IconX } from '../components/ui/icons';
 import { loadBoard } from '../components/track/LeaderboardTab';
 import { useAccount, useData, useLive, useTicker } from '../hooks/useData';
@@ -156,7 +156,7 @@ function DriveSetup() {
     }
   }
 
-  if (loading && !data) return <div className="p-6"><Spinner /></div>;
+  if (loading && !data) return <PageSpinner />;
   if (!circuit) {
     return (
       <div className="p-6">
@@ -674,7 +674,7 @@ function DriveRunning() {
     }
   }
 
-  if (!snap || !live.circuit) return <div className="p-6"><Spinner /></div>;
+  if (!snap || !live.circuit) return <PageSpinner />;
 
   const elapsed = snap.lapStartT != null ? Math.max(0, now - snap.lapStartT) : null;
   const flash = live.lastLap && snap.lapState === 'lap_completed' ? live.lastLap : null;
