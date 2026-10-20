@@ -22,3 +22,18 @@ export function wasVisited(path: string): boolean {
 export function markVisited(path: string): void {
   visited.add(path);
 }
+
+/** Entrance animations already played since the app started, by key. */
+const played = new Set<string>();
+
+/**
+ * Whether the entrance with this key has played already. Lists that are rebuilt (switching tabs
+ * and back) would otherwise play their numbers' entrances again.
+ */
+export function hasPlayed(key: string): boolean {
+  return played.has(key);
+}
+
+export function markPlayed(key: string): void {
+  played.add(key);
+}
