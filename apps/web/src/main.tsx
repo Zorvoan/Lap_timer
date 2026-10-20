@@ -28,6 +28,12 @@ initUpdates();
 initInstall();
 initAccount();
 
+// Safari on iPhone ignores `user-scalable=no`; its pinch gesture events can still be stopped.
+// Maps handle their own pinch, so a pinch on a map is left alone.
+document.addEventListener('gesturestart', (e) => {
+  if (!(e.target instanceof Element && e.target.closest('.leaflet-container'))) e.preventDefault();
+});
+
 function NotFound() {
   return <div className="p-6 text-muted">Page not found.</div>;
 }

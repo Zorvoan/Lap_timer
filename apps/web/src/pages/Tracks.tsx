@@ -53,7 +53,7 @@ export function Tracks() {
     void refreshFeatured();
   }, []);
 
-  const { data, loading, error } = useData(async () => ({ circuits: await listCircuits(), sessions: await listSessions() }), [acc.featured.length]);
+  const { data, loading, error } = useData(async () => ({ circuits: await listCircuits(), sessions: await listSessions() }), [acc.featured.length], 'tracks:list');
   const stats = useMemo(() => circuitStats(data?.sessions ?? [], settings.includeSimulatedInBests), [data, settings.includeSimulatedInBests]);
   const order = (id: string) => acc.featured.findIndex((f) => f.id === id);
   const isOfficial = (id: string) => order(id) >= 0;
@@ -75,7 +75,7 @@ export function Tracks() {
     const out = new Map<string, LeaderboardEntry[]>();
     await Promise.all(boardTracks.map(async (f) => out.set(f.id, await loadBoard(f.id, 100).catch(() => []))));
     return out;
-  }, [ids]);
+  }, [ids], `tracks:boards:${ids}`);
 
   const near = useNearestStart(all);
   // Read once per visit: the map opens where the user left it during this app session.

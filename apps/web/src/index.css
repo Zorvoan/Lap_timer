@@ -55,6 +55,12 @@ body,
   height: 100%;
 }
 
+/* No page zoom (pinch or double tap): the app is laid out for the phone. Maps still pinch-zoom
+   themselves. */
+html {
+  touch-action: pan-x pan-y;
+}
+
 body {
   @apply bg-bg text-fg font-sans antialiased;
   -webkit-tap-highlight-color: transparent;
@@ -311,6 +317,14 @@ select {
   animation: lt-shimmer 2.2s linear infinite;
 }
 @keyframes lt-shimmer { from { background-position: 100% 0; } to { background-position: 0 0; } }
+
+/* Back on a page seen before (since the app started): its entrances don't play again. */
+[data-revisit] .anim-stagger,
+[data-revisit] .chart-fade,
+[data-revisit] .tc-card,
+[data-revisit] .tc-stamp {
+  animation: none;
+}
 
 /* Reduced motion: nothing travels or scales; things still fade so state changes stay visible. */
 @media (prefers-reduced-motion: reduce) {
