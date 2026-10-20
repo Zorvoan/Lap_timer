@@ -201,6 +201,15 @@ export function Spinner({ label = 'Loading' }: { label?: string }) {
   );
 }
 
+/** A whole page still loading: the spinner in the middle of the screen. */
+export function PageSpinner({ label }: { label?: string }) {
+  return (
+    <div className="flex h-full min-h-[50dvh] items-center justify-center p-6">
+      <Spinner label={label} />
+    </div>
+  );
+}
+
 /**
  * Two or three choices in one control (List / Map, Leaderboard / My laps). The highlight slides
  * to the chosen one, so it is clear what changed.

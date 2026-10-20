@@ -7,7 +7,7 @@ import { RouteLayer } from '../components/map/RouteLayer';
 import { TimingLineView } from '../components/map/TimingLines';
 import { LeaderboardTab } from '../components/track/LeaderboardTab';
 import { MyLapsTab } from '../components/track/MyLapsTab';
-import { Button, ConfirmButton, LinkButton, Notice, Segmented, Spinner } from '../components/ui/primitives';
+import { Button, ConfirmButton, LinkButton, Notice, Segmented, Spinner, PageSpinner } from '../components/ui/primitives';
 import { IconArrowLeft, IconPlay, IconShare } from '../components/ui/icons';
 import { useAccount, useData } from '../hooks/useData';
 import { useSettings } from '../hooks/useSettings';
@@ -88,7 +88,7 @@ export function Track() {
   }
 
   if (!circuit) {
-    if (loading || (!data && !acc.featured.length) || !remoteChecked) return <div className="p-6"><Spinner /></div>;
+    if (loading || (!data && !acc.featured.length) || !remoteChecked) return <PageSpinner />;
     return (
       <div className="space-y-3 p-6">
         <Notice tone="error">This track no longer exists. Its drives are still under Me, My drives.</Notice>
