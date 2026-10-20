@@ -12,6 +12,7 @@ import { LinkButton, Notice, Segmented, Sheet, Spinner } from '../components/ui/
 import { IconChevronRight, IconPin, IconPlay, IconPlus, IconRecord, IconShare } from '../components/ui/icons';
 import { useAccount, useData } from '../hooks/useData';
 import { useSettings } from '../hooks/useSettings';
+import { useSwipe } from '../hooks/useSwipe';
 import { circuitStats, type CircuitStats } from '../lib/circuitStats';
 import { describeError, ensureLocalCircuit, publishRoad, refreshFeatured } from '../lib/cloud/account';
 import { PUBLIC_ROAD_LIMIT } from '../lib/cloud/leaderboard';
@@ -49,6 +50,18 @@ export function Tracks() {
   const [params, setParams] = useSearchParams();
   const view = params.get('view') === 'map' ? 'map' : 'list';
   const group = (['community', 'own'] as const).find((g) => g === params.get('group')) ?? 'official';
+  // The groups in order, for swiping between them; the new one slides in from the side it came from.
+  const groups = ['official', 'community', 'own'] as const;
+  const [slide, setSlide] = useState<'next' | 'back' | null>(null);
+  const setGroup = (g: (typeof groups)[number]) => {
+    if (g === group) return;
+    setSlide(groups.indexOf(g) > groups.indexOf(group) ? 'next' : 'back');
+    setParams({ ...(view === 'map' ? { view: 'map' } : {}), ...(g === 'official' ? {} : { group: g }) }, { replace: true });
+  };
+  const swipe = useSwipe(
+    (step) => setGroup(groups[groups.indexOf(group) + step]),
+    (step) => groups[groups.indexOf(group) + step] !== undefined,
+  );
   useEffect(() => {
     void refreshFeatured();
   }, []);
@@ -169,14 +182,15 @@ export function Tracks() {
               <Spinner label="Loading roads" />
             </div>
           ) : (
-            <>
+            // Swipe sideways anywhere on the list to move between the three groups.
+            <div className="min-h-[60dvh]" onTouchStart={swipe.onTouchStart} onTouchMove={swipe.onTouchMove} onTouchEnd={swipe.onTouchEnd} onTouchCancel={swipe.onTouchEnd} style={{ touchAction: 'pan-y' }}>
               {/* Three groups, one at a time: official stages, roads other drivers shared, and yours. */}
               <div className="px-4 pb-3">
                 <Segmented
                   label="Which roads"
                   itemClass="h-9 text-[13px]"
                   value={group}
-                  onChange={(g) => setParams({ ...(view === 'map' ? { view: 'map' } : {}), ...(g === 'official' ? {} : { group: g }) }, { replace: true })}
+                  onChange={setGroup}
                   options={[
                     { value: 'official', label: 'Official' },
                     { value: 'community', label: `Community${circuits.community.length ? ` ${circuits.community.length}` : ''}` },
@@ -184,7 +198,8 @@ export function Tracks() {
                   ]}
                 />
               </div>
-              <div key={group} className="anim-reveal">
+              <div ref={swipe.ref}>
+              <div key={group} className={slide ? 'slide-in' : 'anim-reveal'} data-dir={slide ?? undefined}>
               {group === 'official' && <ul className="border-t border-line">{circuits.official.map(row)}</ul>}
               {group === 'community' && (
                 <>
@@ -227,6 +242,7 @@ export function Tracks() {
                 </>
               )}
               </div>
+              </div>
               <div className="flex flex-wrap justify-center gap-x-6 gap-y-2 px-4 pt-5 text-sm text-muted">
                 <Link to="/circuits/new" className="flex items-center gap-1.5 hover:text-fg">
                   <IconPlus width={16} height={16} /> Add your own road
@@ -235,7 +251,7 @@ export function Tracks() {
                   <IconRecord width={16} height={16} /> Record one by driving
                 </Link>
               </div>
-            </>
+            </div>
           )}
         </div>
       </section>

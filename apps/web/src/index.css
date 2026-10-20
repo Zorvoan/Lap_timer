@@ -284,6 +284,9 @@ select {
 .tour-swap-down { animation: lt-rise 480ms var(--ease-expo) var(--d, 0ms) backwards, lt-tour-down 520ms var(--ease-move) 1100ms forwards; }
 .tour-note { animation: lt-tour-note 420ms var(--ease-overshoot) 1700ms backwards; }
 .tour-fan { transform: translateY(var(--y)) scale(var(--s)); transform-origin: top center; animation: lt-tour-fan 520ms var(--ease-expo) var(--d, 0ms) backwards; }
+/* Swiping between tabs: the new tab slides in from the side it was swiped from. */
+.slide-in[data-dir='next'] { animation: lt-tour-next 300ms var(--ease-move) backwards; }
+.slide-in[data-dir='back'] { animation: lt-tour-back 300ms var(--ease-move) backwards; }
 @keyframes lt-tour-next { from { opacity: 0; transform: translateX(32px); } }
 @keyframes lt-tour-back { from { opacity: 0; transform: translateX(-32px); } }
 @keyframes lt-tour-ring { from { opacity: 0.9; transform: scale(1); } to { opacity: 0; transform: scale(1.18, 1.35); } }
@@ -336,6 +339,7 @@ select {
   .anim-shake { animation: none; }
   /* The tour: steps and drawings fade in place; nothing travels, the lit tab jumps, no pulse. */
   .tour-slide[data-dir], .tour .tour-card, .tour-rise, .tour-pop, .tour-note, .tour-fan { animation-name: lt-fade-in; }
+  .slide-in[data-dir] { animation-name: lt-fade-in; }
   .tour-swap-up, .tour-swap-down { animation: lt-fade-in 200ms ease backwards; }
   .tour-swap-up { transform: translateY(-36px); }
   .tour-swap-down { transform: translateY(36px); }
