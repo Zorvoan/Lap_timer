@@ -1,5 +1,5 @@
-import { Suspense, lazy, useEffect, useMemo, useState } from 'react';
-import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
+import { Link, NavLink, Outlet, useLocation, useNavigationType } from 'react-router-dom';
 import { formatDelta, formatLapTime } from '@laptimer/core';
 import { useAccount, useData, useLive } from '../hooks/useData';
 import { RevisitContext, markVisited, wasVisited } from '../hooks/useRevisit';
@@ -47,6 +47,28 @@ function tabOf(path: string): 'tracks' | 'drive' | 'me' {
   return 'tracks';
 }
 
+const TAB_ORDER = { tracks: 0, drive: 1, me: 2 } as const;
+
+/** How deep a page sits under its tab: the tab pages themselves are 0. */
+function depthOf(path: string): number {
+  return path === '/' || path === '/me' || path === '/live' ? 0 : path.split('/').filter(Boolean).length;
+}
+
+/**
+ * Which way a page change goes: to a tab further right or deeper in (a road from the list) is
+ * forward, the other way (or the back button) is back. New pages slide in from that side.
+ */
+function pageDirection(from: string | null, to: string, pop: boolean): 'fwd' | 'back' | undefined {
+  if (from === null || from === to) return undefined;
+  const tf = tabOf(from);
+  const tt = tabOf(to);
+  if (tf !== tt) return TAB_ORDER[tt] > TAB_ORDER[tf] ? 'fwd' : 'back';
+  const df = depthOf(from);
+  const dt = depthOf(to);
+  if (df !== dt) return dt > df ? 'fwd' : 'back';
+  return pop ? 'back' : 'fwd';
+}
+
 export function AppShell() {
   const live = useLive();
   const loc = useLocation();
@@ -59,6 +81,13 @@ export function AppShell() {
   // Entrances play on a page's first visit only (decided on arrival, remembered after it).
   const revisit = useMemo(() => wasVisited(loc.pathname), [loc.pathname]);
   useEffect(() => markVisited(loc.pathname), [loc.pathname]);
+  const navType = useNavigationType();
+  const prevPath = useRef<string | null>(null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const slide = useMemo(() => pageDirection(prevPath.current, loc.pathname, navType === 'POP'), [loc.pathname]);
+  useEffect(() => {
+    prevPath.current = loc.pathname;
+  }, [loc.pathname]);
   const needsAccount = useNeedsAccount();
   const touring = useTourOpen();
 
@@ -98,7 +127,7 @@ export function AppShell() {
         {/* Pages scroll up and down only; anything too wide scrolls in its own box (tables) instead. */}
         <main className="relative min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden">
           {/* Each new page fades up into place. The time card has its own entrance. */}
-          <div key={loc.pathname} data-revisit={revisit ? '' : undefined} className={`h-full ${loc.pathname.startsWith('/result') ? '' : 'anim-page'}`}>
+          <div key={loc.pathname} data-revisit={revisit ? '' : undefined} data-dir={slide} className={`h-full ${loc.pathname.startsWith('/result') ? '' : 'anim-page'}`}>
             <RevisitContext.Provider value={revisit}>
               <Outlet />
             </RevisitContext.Provider>

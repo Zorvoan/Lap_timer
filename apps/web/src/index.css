@@ -225,6 +225,12 @@ select {
 
 /* A new page: a short rise and fade, so moving between tabs reads as a change of place. */
 .anim-page { animation: lt-page-in 220ms var(--ease-enter) backwards; }
+/* Moving between pages: forward (a tab to the right, or deeper in) slides in from the right,
+   back from the left. */
+.anim-page[data-dir='fwd'] { animation: lt-page-fwd 280ms var(--ease-move) backwards; }
+.anim-page[data-dir='back'] { animation: lt-page-back 280ms var(--ease-move) backwards; }
+@keyframes lt-page-fwd { from { opacity: 0; transform: translateX(28px); } }
+@keyframes lt-page-back { from { opacity: 0; transform: translateX(-28px); } }
 /* Content that just appeared under the control that opened it. */
 .anim-reveal { animation: lt-reveal 200ms var(--ease-enter) backwards; }
 /* A number that arrives on its own: lap parts, leaderboard place. */
@@ -331,7 +337,7 @@ select {
 
 /* Reduced motion: nothing travels or scales; things still fade so state changes stay visible. */
 @media (prefers-reduced-motion: reduce) {
-  .anim-page, .anim-reveal, .anim-num, .anim-icon, .anim-pop, .anim-bar, .anim-toast, .anim-stagger,
+  .anim-page, .anim-page[data-dir], .anim-reveal, .anim-num, .anim-icon, .anim-pop, .anim-bar, .anim-toast, .anim-stagger,
   .sheet, .tc-card, .tc-stamp {
     animation-name: lt-fade-in;
   }
