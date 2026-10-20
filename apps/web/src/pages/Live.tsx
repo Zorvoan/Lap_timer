@@ -100,7 +100,7 @@ function DriveSetup() {
       .sort((a, b) => a.timeMs - b.timeMs);
   }, [data, circuitId, simulating, settings.includeSimulatedInBests]);
   const best = laps[0] ?? null;
-  const { data: board } = useData(async () => (official && circuitId ? loadBoard(circuitId, 200) : null), [official, circuitId]);
+  const { data: board } = useData(async () => (official && circuitId ? loadBoard(circuitId, 200) : null), [official, circuitId], official && circuitId ? `board:${circuitId}` : undefined);
   const me = acc.user?.uid;
   const place = board && me ? board.findIndex((e) => e.uid === me) + 1 : 0;
 

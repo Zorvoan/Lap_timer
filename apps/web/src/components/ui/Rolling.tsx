@@ -5,6 +5,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { useSeen } from '../../hooks/useSeen';
+import { useRevisit } from '../../hooks/useRevisit';
 
 /** 9 above the 0 and 0 below the 9, so the spring's overshoot never shows an empty cell. */
 const COLUMN = [9, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0];
@@ -33,7 +34,9 @@ function Digit({ value }: { value: number }) {
  */
 export function Rolling({ text, from = false, delay = 0, className }: { text: string; from?: boolean; delay?: number; className?: string }) {
   // Starts at zeros when asked to; the columns then roll up once the first frame is on screen.
-  const [primed, setPrimed] = useState(!from);
+  // Back on a page seen before, the number is simply there.
+  const revisit = useRevisit();
+  const [primed, setPrimed] = useState(!from || revisit);
   const el = useRef<HTMLSpanElement>(null);
   const seen = useSeen(el, 0.6);
   useEffect(() => {

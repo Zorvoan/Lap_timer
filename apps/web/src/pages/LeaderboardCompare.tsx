@@ -55,8 +55,8 @@ export function LeaderboardCompare() {
     }
   }, [track]);
 
-  const { data: board, error: boardError } = useData(async () => (await community()).getLeaderboard(id, 200), [id]);
-  const { data: sessions } = useData(() => listSessions(id), [id]);
+  const { data: board, error: boardError } = useData(async () => (await community()).getLeaderboard(id, 200), [id], `board:${id}`);
+  const { data: sessions } = useData(() => listSessions(id), [id], `sessions:${id}`);
 
   const options = useMemo(() => buildOptions(board ?? [], sessions ?? [], acc.user?.uid ?? null, settings.includeSimulatedInBests), [board, sessions, acc.user?.uid, settings.includeSimulatedInBests]);
   // A is the user's own lap unless the URL says otherwise; a lap opened from the leaderboard
@@ -315,7 +315,7 @@ function useOptionLap(opt: Option | null, track: FeaturedCircuit | null, lengthM
     if (!entry || !track || lengthM <= 0) return null;
     const trace = await (await community()).getPublishedTrace(track.id, entry.uid);
     return trace ? lapFromPublished(entry, trace, track, lengthM) : 'missing';
-  }, [entry?.uid, entry?.timeMs, track, lengthM]);
+  }, [entry?.uid, entry?.timeMs, track, lengthM], entry && track ? `lblap:${track.id}:${entry.uid}:${entry.timeMs}:${lengthM}` : undefined);
   if (!opt) return { lap: null, loading: false, error: null };
   if (opt.lap) return { lap: opt.lap, loading: false, error: null };
   if (error) return { lap: null, loading: false, error: `Could not load ${opt.entry?.nickname}'s telemetry: ${error.message}` };

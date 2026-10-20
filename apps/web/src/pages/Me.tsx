@@ -26,7 +26,7 @@ export function Me() {
   const installed = useSyncExternalStore(install.subscribe, install.getState).installed;
   const [showInstall, setShowInstall] = useState(false);
   const { settings } = useSettings();
-  const { data: sessions, loading } = useData(() => listSessions(), []);
+  const { data: sessions, loading } = useData(() => listSessions(), [], 'sessions:all');
   const laps = useMemo(() => lapRows(sessions ?? [], settings.includeSimulatedInBests), [sessions, settings.includeSimulatedInBests]);
   // Leaderboards of the roads the user has driven, with the other drivers' laps on each: the
   // rating compares against them.
@@ -67,6 +67,7 @@ export function Me() {
       return all.filter((b): b is RoadBoard => !!b);
     },
     [roads.map((f) => f.id).join(','), uid],
+    `me:boards:${roads.map((f) => f.id).join(',')}:${uid}`,
   );
   const rating = useMemo(() => (sessions ? driverRating(sessions, boards ?? []) : null), [sessions, boards]);
 

@@ -23,7 +23,7 @@ export function SessionDetail() {
     const session = await getSession(id);
     const circuit = session ? await getCircuit(session.circuitId) : undefined;
     return { session, circuit };
-  }, [id]);
+  }, [id], `session:${id}`);
 
   if (loading && !data) return <div className="p-6"><Spinner /></div>;
   const session = data?.session;
@@ -44,7 +44,7 @@ function SessionView({ session, circuit, onDeleted, speedUnit, distanceUnit }: {
   const rows = useComparisonRows(A, B, lengthM);
 
   // Laps are numbered across every session on this circuit (1 = first lap ever driven here).
-  const { data: circuitSessions } = useData(() => listSessions(session.circuitId), [session.circuitId]);
+  const { data: circuitSessions } = useData(() => listSessions(session.circuitId), [session.circuitId], `sessions:${session.circuitId}`);
   const numbers = useMemo(() => circuitLapNumbers(circuitSessions ?? [session]), [circuitSessions, session]);
   const num = (lap: number) => numbers.get(lapKey(session.id, lap)) ?? lap;
 

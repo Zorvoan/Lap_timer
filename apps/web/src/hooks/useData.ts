@@ -10,11 +10,17 @@ export interface AsyncData<T> {
   reload: () => void;
 }
 
-/** Loads data from local storage and reloads it whenever local data changes. */
-export function useData<T>(loader: () => Promise<T>, deps: DependencyList): AsyncData<T> {
-  const [data, setData] = useState<T | undefined>(undefined);
+/** The last result of every keyed loader: shown straight away when the same data is asked for again. */
+const cache = new Map<string, unknown>();
+
+/**
+ * Loads data and reloads it whenever local data changes. With a `key`, the last result is kept:
+ * coming back to a page shows it at once (no spinner) while it is quietly refreshed.
+ */
+export function useData<T>(loader: () => Promise<T>, deps: DependencyList, key?: string): AsyncData<T> {
+  const [data, setData] = useState<T | undefined>(() => (key ? (cache.get(key) as T | undefined) : undefined));
   const [error, setError] = useState<Error | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => !(key && cache.has(key)));
   const [version, setVersion] = useState(0);
   const loaderRef = useRef(loader);
   loaderRef.current = loader;
@@ -27,10 +33,16 @@ export function useData<T>(loader: () => Promise<T>, deps: DependencyList): Asyn
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
+    if (key && cache.has(key)) {
+      setData(cache.get(key) as T);
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
     loaderRef
       .current()
       .then((d) => {
+        if (key) cache.set(key, d);
         if (!cancelled) {
           setData(d);
           setError(null);
@@ -46,7 +58,7 @@ export function useData<T>(loader: () => Promise<T>, deps: DependencyList): Asyn
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [...deps, version]);
+  }, [...deps, key, version]);
 
   const reload = useCallback(() => setVersion((v) => v + 1), []);
   return { data, error, loading, reload };

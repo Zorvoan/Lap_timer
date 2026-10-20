@@ -6,6 +6,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { useSeen } from '../../hooks/useSeen';
+import { useRevisit } from '../../hooks/useRevisit';
 
 export interface RadarMetric {
   key: string;
@@ -77,7 +78,11 @@ export function RadarChart({ metrics, series, ariaLabel }: { metrics: readonly R
   const areaStart = LEVELS * gridStagger + 200;
   // The web and the areas grow once the user scrolls to the chart.
   const seen = useSeen(box);
-  const ms = useEnterClock(areaStart + series.length * 150 + ENTER_MS, seen);
+  // Back on a page seen before, the web is simply there.
+  const revisit = useRevisit();
+  const total = areaStart + series.length * 150 + ENTER_MS;
+  const entering = useEnterClock(total, seen && !revisit);
+  const ms = revisit ? total : entering;
 
   const n = metrics.length;
   const r = Math.max(0, size / 2 - 70);

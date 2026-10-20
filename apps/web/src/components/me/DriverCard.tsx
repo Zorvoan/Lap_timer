@@ -10,6 +10,7 @@ import { LineChart } from '../charts/LineChart';
 import { Rolling } from '../ui/Rolling';
 import { IconChevronRight } from '../ui/icons';
 import { useSeen } from '../../hooks/useSeen';
+import { useRevisit } from '../../hooks/useRevisit';
 import { ratingLabel, type DriverRating, type Skill, type SkillKey } from '../../lib/driverRating';
 
 const SKILLS: { key: SkillKey; label: string }[] = [
@@ -45,13 +46,17 @@ function Change({ value }: { value: number | null }) {
 function useCountUp(target: number | null, run: boolean, ms = 1400): number {
   const [value, setValue] = useState(0);
   const current = useRef(0);
+  // Back on a page seen before, the first value is simply there; later changes still count.
+  const skipFirst = useRef(useRevisit());
   useEffect(() => {
-    if (!run || target === null) return;
-    if (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    if (target === null) return;
+    if (skipFirst.current || (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches)) {
+      skipFirst.current = false;
       current.current = target;
       setValue(target);
       return;
     }
+    if (!run) return;
     const from = current.current;
     const t0 = performance.now();
     let raf = requestAnimationFrame(function tick(now) {

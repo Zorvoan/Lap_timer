@@ -15,7 +15,7 @@ export function LeaderboardTab({ track }: { track: FeaturedCircuit }) {
   const acc = useAccount();
   const { settings } = useSettings();
   const navigate = useNavigate();
-  const { data: board, error, loading, reload } = useData(() => loadBoard(track.id, 200), [track.id]);
+  const { data: board, error, loading, reload } = useData(() => loadBoard(track.id, 200), [track.id], `board:${track.id}`);
   const me = acc.user?.uid;
   const leader = board?.[0];
   // Part times: stored with newer entries, worked out from the published trace for older ones.
@@ -31,7 +31,7 @@ export function LeaderboardTab({ track }: { track: FeaturedCircuit }) {
       }),
     );
     return out;
-  }, [board, track.id]);
+  }, [board, track.id], `splits:${track.id}`);
   const withSplits = useMemo(() => (board ?? []).filter((e) => splitsByUid?.get(e.uid)?.length === 3), [board, splitsByUid]);
   const ideal = useMemo(() => idealLap(withSplits.map((e) => splitsByUid!.get(e.uid)!)), [withSplits, splitsByUid]);
 

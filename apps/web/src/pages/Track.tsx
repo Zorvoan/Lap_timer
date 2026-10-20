@@ -34,7 +34,7 @@ export function Track() {
   useEffect(() => {
     if (!acc.featured.length) void refreshFeatured();
   }, [acc.featured.length]);
-  const { data, loading } = useData(async () => ({ circuit: await getCircuit(id), sessions: await listSessions(id) }), [id]);
+  const { data, loading } = useData(async () => ({ circuit: await getCircuit(id), sessions: await listSessions(id) }), [id], `track:${id}`);
   // A link to a public road this device hasn't seen yet: look it up before saying it's gone.
   const [remoteChecked, setRemoteChecked] = useState(false);
   const unknown = !loading && !!data && !data.circuit && !leaderboardTracks(acc).some((f) => f.id === id);

@@ -9,6 +9,7 @@ import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type Reac
 import { area as d3area, curveMonotoneX, line as d3line } from 'd3-shape';
 import { scaleLinear } from 'd3-scale';
 import { useSeen } from '../../hooks/useSeen';
+import { useRevisit } from '../../hooks/useRevisit';
 
 export interface ChartPoint {
   x: number;
@@ -96,15 +97,18 @@ function bezier(x1: number, y1: number, x2: number, y2: number) {
  * Animates a clip rect's width from 0 to `width` whenever `epoch` changes (new data), once the
  * chart has been scrolled into view, and follows `width` directly when the chart is only resized.
  */
-function useReveal(width: number, epoch: string, seen: boolean) {
+function useReveal(width: number, epoch: string, seen: boolean, hasData: boolean, revisit: boolean) {
   const rect = useRef<SVGRectElement>(null);
   const done = useRef<string | null>(null);
+  // Back on a page seen before: the first lines are simply there; only new data plays the reveal.
+  const skipFirst = useRef(revisit);
   const target = useRef(width);
   target.current = width;
   useEffect(() => {
     const el = rect.current;
     if (!el || width <= 0 || !seen) return;
-    if (done.current === epoch || matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    if (done.current === epoch || (skipFirst.current && hasData) || matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      if (hasData) skipFirst.current = false;
       done.current = epoch;
       el.setAttribute('width', String(width));
       return;
@@ -120,7 +124,7 @@ function useReveal(width: number, epoch: string, seen: boolean) {
       cancelAnimationFrame(raf);
       el.setAttribute('width', String(target.current));
     };
-  }, [width, epoch, seen]);
+  }, [width, epoch, seen, hasData]);
   return rect;
 }
 
@@ -240,6 +244,7 @@ export function LineChart({
   const [box, { w, h }] = useSize<HTMLDivElement>();
   // Nothing plays until the user scrolls to the chart.
   const seen = useSeen(box);
+  const revisit = useRevisit();
   const [hoverX, setHoverX] = useState<number | null>(null);
   // Legend: the series under the finger (or tapped on a phone) is lifted, the rest fade.
   const [focus, setFocus] = useState<number | null>(null);
@@ -317,7 +322,7 @@ export function LineChart({
 
   // A new set of lines plays the reveal again; a resize only stretches it.
   const epoch = series.map((s) => `${s.id}:${s.points.length}:${s.points[0]?.x ?? ''}:${s.points[s.points.length - 1]?.y ?? ''}`).join('|');
-  const revealRect = useReveal(iw + 8, epoch, seen);
+  const revealRect = useReveal(iw + 8, epoch, seen, series.some((s) => s.points.length > 0), revisit);
   const faded = (i: number) => focus !== null && focus !== i;
 
   function toX(e: React.PointerEvent | React.MouseEvent): number {

@@ -33,7 +33,7 @@ export function lapRows(sessions: readonly Session[], includeSimulated: boolean)
 
 export function Sessions() {
   const { settings } = useSettings();
-  const { data, loading, error } = useData(async () => ({ sessions: await listSessions(), circuits: await listCircuits() }), []);
+  const { data, loading, error } = useData(async () => ({ sessions: await listSessions(), circuits: await listCircuits() }), [], 'sessions:list');
   const [circuit, setCircuit] = useState('');
   const all = useMemo(() => lapRows(data?.sessions ?? [], settings.includeSimulatedInBests), [data, settings.includeSimulatedInBests]);
   const rows = useMemo(() => all.filter((r) => !circuit || r.session.circuitId === circuit), [all, circuit]);

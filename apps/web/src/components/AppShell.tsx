@@ -1,7 +1,8 @@
-import { Suspense, lazy, useEffect, useState } from 'react';
+import { Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { formatDelta, formatLapTime } from '@laptimer/core';
 import { useAccount, useData, useLive } from '../hooks/useData';
+import { RevisitContext, markVisited, wasVisited } from '../hooks/useRevisit';
 import { getActiveSession } from '../lib/repo';
 import { applyUpdateIfReady } from '../lib/update';
 import { buttonClass } from './ui/primitives';
@@ -55,6 +56,9 @@ export function AppShell() {
   const tab = tabOf(loc.pathname);
   // Moving to another page is a natural moment to switch to a newly deployed version.
   useEffect(() => applyUpdateIfReady(), [loc.pathname]);
+  // Entrances play on a page's first visit only (decided on arrival, remembered after it).
+  const revisit = useMemo(() => wasVisited(loc.pathname), [loc.pathname]);
+  useEffect(() => markVisited(loc.pathname), [loc.pathname]);
   const needsAccount = useNeedsAccount();
   const touring = useTourOpen();
 
@@ -94,8 +98,10 @@ export function AppShell() {
         {/* Pages scroll up and down only; anything too wide scrolls in its own box (tables) instead. */}
         <main className="relative min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden">
           {/* Each new page fades up into place. The time card has its own entrance. */}
-          <div key={loc.pathname} className={`h-full ${loc.pathname.startsWith('/result') ? '' : 'anim-page'}`}>
-            <Outlet />
+          <div key={loc.pathname} data-revisit={revisit ? '' : undefined} className={`h-full ${loc.pathname.startsWith('/result') ? '' : 'anim-page'}`}>
+            <RevisitContext.Provider value={revisit}>
+              <Outlet />
+            </RevisitContext.Provider>
           </div>
         </main>
       </div>
