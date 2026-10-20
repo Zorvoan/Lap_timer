@@ -128,6 +128,27 @@ function useReveal(width: number, epoch: string, seen: boolean, hasData: boolean
   return rect;
 }
 
+/**
+ * One series' clip: it uncovers that series left to right whenever the series' own data changes,
+ * so swapping one lap of a comparison draws in only that lap's line.
+ */
+function SeriesClip({ id, width, height, sig, seen, revisit }: { id: string; width: number; height: number; sig: string; seen: boolean; revisit: boolean }) {
+  const rect = useReveal(width, sig, seen, sig !== '', revisit);
+  return (
+    <clipPath id={id}>
+      <rect ref={rect} x={-4} y={-6} width={0} height={height} />
+    </clipPath>
+  );
+}
+
+/** A short fingerprint of a series' points: changes when its data does. */
+function seriesSig(s: ChartSeries): string {
+  if (!s.points.length) return '';
+  let sum = 0;
+  s.points.forEach((p, k) => (sum += (p.y ?? 0) * ((k % 7) + 1) + p.x * 1e-3));
+  return `${s.id}:${s.points.length}:${sum.toFixed(3)}`;
+}
+
 const MUTED = 'rgb(var(--c-muted))';
 const LINE = 'rgb(var(--c-line))';
 /** Bklit's springs: the crosshair and dots follow tightly, the card trails, the pill in between. */
@@ -321,8 +342,8 @@ export function LineChart({
   const zero = y(0);
 
   // A new set of lines plays the reveal again; a resize only stretches it.
-  const epoch = series.map((s) => `${s.id}:${s.points.length}:${s.points[0]?.x ?? ''}:${s.points[s.points.length - 1]?.y ?? ''}`).join('|');
-  const revealRect = useReveal(iw + 8, epoch, seen, series.some((s) => s.points.length > 0), revisit);
+  // Each series reveals on its own when its data changes (see SeriesClip).
+  const sigs = series.map(seriesSig);
   const faded = (i: number) => focus !== null && focus !== i;
 
   function toX(e: React.PointerEvent | React.MouseEvent): number {
@@ -379,9 +400,9 @@ export function LineChart({
               <stop offset="82%" stopColor="rgb(var(--c-fg))" stopOpacity={0.55} />
               <stop offset="100%" stopColor="rgb(var(--c-fg))" stopOpacity={0} />
             </linearGradient>
-            <clipPath id={`${uid}-clip`}>
-              <rect ref={revealRect} x={-4} y={-6} width={0} height={ih + 12} />
-            </clipPath>
+            {series.map((s, i) => (
+              <SeriesClip key={s.id} id={`${uid}-clip${i}`} width={iw + 8} height={ih + 12} sig={sigs[i]} seen={seen} revisit={revisit} />
+            ))}
           </defs>
           <g transform={`translate(${m.left},${m.top})`}>
             {!compact && <rect width={iw} height={ih} fill={`url(#${uid}-dots)`} mask={`url(#${uid}-fieldmask)`} />}
@@ -418,15 +439,16 @@ export function LineChart({
                   </text>
                 </g>
               ))}
-            <g clipPath={`url(#${uid}-clip)`} mask={compact ? undefined : `url(#${uid}-linemask)`}>
+            <g mask={compact ? undefined : `url(#${uid}-linemask)`}>
               {series.map((_s, i) =>
                 paths[i].area ? (
-                  <path key={`a${i}`} d={paths[i].area!} fill={`url(#${uid}-a${i})`} opacity={faded(i) ? 0.15 : 1} style={{ transition: 'opacity 150ms ease' }} />
+                  <path key={`a${i}`} clipPath={`url(#${uid}-clip${i})`} d={paths[i].area!} fill={`url(#${uid}-a${i})`} opacity={faded(i) ? 0.15 : 1} style={{ transition: 'opacity 150ms ease' }} />
                 ) : null,
               )}
               {series.map((s, i) => (
                 <path
                   key={`l${i}`}
+                  clipPath={`url(#${uid}-clip${i})`}
                   d={paths[i].line}
                   pathLength={1}
                   fill="none"
@@ -444,6 +466,7 @@ export function LineChart({
                       p.y === null ? null : (
                         <circle
                           key={`d${i}-${k}`}
+                          clipPath={`url(#${uid}-clip${i})`}
                           cx={x(p.x)}
                           cy={y(p.y)}
                           r={3.5}
