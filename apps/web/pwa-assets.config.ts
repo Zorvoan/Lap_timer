@@ -6,8 +6,10 @@ export default defineConfig({
   headLinkOptions: { preset: '2023' },
   preset: {
     ...minimal2023Preset,
-    maskable: { ...minimal2023Preset.maskable, resizeOptions: { background: '#0b0c0e' } },
-    apple: { ...minimal2023Preset.apple, resizeOptions: { background: '#0b0c0e' } },
+    // The icon has its own dark background and keeps its mark inside the maskable safe zone, so it
+    // fills the whole tile rather than sitting small in the middle.
+    maskable: { ...minimal2023Preset.maskable, padding: 0, resizeOptions: { background: '#0b0c0e' } },
+    apple: { ...minimal2023Preset.apple, padding: 0, resizeOptions: { background: '#0b0c0e' } },
   },
   images: ['public/icon.svg'],
 });
