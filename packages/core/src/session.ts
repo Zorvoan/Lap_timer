@@ -90,6 +90,23 @@ interface GoodPoint {
   confidence: ProgressConfidence;
 }
 
+/** A start or finish passed by distance along the route counts only this close to the road, m… */
+const PASS_LATERAL_M = 40;
+/** …while moving along it at least this far between the two fixes, m… */
+const PASS_MIN_STEP_M = 3;
+/** …and is only looked for this close to the line, m. */
+const PASS_NEAR_M = 150;
+/** It counts once the run is this far past the line, so GPS wander while standing at it doesn't, m. */
+const PASS_CONFIRM_M = 25;
+
+/** A line passed by distance along the route, waiting for the run to carry on past it. */
+interface PendingPass {
+  t: number;
+  gapMs: number;
+  prev: GoodPoint;
+  cur: GoodPoint;
+}
+
 /**
  * Turns a stream of raw GPS fixes into laps, live delta and display state.
  * Deterministic and free of I/O: the same samples always produce the same laps, which is
@@ -99,6 +116,7 @@ export class SessionEngine {
   readonly track: TrackModel;
   readonly lapLengthM: number;
   private readonly startAlong: number;
+  private readonly finishAlong: number | null = null;
   private readonly cfg: EngineConfig;
   private readonly filter: GpsFilter;
   private readonly tracker: ProgressTracker;
@@ -115,6 +133,7 @@ export class SessionEngine {
   private lastDelta: LiveDelta | null = null;
   private lapDistance: number | null = null;
   private paused_ = false;
+  private readonly pendingPass = new Map<'start' | 'finish', PendingPass>();
 
   constructor(circuit: CircuitDefinition, config: Partial<EngineConfig> = {}, reference: ReferenceLap | null = null) {
     this.cfg = { ...DEFAULT_ENGINE_CONFIG, ...config };
@@ -132,6 +151,7 @@ export class SessionEngine {
         throw new GeometryError([{ code: 'too_short', severity: 'error', message: 'The finish line must cross the route after the start line.' }]);
       }
       this.lapLengthM = finishAlong - startAlong;
+      this.finishAlong = finishAlong;
       finish = lineToXY(this.track, circuit.finishLine);
     } else {
       this.lapLengthM = this.track.length;
@@ -174,6 +194,7 @@ export class SessionEngine {
     this.paused_ = true;
     this.marks_.push({ type: 'pause', t });
     this.timer.abortLap();
+    this.pendingPass.clear();
     this.current = null;
     this.lastGood = null;
     this.lastDelta = null;
@@ -221,8 +242,36 @@ export class SessionEngine {
     this.lastConfidence = prog.confidence;
     const good: GoodPoint = { t: raw.t, p, unwrapped: prog.unwrapped, along: prog.along, confidence: prog.confidence };
 
-    const events = this.lastGood ? this.timer.process(this.lastGood, good) : [];
-    for (const ev of events) this.applyEvent(ev, this.lastGood as GoodPoint, good);
+    const events: TimingEvent[] = [];
+    if (this.lastGood) {
+      const prev = this.lastGood;
+      for (const ev of this.timer.process(prev, good)) {
+        events.push(ev);
+        this.applyEvent(ev, prev, good);
+      }
+      // The lines crossed by distance along the route as well, for runs that pass beside them.
+      const lines: ['start' | 'finish', number][] = [['start', this.startAlong]];
+      if (this.finishAlong !== null) lines.push(['finish', this.finishAlong]);
+      for (const [id, along] of lines) {
+        let pass = this.pendingPass.get(id);
+        if (!pass) {
+          const frac = this.passedAt(prev, good, along);
+          if (frac !== null) pass = { t: prev.t + frac * (good.t - prev.t), gapMs: good.t - prev.t, prev, cur: good };
+        }
+        if (!pass) continue;
+        const at = this.alongNear(good.p, along);
+        const past = at === null ? -1 : this.track.signedDelta(along, at);
+        if (past < 0) this.pendingPass.delete(id);
+        else if (past < PASS_CONFIRM_M) this.pendingPass.set(id, pass);
+        else {
+          this.pendingPass.delete(id);
+          for (const ev of this.timer.passLine(id, pass.t, pass.gapMs)) {
+            events.push(ev);
+            this.applyEvent(ev, pass.prev, pass.cur);
+          }
+        }
+      }
+    }
 
     const lap = this.current;
     if (lap) {
@@ -249,6 +298,35 @@ export class SessionEngine {
     }
     this.lastGood = good;
     return events;
+  }
+
+  /**
+   * Where between two fixes the run passed `lineAlong` on the route, as a fraction of the step, or
+   * null when it did not: both fixes near the road and moving forward along it. Placed on the road
+   * by plain projection rather than by the tracker, which may not have picked up the road yet when
+   * it is joined right at the start.
+   */
+  private passedAt(prev: GoodPoint, cur: GoodPoint, lineAlong: number): number | null {
+    const mid = this.track.pointAt(lineAlong);
+    if (norm(sub(prev.p, mid)) > PASS_NEAR_M && norm(sub(cur.p, mid)) > PASS_NEAR_M) return null;
+    const a = this.alongNear(prev.p, lineAlong);
+    const b = this.alongNear(cur.p, lineAlong);
+    if (a === null || b === null) return null;
+    const step = this.track.signedDelta(a, b);
+    if (step < PASS_MIN_STEP_M) return null;
+    const toLine = this.track.signedDelta(a, lineAlong);
+    // Half-open, so a fix right on the line counts once, for the step that leaves it.
+    if (toLine < 0 || toLine >= step) return null;
+    return toLine / step;
+  }
+
+  /** Where `p` lies on the road near `lineAlong` (the stretch closest to it where a road is driven both ways). */
+  private alongNear(p: XY, lineAlong: number): number | null {
+    let best: number | null = null;
+    for (const c of this.track.candidates(p, PASS_LATERAL_M)) {
+      if (best === null || Math.abs(this.track.signedDelta(c.along, lineAlong)) < Math.abs(this.track.signedDelta(best, lineAlong))) best = c.along;
+    }
+    return best;
   }
 
   private applyEvent(ev: TimingEvent, prev: GoodPoint, cur: GoodPoint): void {
