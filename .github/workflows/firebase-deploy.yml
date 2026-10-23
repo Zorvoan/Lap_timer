@@ -44,3 +44,6 @@ jobs:
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           projectId: laptimer-okwph
           channelId: live
+          # 15.34.1 also checks serviceusage.services.get, which the deploy service account doesn't
+          # have (403). Raise this once the account has the "Service Usage Consumer" role.
+          firebaseToolsVersion: 15.34.0
