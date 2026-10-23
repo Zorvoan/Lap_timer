@@ -122,6 +122,23 @@ export class LapTimer {
     return events;
   }
 
+  /**
+   * The start or finish passed by distance along the route rather than by the positions crossing
+   * the line: a line is only a few metres wide either side of the mapped road, and a run driven
+   * beside it (GPS offset, a wide road, joining from a side road at the start) misses it. Counts
+   * exactly like a crossing at `t`, and like one it is ignored while the line is disarmed.
+   */
+  passLine(id: 'start' | 'finish', t: number, gapMs: number): TimingEvent[] {
+    const events: TimingEvent[] = [];
+    const st = this.lines.find((l) => l.id === id);
+    if (!st || !st.armed || t - st.lastCrossT < this.cfg.cooldownMs) return events;
+    if (this.handleCrossing(st, t, gapMs, events)) {
+      st.armed = false;
+      st.lastCrossT = t;
+    }
+    return events;
+  }
+
   /** Returns true when the crossing was consumed (line should disarm). */
   private handleCrossing(st: LineState, t: number, gapMs: number, events: TimingEvent[]): boolean {
     if (st.id === 'start' && !this.sprint) {

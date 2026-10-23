@@ -6,7 +6,7 @@ import { compareLaps, gainLoss, summarizeSession } from '../src/analysis';
 import { perpendicularLine } from '../src/lines';
 import { TrackModel } from '../src/track';
 import { cleanRecordedPath } from '../src/recording';
-import { closedCircuit, hairpinPoints, ovalPoints, toCoords } from './fixtures';
+import { closedCircuit, fixAt, hairpinPoints, ovalPoints, toCoords } from './fixtures';
 import type { GpsSample } from '../src/gps';
 import type { LapRecord } from '../src/model';
 
@@ -261,5 +261,58 @@ describe('recorded circuit cleanup', () => {
     expect(rebuilt.length / track.length).toBeGreaterThan(0.95);
     expect(rebuilt.length / track.length).toBeLessThan(1.05);
     expect(r.coords.length).toBeGreaterThan(20); // follows the curves, not a few straight segments
+  });
+});
+
+describe('SessionEngine — start and finish where the GPS track misses the short line', () => {
+  // A straight 1.5 km sprint heading east: start 100 m in, finish at 1300 m. Lines are 24 m wide.
+  const coords = toCoords([{ x: 0, y: 0 }, { x: 1500, y: 0 }]);
+  const t = TrackModel.fromCoordinates(coords, false);
+  const circuit = { kind: 'sprint' as const, geometry: coords, startLine: perpendicularLine(t, 100), finishLine: perpendicularLine(t, 1300), sectors: [] };
+  /** 1 Hz fixes at 15 m/s through the given points (straight segments between them). */
+  function path(pts: { x: number; y: number }[], t0 = 1_000_000): GpsSample[] {
+    const out: GpsSample[] = [];
+    let time = t0;
+    for (let i = 1; i < pts.length; i++) {
+      const a = pts[i - 1];
+      const b = pts[i];
+      const len = Math.hypot(b.x - a.x, b.y - a.y);
+      for (let d = 0; d < len; d += 15) {
+        out.push(fixAt({ x: a.x + ((b.x - a.x) * d) / len, y: a.y + ((b.y - a.y) * d) / len }, time, { speed: 15 }));
+        time += 1000;
+      }
+    }
+    return out;
+  }
+
+  it('times a run driven 16 m beside the mapped road, outside both lines', () => {
+    const engine = new SessionEngine(circuit);
+    drive(engine, path([{ x: -200, y: 16 }, { x: 1500, y: 16 }]));
+    expect(engine.laps).toHaveLength(1);
+    // Exact at constant speed: the start and finish are where the run passes 100 m and 1300 m.
+    expect(engine.laps[0].timeMs).toBeCloseTo(80_000, -1);
+    expect(engine.laps[0].valid).toBe(true);
+  });
+
+  it('starts when the road is joined from a side road right at the start', () => {
+    const engine = new SessionEngine(circuit);
+    // Arrives from the south along the line itself and turns east onto the road: it never crosses it.
+    drive(engine, path([{ x: 100, y: -300 }, { x: 100, y: 0 }, { x: 1500, y: 0 }]));
+    expect(engine.laps).toHaveLength(1);
+  });
+
+  it('does not start while standing next to the start', () => {
+    const engine = new SessionEngine(circuit);
+    const fixes: GpsSample[] = [];
+    for (let i = 0; i < 60; i++) fixes.push(fixAt({ x: 100 + Math.sin(i * 1.7) * 2.5, y: 20 + Math.cos(i * 2.3) * 2.5 }, 1_000_000 + i * 1000, { speed: 0 }));
+    drive(engine, fixes);
+    expect(engine.snapshot().lapState).toBe('waiting_start');
+  });
+
+  it('does not start when driving the road the wrong way', () => {
+    const engine = new SessionEngine(circuit);
+    drive(engine, path([{ x: 1500, y: 16 }, { x: -200, y: 16 }]));
+    expect(engine.snapshot().lapState).toBe('waiting_start');
+    expect(engine.laps).toHaveLength(0);
   });
 });
