@@ -1,5 +1,5 @@
 import { computeDelta, type ReferenceLap } from './delta';
-import { headingToVector, norm, sub, type LatLon, type XY } from './geo';
+import { dot, headingToVector, norm, sub, unit, type LatLon, type XY } from './geo';
 import { DEFAULT_GPS_FILTER_CONFIG, GpsFilter, type GpsFilterConfig, type GpsSample, type SampleStatus } from './gps';
 import { lineAlong, lineToXY } from './lines';
 import type { CircuitDefinition, LapFlag, LapRecord, LapTracePoint, SessionMark } from './model';
@@ -335,19 +335,27 @@ export class SessionEngine {
 
   /**
    * Where `p` lies on the road: its nearest point, or where another stretch of road (driven both
-   * ways) passes about as close, the one nearest `lineAlong`. Null when the road is far.
+   * ways) passes about as close, the one nearest `lineAlong`. Null when the road is far. Beyond the
+   * ends of a route the road is taken to carry straight on, so a line near an end is still passed
+   * at the right moment.
    */
   private alongNear(p: XY, lineAlong: number): number | null {
     const cands = this.track.candidates(p, PASS_LATERAL_M);
     if (!cands.length) return null;
     const nearest = cands.reduce((a, c) => (c.lateral < a.lateral ? c : a));
     const toLine = (along: number) => Math.abs(this.track.signedDelta(along, lineAlong));
-    let best = nearest.along;
+    let best = nearest;
     for (const c of cands) {
       const otherStretch = Math.abs(this.track.signedDelta(c.along, nearest.along)) > PASS_OTHER_STRETCH_M;
-      if (otherStretch && c.lateral <= nearest.lateral + PASS_SAME_ROAD_M && toLine(c.along) < toLine(best)) best = c.along;
+      if (otherStretch && c.lateral <= nearest.lateral + PASS_SAME_ROAD_M && toLine(c.along) < toLine(best.along)) best = c;
     }
-    return best;
+    const { pts } = this.track;
+    const last = this.track.segmentCount - 1;
+    if (!this.track.closed && best.seg === last && best.t >= 1) {
+      return this.track.length + Math.max(0, dot(sub(p, pts[last + 1]), unit(sub(pts[last + 1], pts[last]))));
+    }
+    if (!this.track.closed && best.seg === 0 && best.t <= 0) return Math.min(0, dot(sub(p, pts[0]), unit(sub(pts[1], pts[0]))));
+    return best.along;
   }
 
   private applyEvent(ev: TimingEvent, prev: GoodPoint, cur: GoodPoint): void {
