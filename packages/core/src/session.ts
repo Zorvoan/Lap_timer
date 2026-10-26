@@ -94,8 +94,10 @@ interface GoodPoint {
 const PASS_LATERAL_M = 40;
 /** …while moving along it at least this far between the two fixes, m… */
 const PASS_MIN_STEP_M = 3;
-/** …and is only looked for this close to the line, m. */
-const PASS_NEAR_M = 150;
+/** …and is looked for this close to the line, so a line passed while the GPS was out still counts, m… */
+const PASS_NEAR_M = 300;
+/** …as long as the road between the two fixes could be driven in the time between them, m/s. */
+const PASS_MAX_SPEED_MS = 90;
 /** Another stretch of road (this far along from the nearest point, m)… */
 const PASS_OTHER_STRETCH_M = 50;
 /** …as close as the nearest within this much may be where the fix is instead, m. */
@@ -318,7 +320,7 @@ export class SessionEngine {
     const b = this.alongNear(cur.p, lineAlong);
     if (a === null || b === null) return null;
     const step = this.track.signedDelta(a, b);
-    if (step < PASS_MIN_STEP_M) return null;
+    if (step < PASS_MIN_STEP_M || step > ((cur.t - prev.t) / 1000) * PASS_MAX_SPEED_MS) return null;
     const toLine = this.track.signedDelta(a, lineAlong);
     // Half-open, so a fix right on the line counts once, for the step that leaves it.
     if (toLine < 0 || toLine >= step) return null;
@@ -336,12 +338,12 @@ export class SessionEngine {
   /**
    * Where `p` lies on the road: its nearest point, or where another stretch of road (driven both
    * ways) passes about as close, the one nearest `lineAlong`. Null when the road is far. Beyond the
-   * ends of a route the road is taken to carry straight on, so a line near an end is still passed
-   * at the right moment.
+   * ends of a route the road is taken to carry straight on ({@link beyondEnd}), so a line near an
+   * end is still passed at the right moment.
    */
   private alongNear(p: XY, lineAlong: number): number | null {
     const cands = this.track.candidates(p, PASS_LATERAL_M);
-    if (!cands.length) return null;
+    if (!cands.length) return this.beyondEnd(p);
     const nearest = cands.reduce((a, c) => (c.lateral < a.lateral ? c : a));
     const toLine = (along: number) => Math.abs(this.track.signedDelta(along, lineAlong));
     let best = nearest;
@@ -349,13 +351,26 @@ export class SessionEngine {
       const otherStretch = Math.abs(this.track.signedDelta(c.along, nearest.along)) > PASS_OTHER_STRETCH_M;
       if (otherStretch && c.lateral <= nearest.lateral + PASS_SAME_ROAD_M && toLine(c.along) < toLine(best.along)) best = c;
     }
+    const atEnd = (best.seg === 0 && best.t <= 0) || (best.seg === this.track.segmentCount - 1 && best.t >= 1);
+    return (atEnd ? this.beyondEnd(p) : null) ?? best.along;
+  }
+
+  /**
+   * A position before the start or past the end of a route, along the road carried straight on
+   * (where the GPS comes back after a line, or a driver parks after the finish): its distance
+   * along (negative before the start), or null.
+   */
+  private beyondEnd(p: XY): number | null {
+    if (this.track.closed) return null;
     const { pts } = this.track;
-    const last = this.track.segmentCount - 1;
-    if (!this.track.closed && best.seg === last && best.t >= 1) {
-      return this.track.length + Math.max(0, dot(sub(p, pts[last + 1]), unit(sub(pts[last + 1], pts[last]))));
+    const n = pts.length;
+    for (const [end, from, sign, base] of [[pts[n - 1], pts[n - 2], 1, this.track.length], [pts[0], pts[1], -1, 0]] as const) {
+      const dir = unit(sub(end, from));
+      const out = dot(sub(p, end), dir);
+      const side = Math.abs(dir.x * (p.y - end.y) - dir.y * (p.x - end.x));
+      if (out > 0 && side <= PASS_LATERAL_M) return base + sign * out;
     }
-    if (!this.track.closed && best.seg === 0 && best.t <= 0) return Math.min(0, dot(sub(p, pts[0]), unit(sub(pts[1], pts[0]))));
-    return best.along;
+    return null;
   }
 
   private applyEvent(ev: TimingEvent, prev: GoodPoint, cur: GoodPoint): void {
