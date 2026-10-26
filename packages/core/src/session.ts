@@ -96,6 +96,10 @@ const PASS_LATERAL_M = 40;
 const PASS_MIN_STEP_M = 3;
 /** …and is only looked for this close to the line, m. */
 const PASS_NEAR_M = 150;
+/** Another stretch of road (this far along from the nearest point, m)… */
+const PASS_OTHER_STRETCH_M = 50;
+/** …as close as the nearest within this much may be where the fix is instead, m. */
+const PASS_SAME_ROAD_M = 3;
 /** It counts once the run is this far past the line, so GPS wander while standing at it doesn't, m. */
 const PASS_CONFIRM_M = 25;
 
@@ -260,9 +264,10 @@ export class SessionEngine {
         }
         if (!pass) continue;
         const at = this.alongNear(good.p, along);
-        const past = at === null ? -1 : this.track.signedDelta(along, at);
-        if (past < 0) this.pendingPass.delete(id);
-        else if (past < PASS_CONFIRM_M) this.pendingPass.set(id, pass);
+        const past = at === null ? -Infinity : this.track.signedDelta(along, at);
+        // A fix that wanders a little back behind the line doesn't undo the pass; going back does.
+        if (past < -PASS_CONFIRM_M) this.pendingPass.delete(id);
+        else if (past < this.confirmAfter(along)) this.pendingPass.set(id, pass);
         else {
           this.pendingPass.delete(id);
           for (const ev of this.timer.passLine(id, pass.t, pass.gapMs)) {
@@ -320,11 +325,27 @@ export class SessionEngine {
     return toLine / step;
   }
 
-  /** Where `p` lies on the road near `lineAlong` (the stretch closest to it where a road is driven both ways). */
+  /**
+   * How far past a line the run must be for a pass to count: {@link PASS_CONFIRM_M}, or less where
+   * the route ends sooner after it (a sprint's finish), as positions beyond the end project onto it.
+   */
+  private confirmAfter(lineAlong: number): number {
+    return this.track.closed ? PASS_CONFIRM_M : Math.min(PASS_CONFIRM_M, (this.track.length - lineAlong) * 0.6);
+  }
+
+  /**
+   * Where `p` lies on the road: its nearest point, or where another stretch of road (driven both
+   * ways) passes about as close, the one nearest `lineAlong`. Null when the road is far.
+   */
   private alongNear(p: XY, lineAlong: number): number | null {
-    let best: number | null = null;
-    for (const c of this.track.candidates(p, PASS_LATERAL_M)) {
-      if (best === null || Math.abs(this.track.signedDelta(c.along, lineAlong)) < Math.abs(this.track.signedDelta(best, lineAlong))) best = c.along;
+    const cands = this.track.candidates(p, PASS_LATERAL_M);
+    if (!cands.length) return null;
+    const nearest = cands.reduce((a, c) => (c.lateral < a.lateral ? c : a));
+    const toLine = (along: number) => Math.abs(this.track.signedDelta(along, lineAlong));
+    let best = nearest.along;
+    for (const c of cands) {
+      const otherStretch = Math.abs(this.track.signedDelta(c.along, nearest.along)) > PASS_OTHER_STRETCH_M;
+      if (otherStretch && c.lateral <= nearest.lateral + PASS_SAME_ROAD_M && toLine(c.along) < toLine(best)) best = c.along;
     }
     return best;
   }
