@@ -3,6 +3,7 @@ import { Button, Notice } from '../components/ui/primitives';
 import { useAccount } from '../hooks/useData';
 import { logout } from '../lib/cloud/account';
 import { ProfileForm, SignInForm } from './Account';
+import { LegalLinks } from './Legal';
 
 /**
  * The first screen for anyone not signed in: what the app is, then sign in or create an account.
@@ -73,6 +74,9 @@ export function Welcome() {
             </Step>
           </>
         )}
+        <nav aria-label="Legal" className="mt-auto flex gap-5 pt-10 text-xs text-muted">
+          <LegalLinks />
+        </nav>
       </div>
     </div>
   );

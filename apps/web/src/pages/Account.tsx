@@ -1,4 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
+import { Link } from 'react-router-dom';
+import { LegalLinks } from './Legal';
 import { PageHeader } from '../components/AppShell';
 import { SAFETY_DETAIL, SAFETY_TEXT, acceptSafety } from '../lib/safety';
 import { Button, ConfirmButton, Field, Input, Notice, Panel, Segmented, Spinner } from '../components/ui/primitives';
@@ -123,6 +125,17 @@ export function SignInForm() {
                 {SAFETY_TEXT} <span className="text-muted">{SAFETY_DETAIL}</span>
               </span>
             </label>
+            <p className="text-xs text-muted">
+              By creating an account you agree to the{' '}
+              <Link to="/terms" className="underline underline-offset-4">
+                terms of use
+              </Link>{' '}
+              and the{' '}
+              <Link to="/privacy" className="underline underline-offset-4">
+                privacy policy
+              </Link>
+              .
+            </p>
           </div>
         )}
         {error && (
@@ -284,6 +297,9 @@ function SignedIn() {
         <p className="mt-2 text-xs text-muted">Removing data from this device does not delete it from your account. Use it on shared computers.</p>
       </Panel>
       <DeleteAccount />
+      <nav aria-label="Legal" className="flex gap-5 px-1 text-sm text-muted">
+        <LegalLinks />
+      </nav>
     </>
   );
 }
@@ -404,12 +420,25 @@ export function ProfileForm({ submitLabel, onDone, wide = false, requireLegal = 
         <Input value={car} onChange={(e) => setCar(e.target.value)} maxLength={60} placeholder="e.g. Škoda Octavia RS 2.0 TSI" />
       </Field>
       {requireLegal && (
-        <label className="flex items-start gap-3 rounded border border-line p-3 text-sm">
-          <input type="checkbox" className="mt-0.5 h-5 w-5 shrink-0 accent-[rgb(var(--c-accent))]" checked={legal} onChange={(e) => setLegal(e.target.checked)} />
-          <span>
-            {SAFETY_TEXT} <span className="text-muted">{SAFETY_DETAIL}</span>
-          </span>
-        </label>
+        <>
+          <label className="flex items-start gap-3 rounded border border-line p-3 text-sm">
+            <input type="checkbox" className="mt-0.5 h-5 w-5 shrink-0 accent-[rgb(var(--c-accent))]" checked={legal} onChange={(e) => setLegal(e.target.checked)} />
+            <span>
+              {SAFETY_TEXT} <span className="text-muted">{SAFETY_DETAIL}</span>
+            </span>
+          </label>
+          <p className="text-xs text-muted">
+            By continuing you agree to the{' '}
+            <Link to="/terms" className="underline underline-offset-4">
+              terms of use
+            </Link>{' '}
+            and the{' '}
+            <Link to="/privacy" className="underline underline-offset-4">
+              privacy policy
+            </Link>
+            .
+          </p>
+        </>
       )}
       {error && (
         <p role="alert" className="anim-shake text-sm text-loss">

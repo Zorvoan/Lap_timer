@@ -23,6 +23,9 @@ const SessionDetail = lazy(() => import('./pages/SessionDetail').then((m) => ({ 
 const LeaderboardCompare = lazy(() => import('./pages/LeaderboardCompare').then((m) => ({ default: m.LeaderboardCompare })));
 const Account = lazy(() => import('./pages/Account').then((m) => ({ default: m.Account })));
 const SettingsPage = lazy(() => import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage })));
+const PrivacyPolicy = lazy(() => import('./pages/Legal').then((m) => ({ default: m.PrivacyPolicy })));
+const Terms = lazy(() => import('./pages/Legal').then((m) => ({ default: m.Terms })));
+const CookiePolicy = lazy(() => import('./pages/Legal').then((m) => ({ default: m.CookiePolicy })));
 
 initUpdates();
 initInstall();
@@ -50,6 +53,10 @@ createRoot(document.getElementById('root')!).render(
           }
         >
           <Routes>
+            {/* Readable before signing in: the sign-up screen links to them. */}
+            <Route path="privacy" element={<PrivacyPolicy />} />
+            <Route path="terms" element={<Terms />} />
+            <Route path="cookies" element={<CookiePolicy />} />
             <Route element={<AppShell />}>
               <Route index element={<Tracks />} />
               <Route path="tracks/:id" element={<Track />} />
