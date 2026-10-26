@@ -144,12 +144,7 @@ export function Tracks() {
       <section className={`${view === 'list' ? 'flex' : 'hidden'} anim-view min-h-0 flex-1 flex-col md:flex md:w-[26rem] md:flex-none md:border-r md:border-line`}>
         <div className="min-h-0 flex-1 overflow-auto pb-6">
           <header className="flex items-end justify-between gap-3 px-4 pb-4 pt-5">
-            <div>
-              {circuits.official.length > 0 && (
-                <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#d08a4e]">{circuits.official.length} official roads</div>
-              )}
-              <h1 className="font-display text-[2.1rem] font-black leading-none tracking-tight">Roads</h1>
-            </div>
+            <h1 className="font-display text-[2.1rem] font-black leading-none tracking-tight">Roads</h1>
             <ViewSwitch view={view} onChange={(v) => setParams({ ...(v === 'map' ? { view: 'map' } : {}), ...(group !== 'official' ? { group } : {}) }, { replace: true })} />
           </header>
 
