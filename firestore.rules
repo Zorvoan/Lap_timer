@@ -77,7 +77,8 @@ service cloud.firestore {
       allow create: if isOwner(uid) && validSlots();
       allow update: if isOwner(uid) && validSlots()
         && (request.resource.data.ids.hasAll(resource.data.ids) || removesOneUnpublished());
-      allow delete: if false;
+      // Only once every road is unpublished (deleting the account).
+      allow delete: if isOwner(uid) && resource.data.ids.size() == 0;
     }
 
     // A public road: a copy of the owner's circuit everyone can see and race on its own

@@ -1,9 +1,9 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { PageHeader } from '../components/AppShell';
 import { SAFETY_DETAIL, SAFETY_TEXT, acceptSafety } from '../lib/safety';
 import { Button, ConfirmButton, Field, Input, Notice, Panel, Segmented, Spinner } from '../components/ui/primitives';
 import { useAccount } from '../hooks/useData';
-import { describeError, login, logout, register, resetPassword, signInWith, syncNow, updateProfile } from '../lib/cloud/account';
+import { deleteAccount, describeError, login, logout, register, resetPassword, signInWith, syncNow, updateProfile, usesPassword } from '../lib/cloud/account';
 import type { SocialProvider } from '../lib/cloud/firebase';
 import { validateCar, validateNickname } from '../lib/cloud/leaderboard';
 
@@ -283,7 +283,65 @@ function SignedIn() {
         </div>
         <p className="mt-2 text-xs text-muted">Removing data from this device does not delete it from your account. Use it on shared computers.</p>
       </Panel>
+      <DeleteAccount />
     </>
+  );
+}
+
+/** Deletes the account and everything in it, after the password (or Google / Apple) once more. */
+function DeleteAccount() {
+  const [open, setOpen] = useState(false);
+  const [password, setPassword] = useState('');
+  const [needsPassword, setNeedsPassword] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    void usesPassword().then(setNeedsPassword);
+  }, []);
+  async function go() {
+    setError(null);
+    if (needsPassword && !password) return setError('Enter your password.');
+    setBusy(true);
+    try {
+      await deleteAccount(needsPassword ? password : null);
+    } catch (e) {
+      setError(describeError(e) || 'Could not delete the account. Try again.');
+      setBusy(false);
+    }
+  }
+  return (
+    <Panel title="Delete account">
+      <p className="text-sm text-muted">
+        Deletes your account for good: your profile and nickname, your times on every leaderboard, your public roads with their leaderboards, and all circuits and drives saved
+        in the account and on this device. This cannot be undone.
+      </p>
+      {!open ? (
+        <Button variant="danger" className="mt-3" onClick={() => setOpen(true)}>
+          Delete account
+        </Button>
+      ) : (
+        <div className="mt-3 space-y-3">
+          {needsPassword && (
+            <Field label="Password">
+              <Input type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} maxLength={200} />
+            </Field>
+          )}
+          {error && (
+            <p role="alert" className="anim-shake text-sm text-loss">
+              {error}
+            </p>
+          )}
+          <div className="flex flex-wrap gap-2">
+            <ConfirmButton disabled={busy} onConfirm={go} confirmLabel="Tap again: delete everything">
+              {busy ? 'Deleting…' : 'Delete my account'}
+            </ConfirmButton>
+            <Button disabled={busy} onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
+    </Panel>
   );
 }
 
