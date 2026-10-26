@@ -1,15 +1,19 @@
 /** Firebase initialisation. Loaded lazily so the SDK is only downloaded when accounts are enabled. */
 import { initializeApp } from 'firebase/app';
 import {
+  EmailAuthProvider,
   GoogleAuthProvider,
   OAuthProvider,
   browserLocalPersistence,
   browserPopupRedirectResolver,
   connectAuthEmulator,
   createUserWithEmailAndPassword,
+  deleteUser,
   getRedirectResult,
   initializeAuth,
   onAuthStateChanged,
+  reauthenticateWithCredential,
+  reauthenticateWithPopup,
   sendPasswordResetEmail,
   signInWithEmailAndPassword,
   signInWithPopup,
@@ -86,6 +90,21 @@ export const firebaseApi = {
       if ((e as { code?: string }).code === 'auth/popup-blocked') return signInWithRedirect(auth, providerFor(p));
       throw e;
     }
+  },
+  /** Whether the account signs in with a password (otherwise with Google / Apple). */
+  usesPassword(): boolean {
+    return auth.currentUser?.providerData.some((p) => p.providerId === 'password') ?? false;
+  },
+  /** Confirms it is really the account's owner (Firebase asks for a recent sign-in before deleting). */
+  async reauthenticate(password: string | null) {
+    const user = auth.currentUser;
+    if (!user) throw new Error('Sign in first.');
+    if (password !== null) return void (await reauthenticateWithCredential(user, EmailAuthProvider.credential(user.email ?? '', password)));
+    const social = user.providerData.find((p) => p.providerId === 'google.com' || p.providerId === 'apple.com');
+    if (social) await reauthenticateWithPopup(user, providerFor(social.providerId === 'google.com' ? 'google' : 'apple'));
+  },
+  async deleteUser() {
+    if (auth.currentUser) await deleteUser(auth.currentUser);
   },
   /** Finishes a redirect sign-in after the page comes back; throws its error, if any. */
   async finishRedirect() {

@@ -3,7 +3,7 @@
  * Firebase SDK. Leaderboards and official tracks are public; writes are checked by
  * firestore.rules (own entry only, must match the profile, times can only improve).
  */
-import { collection, doc, getCountFromServer, getDoc, getDocs, limit, orderBy, query, runTransaction, serverTimestamp, where, writeBatch } from 'firebase/firestore';
+import { collection, doc, getCountFromServer, getDoc, getDocs, limit, orderBy, query, runTransaction, serverTimestamp, where, writeBatch, type DocumentReference } from 'firebase/firestore';
 import type { Circuit } from '@laptimer/core';
 import { db } from './firebase';
 import { decodeCircuit, encodeCircuit, type CircuitDoc } from './codec';
@@ -160,10 +160,45 @@ export async function getPublishedTrace(circuitId: string, uid: string): Promise
 
 /** Removes the user's entries from all leaderboards (used before deleting an account). */
 export async function withdrawEntries(uid: string, featuredIds: readonly string[]): Promise<void> {
-  const b = writeBatch(db);
-  for (const id of featuredIds) {
-    b.delete(doc(db, 'leaderboards', id, 'entries', uid));
-    b.delete(doc(db, 'leaderboards', id, 'traces', uid));
+  for (let i = 0; i < featuredIds.length; i += 200) {
+    const b = writeBatch(db);
+    for (const id of featuredIds.slice(i, i + 200)) {
+      b.delete(doc(db, 'leaderboards', id, 'entries', uid));
+      b.delete(doc(db, 'leaderboards', id, 'traces', uid));
+    }
+    await b.commit();
   }
+}
+
+/** The ids of the roads this driver has made public. */
+export async function publicRoadIds(uid: string): Promise<string[]> {
+  return (await slots(uid)).ids;
+}
+
+async function deleteAll(refs: DocumentReference[]): Promise<void> {
+  for (let i = 0; i < refs.length; i += 400) {
+    const b = writeBatch(db);
+    refs.slice(i, i + 400).forEach((r) => b.delete(r));
+    await b.commit();
+  }
+}
+
+/**
+ * Deletes everything stored under the account: circuits, sessions with their traces, deletion
+ * records, notification devices, the profile, the nickname and the (by then empty) list of public
+ * roads. Public roads and leaderboard entries are taken down before this.
+ */
+export async function deleteUserData(uid: string, nickname: string | null): Promise<void> {
+  const refs: DocumentReference[] = [];
+  for (const name of ['circuits', 'tombstones', 'push']) refs.push(...(await getDocs(collection(db, 'users', uid, name))).docs.map((d) => d.ref));
+  for (const session of (await getDocs(collection(db, 'users', uid, 'sessions'))).docs) {
+    refs.push(...(await getDocs(collection(session.ref, 'traces'))).docs.map((d) => d.ref), session.ref);
+  }
+  await deleteAll(refs);
+  const s = await slots(uid);
+  const b = writeBatch(db);
+  if (nickname) b.delete(doc(db, 'nicknames', nickname.toLowerCase()));
+  if (s.exists && !s.ids.length) b.delete(doc(db, 'publicSlots', uid));
+  b.delete(doc(db, 'users', uid));
   await b.commit();
 }

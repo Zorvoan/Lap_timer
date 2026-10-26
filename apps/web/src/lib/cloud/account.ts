@@ -168,6 +168,7 @@ export function scheduleSync(delayMs: number): void {
 
 /** Runs a sync now (or once more after the one in progress). */
 export async function syncNow(): Promise<void> {
+  if (deleting) return;
   if (syncing) {
     again = true;
     return syncing;
@@ -497,6 +498,42 @@ export async function logout(removeLocalData: boolean): Promise<void> {
   set({ lastSyncAt: null, lastReport: null, sync: 'idle', syncError: null, profile: null, submissions: [], overtakes: [] });
 }
 
+let deleting = false;
+
+/** Whether the account signs in with a password (asked for again before deleting it). */
+export async function usesPassword(): Promise<boolean> {
+  return (await loadApi()).usesPassword();
+}
+
+/**
+ * Deletes the account and everything in it: the driver's public roads (with their leaderboards),
+ * their times on every leaderboard, circuits, sessions, profile and nickname, then the sign-in
+ * itself and this device's copy. Asks the owner to sign in again first, so a wrong password
+ * deletes nothing.
+ */
+export async function deleteAccount(password: string | null): Promise<void> {
+  const a = await loadApi();
+  const uid = state.user?.uid;
+  if (!uid) throw new Error('Sign in first.');
+  await a.reauthenticate(password);
+  deleting = true;
+  try {
+    if (timer) clearTimeout(timer);
+    if (syncing) await syncing.catch(() => undefined);
+    if (savedDevice()) await (await import('./push')).disablePush().catch(() => undefined);
+    const c = await community();
+    for (const id of await c.publicRoadIds(uid)) await c.unpublishRoad(uid, id);
+    await c.withdrawEntries(uid, leaderboardTracks(state).map((f) => f.id));
+    await c.deleteUserData(uid, state.profile?.nickname ?? null);
+    await a.deleteUser();
+    await clearAllData();
+    await resetSyncState(uid);
+    set({ lastSyncAt: null, lastReport: null, sync: 'idle', syncError: null, profile: null, submissions: [], overtakes: [] });
+  } finally {
+    deleting = false;
+  }
+}
+
 /** Human-readable message for Firebase Auth / Firestore errors. */
 export function describeError(e: unknown): string {
   const code = typeof e === 'object' && e && 'code' in e ? String((e as { code: unknown }).code) : '';
@@ -515,6 +552,10 @@ export function describeError(e: unknown): string {
       return 'Wrong e-mail or password.';
     case 'auth/too-many-requests':
       return 'Too many attempts. Wait a moment and try again.';
+    case 'auth/requires-recent-login':
+      return 'For your security, sign out and sign in again, then delete the account.';
+    case 'auth/user-mismatch':
+      return 'That is a different account. Use the one you are signed in with.';
     case 'auth/network-request-failed':
     case 'unavailable':
       return 'No connection to the server. Check your internet connection.';

@@ -103,6 +103,18 @@ describe('public roads', () => {
     await assertSucceeds(b.commit());
   });
 
+  it('deletes the list of public roads only once it is empty, and only its owner', async () => {
+    await publish('r1', ['r1']);
+    await assertFails(deleteDoc(doc(alice(), 'publicSlots', 'alice')));
+    const db = alice();
+    const b = writeBatch(db);
+    b.delete(doc(db, 'public', 'r1'));
+    b.set(doc(db, 'publicSlots', 'alice'), { ids: [] });
+    await b.commit();
+    await assertFails(deleteDoc(doc(env.authenticatedContext('bob').firestore(), 'publicSlots', 'alice')));
+    await assertSucceeds(deleteDoc(doc(alice(), 'publicSlots', 'alice')));
+  });
+
   it('needs a slot, the own uid and nickname, and a sane road; never edits', async () => {
     const db = alice();
     await assertFails(setDoc(doc(db, 'public', 'r1'), road('r1')));
