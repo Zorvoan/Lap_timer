@@ -309,6 +309,16 @@ describe('SessionEngine — start and finish where the GPS track misses the shor
     expect(engine.snapshot().lapState).toBe('waiting_start');
   });
 
+  it('finishes beside the line when the mapped road ends just after the finish', () => {
+    // Like the official roads: only 15 m of road after the finish line.
+    const short = toCoords([{ x: 0, y: 0 }, { x: 1315, y: 0 }]);
+    const st = TrackModel.fromCoordinates(short, false);
+    const engine = new SessionEngine({ kind: 'sprint', geometry: short, startLine: perpendicularLine(st, 100), finishLine: perpendicularLine(st, 1300), sectors: [] });
+    drive(engine, path([{ x: -200, y: 16 }, { x: 1500, y: 16 }]));
+    expect(engine.laps).toHaveLength(1);
+    expect(engine.laps[0].timeMs).toBeCloseTo(80_000, -1);
+  });
+
   it('does not start when driving the road the wrong way', () => {
     const engine = new SessionEngine(circuit);
     drive(engine, path([{ x: 1500, y: 16 }, { x: -200, y: 16 }]));
