@@ -319,10 +319,62 @@ describe('SessionEngine — start and finish where the GPS track misses the shor
     expect(engine.laps[0].timeMs).toBeCloseTo(80_000, -1);
   });
 
+  it('finishes beside the line when the finish is right at the end of the road', () => {
+    const engine = new SessionEngine({ ...circuit, finishLine: perpendicularLine(t, 1500) });
+    drive(engine, path([{ x: -200, y: 16 }, { x: 1700, y: 16 }]));
+    expect(engine.laps).toHaveLength(1);
+    expect(engine.laps[0].timeMs).toBeCloseTo(1400 / 0.015, -1);
+  });
+
+  it('times an out-and-back road whose finish is where it started', () => {
+    // 600 m out, a turn, 600 m back on the same road: start 20 m in, finish 20 m before the end.
+    const ob = toCoords([{ x: 0, y: 0 }, { x: 600, y: 0 }, { x: 600, y: 8 }, { x: 0, y: 8 }]);
+    const ot = TrackModel.fromCoordinates(ob, false);
+    const engine = new SessionEngine({ kind: 'sprint', geometry: ob, startLine: perpendicularLine(ot, 20), finishLine: perpendicularLine(ot, ot.length - 20), sectors: [] });
+    drive(engine, path([{ x: -200, y: -16 }, { x: 615, y: -16 }, { x: 615, y: 24 }, { x: -200, y: 24 }]));
+    expect(engine.laps).toHaveLength(1);
+    expect(engine.laps[0].valid).toBe(true);
+  });
+
   it('does not start when driving the road the wrong way', () => {
     const engine = new SessionEngine(circuit);
     drive(engine, path([{ x: 1500, y: 16 }, { x: -200, y: 16 }]));
     expect(engine.snapshot().lapState).toBe('waiting_start');
     expect(engine.laps).toHaveLength(0);
+  });
+});
+
+describe('SessionEngine — closed circuit driven beside the start/finish line', () => {
+  const { def, track } = closedCircuit(ovalPoints(), 20);
+  const L = track.length;
+  /** 1 Hz fixes at 15 m/s around the oval, `offset` m outside the centreline. */
+  function laps(n: number, offset: number, noise = 0, seed = 5): GpsSample[] {
+    let s = seed;
+    const rnd = () => ((s = (s * 16807) % 2147483647), s / 2147483647);
+    const g = () => Math.sqrt(-2 * Math.log(Math.max(rnd(), 1e-9))) * Math.cos(2 * Math.PI * rnd());
+    const out: GpsSample[] = [];
+    for (let d = -100, i = 0; d < n * L + 100; d += 15, i++) {
+      const a = ((d % L) + L) % L;
+      const p = track.pointAt(a);
+      const tg = track.tangentAt(a);
+      // Right of travel is outside on this counter-clockwise oval.
+      const ll = track.frame.toLatLon({ x: p.x + tg.y * offset + g() * noise, y: p.y - tg.x * offset + g() * noise });
+      out.push({ t: 1_000_000 + i * 1000, lat: ll.lat, lon: ll.lon, accuracy: 4, speed: 15, heading: null, altitude: null, altitudeAccuracy: null });
+    }
+    return out;
+  }
+
+  it('counts every lap when driven outside the line', () => {
+    const engine = new SessionEngine(def);
+    drive(engine, laps(3, 16));
+    expect(engine.laps).toHaveLength(3);
+  });
+
+  it('counts each lap once on the line, with GPS noise', () => {
+    const engine = new SessionEngine(def);
+    const events = drive(engine, laps(3, 0, 4));
+    expect(engine.laps).toHaveLength(3);
+    expect(events.filter((e) => e.type === 'short_lap_ignored')).toHaveLength(0);
+    for (const lap of engine.laps) expect(Math.abs(lap.timeMs - (L / 15) * 1000)).toBeLessThan(1000);
   });
 });
