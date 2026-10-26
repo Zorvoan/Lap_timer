@@ -336,6 +336,31 @@ describe('SessionEngine — start and finish where the GPS track misses the shor
     expect(engine.laps[0].valid).toBe(true);
   });
 
+  it('starts and finishes when the GPS drops out across both lines', () => {
+    // Lost 250 m before the start until 250 m after it, and 250 m before the finish until parked
+    // 50 m past the end of the mapped road, all of it 16 m beside the road.
+    const engine = new SessionEngine(circuit);
+    const fixes = path([{ x: -400, y: 16 }, { x: 1550, y: 16 }]).filter((f) => {
+      const x = ((f.t - 1_000_000) / 1000) * 15 - 400;
+      return !(x > -150 && x < 350) && !(x > 1050 && x < 1550);
+    });
+    // Back when it reaches the parking spot, still at the same pace.
+    fixes.push(fixAt({ x: 1550, y: 16 }, 1_000_000 + ((1550 + 400) / 15) * 1000, { speed: 0 }));
+    drive(engine, fixes);
+    expect(engine.laps).toHaveLength(1);
+    // Exact at constant speed between the fixes either side of each line.
+    expect(engine.laps[0].timeMs).toBeCloseTo(80_000, -2);
+  });
+
+  it('does not guess across a GPS gap longer than 300 m either side of the line', () => {
+    const engine = new SessionEngine(circuit);
+    drive(engine, path([{ x: -400, y: 16 }, { x: 1500, y: 16 }]).filter((f) => {
+      const x = ((f.t - 1_000_000) / 1000) * 15 - 400;
+      return !(x > -250 && x < 450);
+    }));
+    expect(engine.snapshot().lapState).toBe('waiting_start');
+  });
+
   it('does not start when driving the road the wrong way', () => {
     const engine = new SessionEngine(circuit);
     drive(engine, path([{ x: 1500, y: 16 }, { x: -200, y: 16 }]));
