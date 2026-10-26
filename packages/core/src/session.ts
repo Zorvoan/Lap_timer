@@ -1,7 +1,7 @@
 import { computeDelta, type ReferenceLap } from './delta';
-import { dot, headingToVector, norm, sub, unit, type LatLon, type XY } from './geo';
+import { cross, dot, headingToVector, norm, sub, unit, type LatLon, type XY } from './geo';
 import { DEFAULT_GPS_FILTER_CONFIG, GpsFilter, type GpsFilterConfig, type GpsSample, type SampleStatus } from './gps';
-import { lineAlong, lineToXY } from './lines';
+import { detectCrossing, distanceToLine, lineAlong, lineToXY, type TimingLineXY } from './lines';
 import type { CircuitDefinition, LapFlag, LapRecord, LapTracePoint, SessionMark } from './model';
 import { DEFAULT_PROGRESS_CONFIG, ProgressTracker, type ProgressConfidence, type ProgressConfig } from './progress';
 import { DEFAULT_LAP_TIMER_CONFIG, LapTimer, type LapTimerConfig, type TimingEvent } from './timing';
@@ -100,17 +100,27 @@ const PASS_NEAR_M = 300;
 const PASS_MAX_SPEED_MS = 90;
 /** Another stretch of road (this far along from the nearest point, m)… */
 const PASS_OTHER_STRETCH_M = 50;
-/** …as close as the nearest within this much may be where the fix is instead, m. */
-const PASS_SAME_ROAD_M = 3;
-/** It counts once the run is this far past the line, so GPS wander while standing at it doesn't, m. */
-const PASS_CONFIRM_M = 25;
+/** …this much further away than the nearest may be where the fix is instead (a road driven both ways), m. */
+const PASS_SAME_ROAD_M = 15;
+/** A run has begun once it is this far past the start line, so GPS wander while standing at it doesn't, m. */
+const START_CONFIRM_M = 25;
+/** Leaving from a fix this far past the start line still starts there (joined from the side, parked on it), m. */
+const START_BEHIND_M = 5;
+/** A fix at exactly the previous position while moving faster than this is a frozen receiver, m/s. */
+const FROZEN_SPEED_MS = 1;
+/** A start line crossed at this speed or more is the car driving off, not GPS wander, m/s. */
+const START_MOVING_MS = 2;
+/** …unless the car is still near the line this long after it, having stopped again, ms. */
+const START_RESTART_MS = 5000;
 
-/** A line passed by distance along the route, waiting for the run to carry on past it. */
-interface PendingPass {
+/** The moment a run seems to have started, held until the car is clearly on its way. */
+interface PendingStart {
   t: number;
   gapMs: number;
   prev: GoodPoint;
   cur: GoodPoint;
+  /** Crossed while driving: GPS wander in the next moments doesn't replace it. */
+  moving: boolean;
 }
 
 /**
@@ -139,7 +149,11 @@ export class SessionEngine {
   private lastDelta: LiveDelta | null = null;
   private lapDistance: number | null = null;
   private paused_ = false;
-  private readonly pendingPass = new Map<'start' | 'finish', PendingPass>();
+  private readonly startLine: TimingLineXY;
+  private pendingStart: PendingStart | null = null;
+  /** Whether the previous step crossed the start line, so the next one doesn't start again from behind it. */
+  private startedLastStep = false;
+  private lastRaw: GpsSample | null = null;
 
   constructor(circuit: CircuitDefinition, config: Partial<EngineConfig> = {}, reference: ReferenceLap | null = null) {
     this.cfg = { ...DEFAULT_ENGINE_CONFIG, ...config };
@@ -164,12 +178,8 @@ export class SessionEngine {
     }
     this.filter = new GpsFilter(this.cfg.gps);
     this.tracker = new ProgressTracker(this.track, this.cfg.progress);
-    this.timer = new LapTimer(
-      lineToXY(this.track, circuit.startLine),
-      circuit.sectors.map((s) => lineToXY(this.track, s)),
-      finish,
-      this.cfg.timing,
-    );
+    this.startLine = lineToXY(this.track, circuit.startLine);
+    this.timer = new LapTimer(this.startLine, circuit.sectors.map((s) => lineToXY(this.track, s)), finish, this.cfg.timing, true);
     this.reference = reference;
   }
 
@@ -200,7 +210,7 @@ export class SessionEngine {
     this.paused_ = true;
     this.marks_.push({ type: 'pause', t });
     this.timer.abortLap();
-    this.pendingPass.clear();
+    this.pendingStart = null;
     this.current = null;
     this.lastGood = null;
     this.lastDelta = null;
@@ -218,6 +228,14 @@ export class SessionEngine {
   /** Feeds one raw fix. Returns timing events produced by it (lap starts, completions, ...). */
   push(raw: GpsSample): TimingEvent[] {
     if (this.paused_) return [];
+    // A receiver that stops updating repeats its last position with new timestamps; timing on it
+    // would place the car where it was seconds ago. Treated as no fix, so the gap is bridged.
+    const last = this.lastRaw;
+    this.lastRaw = raw;
+    if (last && raw.lat === last.lat && raw.lon === last.lon && (raw.speed ?? 0) > FROZEN_SPEED_MS) {
+      this.samples_.push({ ...raw, status: 'rejected' });
+      return [];
+    }
     const f = this.filter.process(raw);
     this.samples_.push({ ...raw, status: f.status });
     if (f.status === 'rejected') return [];
@@ -255,26 +273,16 @@ export class SessionEngine {
         events.push(ev);
         this.applyEvent(ev, prev, good);
       }
-      // The lines crossed by distance along the route as well, for runs that pass beside them.
-      const lines: ['start' | 'finish', number][] = [['start', this.startAlong]];
-      if (this.finishAlong !== null) lines.push(['finish', this.finishAlong]);
-      for (const [id, along] of lines) {
-        let pass = this.pendingPass.get(id);
-        if (!pass) {
-          const frac = this.passedAt(prev, good, along);
-          if (frac !== null) pass = { t: prev.t + frac * (good.t - prev.t), gapMs: good.t - prev.t, prev, cur: good };
-        }
-        if (!pass) continue;
-        const at = this.alongNear(good.p, along);
-        const past = at === null ? -Infinity : this.track.signedDelta(along, at);
-        // A fix that wanders a little back behind the line doesn't undo the pass; going back does.
-        if (past < -PASS_CONFIRM_M) this.pendingPass.delete(id);
-        else if (past < this.confirmAfter(along)) this.pendingPass.set(id, pass);
-        else {
-          this.pendingPass.delete(id);
-          for (const ev of this.timer.passLine(id, pass.t, pass.gapMs)) {
+      if (this.timer.phase === 'waiting') this.trackStart(prev, good, f.speedMs, events);
+      else {
+        this.pendingStart = null;
+        // The end of a lap passed beside the line, by distance along the road: counts at once.
+        const end: ['start' | 'finish', number] = this.finishAlong !== null ? ['finish', this.finishAlong] : ['start', this.startAlong];
+        const frac = this.passedAt(prev, good, end[1]);
+        if (frac !== null) {
+          for (const ev of this.timer.passLine(end[0], prev.t + frac * (good.t - prev.t), good.t - prev.t)) {
             events.push(ev);
-            this.applyEvent(ev, pass.prev, pass.cur);
+            this.applyEvent(ev, prev, good);
           }
         }
       }
@@ -313,7 +321,7 @@ export class SessionEngine {
    * by plain projection rather than by the tracker, which may not have picked up the road yet when
    * it is joined right at the start.
    */
-  private passedAt(prev: GoodPoint, cur: GoodPoint, lineAlong: number): number | null {
+  private passedAt(prev: GoodPoint, cur: GoodPoint, lineAlong: number, behindM = 0): number | null {
     const mid = this.track.pointAt(lineAlong);
     if (norm(sub(prev.p, mid)) > PASS_NEAR_M && norm(sub(cur.p, mid)) > PASS_NEAR_M) return null;
     const a = this.alongNear(prev.p, lineAlong);
@@ -322,17 +330,42 @@ export class SessionEngine {
     const step = this.track.signedDelta(a, b);
     if (step < PASS_MIN_STEP_M || step > ((cur.t - prev.t) / 1000) * PASS_MAX_SPEED_MS) return null;
     const toLine = this.track.signedDelta(a, lineAlong);
-    // Half-open, so a fix right on the line counts once, for the step that leaves it.
-    if (toLine < 0 || toLine >= step) return null;
-    return toLine / step;
+    // Half-open, so a fix right on the line counts once, for the step that leaves it; leaving from a
+    // little past it (`behindM`) counts as leaving from it.
+    if (toLine < -behindM || toLine >= step) return null;
+    return Math.max(0, toLine) / step;
   }
 
   /**
-   * How far past a line the run must be for a pass to count: {@link PASS_CONFIRM_M}, or less where
-   * the route ends sooner after it (a sprint's finish), as positions beyond the end project onto it.
+   * Before a run: the start line crossed (or passed beside it, by distance along the road) is only
+   * noted, and each later crossing replaces it; the run starts at the last one once the car is
+   * {@link START_CONFIRM_M} past the line. Standing at the start, GPS wander crosses the line back
+   * and forth; the crossing that counts is the one the car drove away from. A crossing made while
+   * driving is kept, so wander as the car drives through doesn't move the start later.
    */
-  private confirmAfter(lineAlong: number): number {
-    return this.track.closed ? PASS_CONFIRM_M : Math.min(PASS_CONFIRM_M, (this.track.length - lineAlong) * 0.6);
+  private trackStart(prev: GoodPoint, cur: GoodPoint, speedMs: number | null, events: TimingEvent[]): void {
+    const dt = cur.t - prev.t;
+    const c = detectCrossing(prev.p, cur.p, this.startLine);
+    const frac = c?.correctDirection ? c.fraction : this.passedAt(prev, cur, this.startAlong, this.startedLastStep ? 0 : START_BEHIND_M);
+    this.startedLastStep = frac !== null;
+    const held = this.pendingStart;
+    if (frac !== null && (!held || !held.moving || cur.t - held.cur.t > START_RESTART_MS)) {
+      this.pendingStart = { t: prev.t + frac * dt, gapMs: dt, prev, cur, moving: (speedMs ?? 0) >= START_MOVING_MS };
+    }
+    const pend = this.pendingStart;
+    if (!pend) return;
+    const at = this.alongNear(cur.p, this.startAlong);
+    // Beside the road beyond matching it, how far past the line the raw position is.
+    const ahead = Math.sign(cross(sub(this.startLine.b, this.startLine.a), sub(cur.p, this.startLine.a))) === this.startLine.direction;
+    const past = at !== null ? this.track.signedDelta(this.startAlong, at) : ahead ? distanceToLine(cur.p, this.startLine) : -distanceToLine(cur.p, this.startLine);
+    if (past < -START_CONFIRM_M) this.pendingStart = null;
+    else if (past >= START_CONFIRM_M) {
+      this.pendingStart = null;
+      for (const ev of this.timer.passLine('start', pend.t, pend.gapMs)) {
+        events.push(ev);
+        this.applyEvent(ev, pend.prev, pend.cur);
+      }
+    }
   }
 
   /**
@@ -343,7 +376,7 @@ export class SessionEngine {
    */
   private alongNear(p: XY, lineAlong: number): number | null {
     const cands = this.track.candidates(p, PASS_LATERAL_M);
-    if (!cands.length) return this.beyondEnd(p);
+    if (!cands.length) return this.beyondEnd(p, lineAlong);
     const nearest = cands.reduce((a, c) => (c.lateral < a.lateral ? c : a));
     const toLine = (along: number) => Math.abs(this.track.signedDelta(along, lineAlong));
     let best = nearest;
@@ -352,25 +385,28 @@ export class SessionEngine {
       if (otherStretch && c.lateral <= nearest.lateral + PASS_SAME_ROAD_M && toLine(c.along) < toLine(best.along)) best = c;
     }
     const atEnd = (best.seg === 0 && best.t <= 0) || (best.seg === this.track.segmentCount - 1 && best.t >= 1);
-    return (atEnd ? this.beyondEnd(p) : null) ?? best.along;
+    return (atEnd ? this.beyondEnd(p, lineAlong) : null) ?? best.along;
   }
 
   /**
    * A position before the start or past the end of a route, along the road carried straight on
    * (where the GPS comes back after a line, or a driver parks after the finish): its distance
-   * along (negative before the start), or null.
+   * along (negative before the start), or null. Where both ends are near (a road that comes back
+   * to where it began), the end nearer `lineAlong`.
    */
-  private beyondEnd(p: XY): number | null {
+  private beyondEnd(p: XY, lineAlong: number): number | null {
     if (this.track.closed) return null;
     const { pts } = this.track;
     const n = pts.length;
+    let best: number | null = null;
     for (const [end, from, sign, base] of [[pts[n - 1], pts[n - 2], 1, this.track.length], [pts[0], pts[1], -1, 0]] as const) {
       const dir = unit(sub(end, from));
       const out = dot(sub(p, end), dir);
       const side = Math.abs(dir.x * (p.y - end.y) - dir.y * (p.x - end.x));
-      if (out > 0 && side <= PASS_LATERAL_M) return base + sign * out;
+      const along = base + sign * out;
+      if (out > 0 && side <= PASS_LATERAL_M && (best === null || Math.abs(along - lineAlong) < Math.abs(best - lineAlong))) best = along;
     }
-    return null;
+    return best;
   }
 
   private applyEvent(ev: TimingEvent, prev: GoodPoint, cur: GoodPoint): void {
