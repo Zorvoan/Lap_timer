@@ -846,10 +846,14 @@ function GapBox({
   const faster = delta.deltaMs < 0;
   const tone = !delta.reliable ? 'border-line' : faster ? 'border-gain/50 bg-gain/10' : 'border-loss/50 bg-loss/10';
   const text = !delta.reliable ? 'text-muted' : faster ? 'text-gain' : 'text-loss';
+  const gap = formatGap(delta.deltaMs);
   return (
-    <div className={`${box} ${tone}`} role="timer" aria-label="Gap to your best lap">
+    <div className={`${box} ${tone} [container-type:inline-size]`} role="timer" aria-label="Gap to your best lap">
       <div className={`label ${delta.reliable ? (faster ? '!text-gain/80' : '!text-loss/80') : ''}`}>vs best</div>
-      <div className={`tint mt-2 font-mono text-[clamp(3.5rem,min(25vw,12dvh),7rem)] font-extrabold leading-none tabular ${text}`}>{formatGap(delta.deltaMs)}</div>
+      {/* As large as fits: a gap of 10 s or more has a digit more (monospace digits are about 0.6 em wide). */}
+      <div className={`tint mt-2 font-mono font-extrabold leading-none tabular ${text}`} style={{ fontSize: `min(25vw, 12dvh, 7rem, ${(100 / (gap.length * 0.62 + 0.1)).toFixed(2)}cqi)` }}>
+        {gap}
+      </div>
       {!delta.reliable && <div className="mt-2 text-sm text-muted">GPS uncertain here</div>}
     </div>
   );
