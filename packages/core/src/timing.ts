@@ -62,6 +62,11 @@ export class LapTimer {
     sectors: TimingLineXY[],
     finish: TimingLineXY | null,
     private readonly cfg: LapTimerConfig = DEFAULT_LAP_TIMER_CONFIG,
+    /**
+     * The start line's own crossings don't start a run: the caller decides when it really began
+     * (see {@link passLine}). Crossings that end a lap still count as they happen.
+     */
+    private readonly holdStart = false,
   ) {
     this.sprint = finish !== null;
     this.sectorCount = sectors.length;
@@ -104,6 +109,7 @@ export class LapTimer {
     const crossed = new Set<LineState>();
     for (const h of hits) {
       crossed.add(h.st);
+      if (this.holdStart && h.st.id === 'start' && this.phase_ === 'waiting') continue;
       if (!h.st.armed) continue;
       if (h.t - h.st.lastCrossT < this.cfg.cooldownMs) continue;
       if (!h.correct) {
