@@ -51,8 +51,9 @@ export function validateCar(raw: string): string | null {
 
 /**
  * A lap counts for the leaderboard when it was timed with real GPS (never the simulator), passed
- * the distance check, averaged a plausible speed and never skipped part of the road: GPS dropouts
- * (common in forests and hairpins) are fine as long as the car crossed them at road speed.
+ * the distance check and averaged a plausible speed. Stretches where GPS lost the road are not
+ * held against it: telling a short cut from a GPS jump or a mapping mistake refused too many real
+ * runs.
  */
 export function isEligible(session: Session, lap: LapRecord): boolean {
   return ineligibleReason(session, lap) === null;
@@ -63,11 +64,10 @@ export function ineligibleReason(session: Session, lap: LapRecord): string | nul
   if (session.source !== 'gps' || lap.flags.includes('simulated')) return "Simulated runs don't go on the leaderboard.";
   if (!lap.valid) return 'The lap distance does not match the road (a line crossing was missed), so the time cannot count.';
   if (lap.distanceM / (lap.timeMs / 1000) > MAX_LEADERBOARD_SPEED_MS) return 'The lap averaged over 250 km/h: a GPS error, so it cannot count.';
-  if (trackingGaps(lap).worstRatio > MAX_GAP_SPEED_RATIO) return 'Part of the road was skipped faster than possible (GPS jumped or the car left the road), so it cannot count.';
   return null;
 }
 
-/** A gap crossed faster than this many times the speed on either side of it is a short cut. */
+/** A gap crossed faster than this many times the speed on either side of it looks like a short cut (shown to the admin only). */
 export const MAX_GAP_SPEED_RATIO = 1.6;
 
 /** A jump along the road between two matched positions longer than this is a gap in tracking. */

@@ -13,6 +13,7 @@
  *   unhook <spec>      Cuts turn-around hooks out of an official road and publishes the laps they blocked; see {@link UnhookSpec}.
  *   clear <trackId>    Deletes every time on a track: its leaderboard and every driver's drives on it.
  *   report <spec>      Every driver's timed laps on every road, encrypted for the admin; see {@link ReportSpec}.
+ *   republish          Puts each driver's best lap that counts on every leaderboard where it beats their time.
  *
  * The service account needs the "Cloud Datastore User" role. It bypasses the security rules,
  * so the output never prints more than the matched circuits' own summary.
@@ -22,7 +23,7 @@ import { readFileSync } from 'node:fs';
 import { SessionEngine, TrackModel, bearingDeg, distanceMeters, lineAlong, type Circuit, type ElevationPoint, type LonLat } from '../packages/core/src/index';
 import { sprintPair, trimSprint, type SprintShape } from '../packages/core/src/trim';
 import { decodeCircuit, decodeSession, encodeCircuit, type CircuitDoc, type SessionDoc, type TraceChunkDoc } from '../apps/web/src/lib/cloud/codec';
-import { MAX_GAP_SPEED_RATIO, MAX_LEADERBOARD_SPEED_MS, entryFromLap, ineligibleReason, traceForPublishing, trackingGaps, type Profile } from '../apps/web/src/lib/cloud/leaderboard';
+import { MAX_GAP_SPEED_RATIO, MAX_LEADERBOARD_SPEED_MS, bestEligibleLap, entryFromLap, ineligibleReason, traceForPublishing, trackingGaps, type Profile } from '../apps/web/src/lib/cloud/leaderboard';
 import { accessToken } from './lib/google';
 
 const PROJECT = process.env.FIREBASE_PROJECT ?? 'laptimer-okwph';
@@ -646,6 +647,55 @@ async function report(token: string, spec: ReportSpec) {
 }
 
 /**
+ * Puts each driver's best lap that counts (by the app's own rules) on every leaderboard, official
+ * roads and public roads, where it beats the time they have there. The app does the same at each
+ * sync; this catches up drivers who haven't opened it since the rules changed. Drivers are
+ * numbered, never named (this log is public).
+ */
+async function republish(token: string) {
+  const tracks = [
+    ...(await listDocs(token, 'featured')).map((f) => ({ id: f.id, circuit: decodeCircuit(f.data as unknown as CircuitDoc) })),
+    ...(await listDocs(token, 'public')).map((f) => ({ id: f.id, circuit: decodeCircuit(f.data as unknown as CircuitDoc) })),
+  ];
+  const time = (ms: number) => `${Math.floor(ms / 60000)}:${((ms % 60000) / 1000).toFixed(3).padStart(6, '0')}`;
+  let driver = 0;
+  for (const u of await listDocs(token, 'users')) {
+    const docs = await listDocs(token, `users/${u.id}/sessions`);
+    if (!docs.length) continue;
+    driver++;
+    const profile = u.data.nickname && u.data.car ? (u.data as unknown as Profile) : null;
+    const sessions = [];
+    for (const d of docs) {
+      if (!tracks.some((t) => t.id === d.data.circuitId)) continue;
+      const chunks = (await listDocs(token, `users/${u.id}/sessions/${d.id}/traces`)).map((c) => c.data as unknown as TraceChunkDoc);
+      try {
+        sessions.push(decodeSession(d.data as unknown as SessionDoc, chunks));
+      } catch {
+        /* an upload still in progress */
+      }
+    }
+    for (const t of tracks) {
+      const lengthM = new SessionEngine(t.circuit).lapLengthM;
+      const best = bestEligibleLap(sessions, t.id, lengthM);
+      if (!best) continue;
+      const entry = (await listDocs(token, `leaderboards/${t.id}/entries`)).find((e) => e.id === u.id);
+      const current = entry ? Number(entry.data.timeMs) : null;
+      if (current !== null && current <= best.lap.timeMs) continue;
+      if (!profile) {
+        console.log(`driver ${driver}, ${t.circuit.name}: ${time(best.lap.timeMs)} counts, but there is no profile to publish it under`);
+        continue;
+      }
+      await api(token, 'PATCH', `${BASE}/leaderboards/${t.id}/traces/${u.id}`, { fields: toFields({ ...traceForPublishing(best.lap, lengthM) }) });
+      await api(token, 'PATCH', `${BASE}/leaderboards/${t.id}/entries/${u.id}`, {
+        fields: { ...toFields({ ...entryFromLap(u.id, profile, best.session, best.lap, lengthM) }), submittedAt: { timestampValue: new Date().toISOString() } },
+      });
+      console.log(`driver ${driver}, ${t.circuit.name}: published ${time(best.lap.timeMs)}${current !== null ? ` (was ${time(current)})` : ''}`);
+    }
+  }
+  console.log(`${driver} driver(s) checked on ${tracks.length} leaderboard(s)`);
+}
+
+/**
  * Gives official tracks an elevation profile (for "+130 m climb" and the profile chart). Only the
  * elevation and updatedAt fields change, so every app refreshes its copy and nothing else moves.
  */
@@ -687,6 +737,7 @@ async function main() {
   else if (command === 'unhook') await unhook(token, (spec ?? JSON.parse(args[0])) as UnhookSpec);
   else if (command === 'clear') await clearTrack(token, args[0]);
   else if (command === 'report') await report(token, (spec ?? JSON.parse(args[0])) as ReportSpec);
+  else if (command === 'republish') await republish(token);
   else throw new Error(`Unknown command "${command}".`);
 }
 
