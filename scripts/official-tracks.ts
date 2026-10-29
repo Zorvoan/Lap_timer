@@ -357,14 +357,15 @@ async function pair(token: string, spec: PairSpec) {
 }
 
 /**
- * Ends an official sprint where its owner wants the stage to end: at a sector line they added to
- * their own copy of the road (`sector`, 1-based, default 1). The start stays; the road is cut 15 m
- * after the new finish (elevation too). The track's leaderboard is cleared, since times over the
- * old distance don't compare; drivers' own sessions keep their laps, which the app no longer
- * submits to this track (they are over a different distance).
+ * Ends an official sprint where its owner wants the stage to end: `lengthM` after the start, or at
+ * a sector line they added to their own copy of the road (`sector`, 1-based, default 1). The start
+ * stays; the road is cut 15 m after the new finish (elevation too). The track's leaderboard is
+ * cleared, since times over the old distance don't compare; drivers' own sessions keep their laps,
+ * which the app no longer submits to this track (they are over a different distance).
  */
 interface ShortenSpec {
   trackId: string;
+  lengthM?: number;
   sector?: number;
 }
 
@@ -372,16 +373,20 @@ async function shorten(token: string, spec: ShortenSpec) {
   const f = (await listDocs(token, 'featured')).find((x) => x.id === spec.trackId);
   if (!f) throw new Error(`featured/${spec.trackId} not found`);
   const official = decodeCircuit(f.data as unknown as CircuitDoc);
-  const copies = (await allCircuits(token)).filter((o) => o.circuit.id === spec.trackId && o.circuit.sectors.length > 0);
-  console.log(`"${official.name}": ${copies.length} copy(ies) of the road with sector lines`);
-  if (!copies.length) throw new Error('No copy of this road has a sector line to end it at.');
-  const source = copies.sort((a, b) => b.circuit.updatedAt - a.circuit.updatedAt)[0].circuit;
-  const line = source.sectors[(spec.sector ?? 1) - 1];
-  if (!line) throw new Error(`The newest copy has ${source.sectors.length} sector line(s); no sector ${spec.sector ?? 1}.`);
   const track = TrackModel.fromCoordinates(official.geometry, false);
   const start = lineAlong(track, official.startLine);
-  const end = lineAlong(track, line);
-  if (start === null || end === null || end <= start) throw new Error('The sector line does not cross the road after the start.');
+  let end: number | null = null;
+  if (spec.lengthM) end = start === null ? null : start + spec.lengthM;
+  else {
+    const copies = (await allCircuits(token)).filter((o) => o.circuit.id === spec.trackId && o.circuit.sectors.length > 0);
+    console.log(`"${official.name}": ${copies.length} copy(ies) of the road with sector lines`);
+    if (!copies.length) throw new Error('No copy of this road has a sector line to end it at.');
+    const source = copies.sort((a, b) => b.circuit.updatedAt - a.circuit.updatedAt)[0].circuit;
+    const line = source.sectors[(spec.sector ?? 1) - 1];
+    if (!line) throw new Error(`The newest copy has ${source.sectors.length} sector line(s); no sector ${spec.sector ?? 1}.`);
+    end = lineAlong(track, line);
+  }
+  if (start === null || end === null || end <= start || end > track.length) throw new Error('The new finish is not on the road after the start.');
   console.log('\nBefore:');
   for (const l of describe(official)) console.log(l);
   const shaped = trimSprint({ ...official, sectors: [] }, end - start);
@@ -391,7 +396,7 @@ async function shorten(token: string, spec: ShortenSpec) {
     featuredBy: f.data.featuredBy,
   };
   await api(token, 'PATCH', `${BASE}/featured/${spec.trackId}`, { fields: toFields(doc) });
-  console.log(`\nAfter (finish at the sector line, ${ll(track.latLonAt(end))}):`);
+  console.log(`\nAfter (finish at ${ll(track.latLonAt(end))}):`);
   for (const l of describe(shaped)) console.log(l);
   for (const sub of ['entries', 'traces']) {
     const docs = await listDocs(token, `leaderboards/${spec.trackId}/${sub}`);
