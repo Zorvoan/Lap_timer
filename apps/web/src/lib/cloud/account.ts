@@ -155,6 +155,10 @@ export function initAccount(): void {
     else scheduleSync(4000);
   });
   window.addEventListener('online', () => state.status === 'signed_in' && scheduleSync(0));
+  // An app left open for hours would keep official tracks as they were when it started.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && Date.now() - featuredAt > 10 * 60_000) void refreshFeatured();
+  });
   window.addEventListener('offline', () => set({ sync: 'offline' }));
   setInterval(() => {
     if (state.status === 'signed_in' && document.visibilityState === 'visible') scheduleSync(0);
@@ -316,6 +320,8 @@ export async function updateProfile(next: Profile): Promise<void> {
 // ---------- official tracks & leaderboards ----------
 
 /** Loads the official tracks (public), caches them, and refreshes local copies of them. */
+let featuredAt = 0;
+
 export async function refreshFeatured(): Promise<FeaturedCircuit[]> {
   if (!cloudEnabled) return [];
   if (!state.featured.length) {
@@ -324,6 +330,7 @@ export async function refreshFeatured(): Promise<FeaturedCircuit[]> {
   }
   try {
     const list = await (await community()).listFeatured();
+    featuredAt = Date.now();
     await setKv('featured', list);
     set({ featured: list });
     // Every user gets the official tracks in their circuits; they are authoritative, so older
@@ -404,22 +411,17 @@ async function submitBestLaps(uid: string): Promise<LeaderboardSubmission[]> {
   if (!profile || !tracks.length) return [];
   const c = await community();
   const sessions = await listSessions();
-  // v2: entries published before sector splits existed are checked (and completed) once.
-  const cacheKey = `lbSubmitted2:${uid}`;
-  const cache = (await getKv<Record<string, number>>(cacheKey)) ?? {};
+  // The published time is read each time rather than remembered: a leaderboard cleared or a track
+  // changed since must get the driver's best again, even when it is slower than what they had.
   const submitted: LeaderboardSubmission[] = [];
   for (const f of tracks) {
     const lengthM = lapLength(f);
     const best = bestEligibleLap(sessions, f.id, lengthM);
     if (!best) continue;
-    if (cache[f.id] !== undefined && best.lap.timeMs >= cache[f.id]) continue;
     const remote = await c.getEntry(f.id, uid);
     // Re-publish the same time once when the entry predates sector splits, so it gets them.
     const addSplits = remote !== null && remote.timeMs === best.lap.timeMs && !remote.splitTimesMs?.length;
-    if (remote && remote.timeMs <= best.lap.timeMs && !addSplits) {
-      cache[f.id] = remote.timeMs;
-      continue;
-    }
+    if (remote && remote.timeMs <= best.lap.timeMs && !addSplits) continue;
     const entry = entryFromLap(uid, profile, best.session, best.lap, lengthM);
     const trace = traceForPublishing(best.lap, lengthM);
     try {
@@ -431,12 +433,10 @@ async function submitBestLaps(uid: string): Promise<LeaderboardSubmission[]> {
       await c.submitEntry(f.id, plain, trace);
       log.warn('leaderboard entry published without splits', { error: String(e) });
     }
-    cache[f.id] = best.lap.timeMs;
     if (addSplits) continue; // same time as before: nothing to announce
     const position = await c.getPosition(f.id, best.lap.timeMs).catch(() => 0);
     submitted.push({ circuitId: f.id, circuitName: f.name, timeMs: best.lap.timeMs, position, previousMs: remote?.timeMs ?? null, at: Date.now() });
   }
-  await setKv(cacheKey, cache);
   return submitted;
 }
 
