@@ -1,4 +1,4 @@
 {
-  "command": "shorten",
-  "spec": { "trackId": "26ed0ea9-d0c9-41af-9049-59063e713686", "lengthM": 4360 }
+  "command": "laps",
+  "args": ["bf8bfc29-fbf4-4338-b3a7-0bd3c0368d89"]
 }
