@@ -11,6 +11,7 @@
  *   elevation [all]    Adds an elevation profile to official tracks that have none (or to all).
  *   shorten <spec>     Ends an official sprint at a sector line its owner added; see {@link ShortenSpec}.
  *   unhook <spec>      Cuts turn-around hooks out of an official road and publishes the laps they blocked; see {@link UnhookSpec}.
+ *   clear <trackId>    Deletes every time on a track: its leaderboard and every driver's drives on it.
  *
  * The service account needs the "Cloud Datastore User" role. It bypasses the security rules,
  * so the output never prints more than the matched circuits' own summary.
@@ -531,6 +532,33 @@ async function unhook(token: string, spec: UnhookSpec) {
 }
 
 /**
+ * Deletes every time on a track: its leaderboard (entries and traces) and every driver's drives on
+ * it with their traces. Each deleted drive gets a deletion record, so the driver's devices remove
+ * their copy at the next sync instead of uploading it again. Drivers are numbered, never named.
+ */
+async function clearTrack(token: string, trackId: string) {
+  for (const sub of ['entries', 'traces']) {
+    const docs = await listDocs(token, `leaderboards/${trackId}/${sub}`);
+    for (const d of docs) await api(token, 'DELETE', `${BASE}/leaderboards/${trackId}/${sub}/${d.id}`);
+    console.log(`Leaderboard ${sub}: ${docs.length} deleted`);
+  }
+  let driver = 0;
+  for (const u of await listDocs(token, 'users')) {
+    const drives = (await listDocs(token, `users/${u.id}/sessions`)).filter((d) => d.data.circuitId === trackId);
+    if (!drives.length) continue;
+    const now = Date.now();
+    for (const d of drives) {
+      for (const c of await listDocs(token, `users/${u.id}/sessions/${d.id}/traces`)) await api(token, 'DELETE', `${BASE}/users/${u.id}/sessions/${d.id}/traces/${c.id}`);
+      await api(token, 'DELETE', `${BASE}/users/${u.id}/sessions/${d.id}`);
+      await api(token, 'PATCH', `${BASE}/users/${u.id}/tombstones/${d.id}`, {
+        fields: { ...toFields({ id: d.id, kind: 'session', deletedAt: now }), serverUpdatedAt: { timestampValue: new Date(now).toISOString() } },
+      });
+    }
+    console.log(`driver ${++driver}: ${drives.length} drive(s) deleted`);
+  }
+}
+
+/**
  * Gives official tracks an elevation profile (for "+130 m climb" and the profile chart). Only the
  * elevation and updatedAt fields change, so every app refreshes its copy and nothing else moves.
  */
@@ -570,6 +598,7 @@ async function main() {
   else if (command === 'elevation') await addElevation(token, args[0] === 'all');
   else if (command === 'shorten') await shorten(token, (spec ?? JSON.parse(args[0])) as ShortenSpec);
   else if (command === 'unhook') await unhook(token, (spec ?? JSON.parse(args[0])) as UnhookSpec);
+  else if (command === 'clear') await clearTrack(token, args[0]);
   else throw new Error(`Unknown command "${command}".`);
 }
 

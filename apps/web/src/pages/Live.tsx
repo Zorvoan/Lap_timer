@@ -16,7 +16,7 @@ import { DEFAULT_SIMULATOR, SimulatedSource } from '../lib/gps/simulated';
 import { unlockAudio } from '../lib/audio';
 import { SAFETY_DETAIL, SAFETY_TEXT, acceptSafety, hasAcceptedSafety } from '../lib/safety';
 import { simulatorAllowed } from '../lib/developer';
-import { ensureLocalCircuit, leaderboardTracks } from '../lib/cloud/account';
+import { ensureLocalCircuit, leaderboardTracks, refreshFeatured } from '../lib/cloud/account';
 import { formatClock, formatGap } from '../lib/runFormat';
 import { climbText, useElevation } from '../lib/climb';
 import { circuitLapNumbers, lapKey } from '../lib/lapNumbers';
@@ -144,11 +144,17 @@ function DriveSetup() {
     setError(null);
     unlockAudio();
     try {
-      const f = leaderboardTracks(acc).find((x) => x.id === circuit.id);
-      if (f) await ensureLocalCircuit(f);
-      const ref = await resolveReference(circuit, choice(), settings.includeSimulatedInBests || simulating);
-      const src = simulating ? new SimulatedSource(circuit, { ...DEFAULT_SIMULATOR, timeScale, seed: Date.now() % 100000 }) : new GeolocationSource();
-      await liveController.start(circuit, src, ref, settings);
+      // An official road may have changed since this screen loaded (shortened, re-routed): drive
+      // its current version. Without signal, the copy on the device.
+      if (leaderboardTracks(acc).some((x) => x.id === circuit.id)) {
+        await Promise.race([refreshFeatured(), new Promise((r) => setTimeout(r, 4000))]).catch(() => undefined);
+        const f = leaderboardTracks().find((x) => x.id === circuit.id);
+        if (f) await ensureLocalCircuit(f);
+      }
+      const road = (await getCircuit(circuit.id)) ?? circuit;
+      const ref = await resolveReference(road, choice(), settings.includeSimulatedInBests || simulating);
+      const src = simulating ? new SimulatedSource(road, { ...DEFAULT_SIMULATOR, timeScale, seed: Date.now() % 100000 }) : new GeolocationSource();
+      await liveController.start(road, src, ref, settings);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not start.');
     } finally {
