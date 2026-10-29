@@ -161,6 +161,26 @@ describe('cloud sync between devices', () => {
     expect(cloud.tombstones.get('s1')?.ts).toBe(tsBefore); // not re-uploaded
   });
 
+  it('does not bring back a session deleted right after it was uploaded', async () => {
+    // Like Firestore, the cloud returns changes from a little before the cursor as well.
+    class OverlappingCloud extends MemoryCloud {
+      override changesSince(cursor: number) {
+        return super.changesSince(cursor - 100);
+      }
+    }
+    const cloud = new OverlappingCloud();
+    const c = makeCircuit();
+    await saveCircuit(c);
+    await saveSession(makeSession(c, 's1'));
+    await runSync(cloud, 'u1');
+    await deleteSession('s1');
+    await runSync(cloud, 'u1');
+    expect(await getSession('s1')).toBeUndefined();
+    expect(cloud.sessions.has('s1')).toBe(false);
+    await runSync(cloud, 'u1');
+    expect(await getSession('s1')).toBeUndefined();
+  });
+
   it('keeps the newer version when both devices changed a circuit', async () => {
     const cloud = new MemoryCloud();
     await saveCircuit({ ...makeCircuit(), name: 'Old', updatedAt: 100 }, { touch: false });
