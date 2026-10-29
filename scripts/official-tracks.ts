@@ -9,6 +9,7 @@
  *   publish <spec>     Publishes circuits as official tracks; see {@link PublishSpec}.
  *   pair <spec>        A hill climb and its downhill over the same exact distance; see {@link PairSpec}.
  *   elevation [all]    Adds an elevation profile to official tracks that have none (or to all).
+ *   shorten <spec>     Ends an official sprint at a sector line its owner added; see {@link ShortenSpec}.
  *
  * The service account needs the "Cloud Datastore User" role. It bypasses the security rules,
  * so the output never prints more than the matched circuits' own summary.
@@ -356,6 +357,50 @@ async function pair(token: string, spec: PairSpec) {
 }
 
 /**
+ * Ends an official sprint where its owner wants the stage to end: at a sector line they added to
+ * their own copy of the road (`sector`, 1-based, default 1). The start stays; the road is cut 15 m
+ * after the new finish (elevation too). The track's leaderboard is cleared, since times over the
+ * old distance don't compare; drivers' own sessions keep their laps, which the app no longer
+ * submits to this track (they are over a different distance).
+ */
+interface ShortenSpec {
+  trackId: string;
+  sector?: number;
+}
+
+async function shorten(token: string, spec: ShortenSpec) {
+  const f = (await listDocs(token, 'featured')).find((x) => x.id === spec.trackId);
+  if (!f) throw new Error(`featured/${spec.trackId} not found`);
+  const official = decodeCircuit(f.data as unknown as CircuitDoc);
+  const copies = (await allCircuits(token)).filter((o) => o.circuit.id === spec.trackId && o.circuit.sectors.length > 0);
+  console.log(`"${official.name}": ${copies.length} copy(ies) of the road with sector lines`);
+  if (!copies.length) throw new Error('No copy of this road has a sector line to end it at.');
+  const source = copies.sort((a, b) => b.circuit.updatedAt - a.circuit.updatedAt)[0].circuit;
+  const line = source.sectors[(spec.sector ?? 1) - 1];
+  if (!line) throw new Error(`The newest copy has ${source.sectors.length} sector line(s); no sector ${spec.sector ?? 1}.`);
+  const track = TrackModel.fromCoordinates(official.geometry, false);
+  const start = lineAlong(track, official.startLine);
+  const end = lineAlong(track, line);
+  if (start === null || end === null || end <= start) throw new Error('The sector line does not cross the road after the start.');
+  console.log('\nBefore:');
+  for (const l of describe(official)) console.log(l);
+  const shaped = trimSprint({ ...official, sectors: [] }, end - start);
+  const doc: Record<string, unknown> = {
+    ...encodeCircuit({ ...shaped, updatedAt: Date.now() }),
+    featuredOrder: Number(f.data.featuredOrder),
+    featuredBy: f.data.featuredBy,
+  };
+  await api(token, 'PATCH', `${BASE}/featured/${spec.trackId}`, { fields: toFields(doc) });
+  console.log(`\nAfter (finish at the sector line, ${ll(track.latLonAt(end))}):`);
+  for (const l of describe(shaped)) console.log(l);
+  for (const sub of ['entries', 'traces']) {
+    const docs = await listDocs(token, `leaderboards/${spec.trackId}/${sub}`);
+    for (const d of docs) await api(token, 'DELETE', `${BASE}/leaderboards/${spec.trackId}/${sub}/${d.id}`);
+    console.log(`Leaderboard ${sub}: ${docs.length} deleted`);
+  }
+}
+
+/**
  * Gives official tracks an elevation profile (for "+130 m climb" and the profile chart). Only the
  * elevation and updatedAt fields change, so every app refreshes its copy and nothing else moves.
  */
@@ -393,6 +438,7 @@ async function main() {
   else if (command === 'pair') await pair(token, (spec ?? JSON.parse(args[0])) as PairSpec);
   else if (command === 'laps') await laps(token, args[0]);
   else if (command === 'elevation') await addElevation(token, args[0] === 'all');
+  else if (command === 'shorten') await shorten(token, (spec ?? JSON.parse(args[0])) as ShortenSpec);
   else throw new Error(`Unknown command "${command}".`);
 }
 
