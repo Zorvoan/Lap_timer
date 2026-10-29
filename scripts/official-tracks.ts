@@ -10,6 +10,7 @@
  *   pair <spec>        A hill climb and its downhill over the same exact distance; see {@link PairSpec}.
  *   elevation [all]    Adds an elevation profile to official tracks that have none (or to all).
  *   shorten <spec>     Ends an official sprint at a sector line its owner added; see {@link ShortenSpec}.
+ *   unhook <spec>      Cuts turn-around hooks out of an official road and publishes the laps they blocked; see {@link UnhookSpec}.
  *
  * The service account needs the "Cloud Datastore User" role. It bypasses the security rules,
  * so the output never prints more than the matched circuits' own summary.
@@ -18,7 +19,7 @@ import { readFileSync } from 'node:fs';
 import { TrackModel, bearingDeg, distanceMeters, lineAlong, type Circuit, type ElevationPoint, type LonLat } from '../packages/core/src/index';
 import { sprintPair, trimSprint, type SprintShape } from '../packages/core/src/trim';
 import { decodeCircuit, decodeSession, encodeCircuit, type CircuitDoc, type SessionDoc, type TraceChunkDoc } from '../apps/web/src/lib/cloud/codec';
-import { ineligibleReason, trackingGaps } from '../apps/web/src/lib/cloud/leaderboard';
+import { MAX_GAP_SPEED_RATIO, MAX_LEADERBOARD_SPEED_MS, entryFromLap, ineligibleReason, traceForPublishing, trackingGaps, type Profile } from '../apps/web/src/lib/cloud/leaderboard';
 import { accessToken } from './lib/google';
 
 const PROJECT = process.env.FIREBASE_PROJECT ?? 'laptimer-okwph';
@@ -406,6 +407,130 @@ async function shorten(token: string, spec: ShortenSpec) {
 }
 
 /**
+ * Cuts turn-around hooks out of an official road. The routing service sometimes drives past a
+ * point and turns round to reach it (a few dozen metres of road doubling back on itself), which
+ * nobody drives; every run then seems to skip that road faster than possible, and the leaderboard
+ * refuses it as a short cut. The start and finish lines stay where they are, so times stand.
+ * Then each driver's best lap that was refused only over a hook is published, when it beats the
+ * time they have on the leaderboard. Drivers are numbered, never named (this log is public).
+ */
+interface UnhookSpec {
+  trackId: string;
+}
+
+/** Stretches of the route [from, to] (along, m) that come back within 12 m after 25–150 m with a U-turn. */
+function findHooks(track: TrackModel): { from: number; to: number }[] {
+  const out: { from: number; to: number }[] = [];
+  for (let a = 0; a < track.length; a += 2) {
+    const p = track.pointAt(a);
+    for (let b = a + 25; b < Math.min(track.length, a + 150); b += 2) {
+      const q = track.pointAt(b);
+      if (Math.hypot(p.x - q.x, p.y - q.y) >= 12) continue;
+      let turn = 0;
+      for (let d = a; d < b; d += 4) {
+        const u = track.tangentAt(d);
+        const v = track.tangentAt(Math.min(b, d + 12));
+        turn = Math.max(turn, (Math.abs(Math.atan2(u.x * v.y - u.y * v.x, u.x * v.x + u.y * v.y)) * 180) / Math.PI);
+      }
+      if (turn < 150) continue;
+      // The furthest point the road comes back to, so the whole loop goes.
+      let end = b;
+      for (let c = b; c < Math.min(track.length, a + 150); c += 2) if (Math.hypot(p.x - track.pointAt(c).x, p.y - track.pointAt(c).y) < 12) end = c;
+      out.push({ from: a, to: end });
+      a = end;
+      break;
+    }
+  }
+  return out;
+}
+
+async function unhook(token: string, spec: UnhookSpec) {
+  const f = (await listDocs(token, 'featured')).find((x) => x.id === spec.trackId);
+  if (!f) throw new Error(`featured/${spec.trackId} not found`);
+  const old = decodeCircuit(f.data as unknown as CircuitDoc);
+  const track = TrackModel.fromCoordinates(old.geometry, false);
+  const start = lineAlong(track, old.startLine);
+  const finish = old.finishLine ? lineAlong(track, old.finishLine) : null;
+  if (start === null || finish === null) throw new Error('The start or finish line does not cross the road.');
+  const hooks = findHooks(track).filter((h) => h.from > start && h.to < finish);
+  console.log(`"${old.name}": ${hooks.length} hook(s)`);
+  for (const h of hooks) console.log(`  ${(h.from - start).toFixed(0)}–${(h.to - start).toFixed(0)} m after the start (${(h.to - h.from).toFixed(0)} m of road) at ${ll(track.latLonAt(h.from))}`);
+  if (!hooks.length) return;
+
+  const geometry: LonLat[] = [];
+  const at = (d: number): LonLat => {
+    const p = track.latLonAt(d);
+    return [p.lon, p.lat];
+  };
+  const cut = new Set<number>();
+  for (let i = 0; i < track.coords.length; i++) {
+    const d = track.cum[i];
+    const k = hooks.findIndex((x) => d > x.from && d < x.to);
+    if (k >= 0) {
+      // The loop's vertices go; the road runs straight from where it began to where it came back.
+      if (!cut.has(k)) geometry.push(at(hooks[k].from), at(hooks[k].to));
+      cut.add(k);
+      continue;
+    }
+    geometry.push(track.coords[i]);
+  }
+  const fixed: Circuit = { ...old, geometry, waypoints: [], updatedAt: Date.now() };
+  const t2 = TrackModel.fromCoordinates(geometry, false);
+  const s2 = lineAlong(t2, fixed.startLine);
+  const f2 = fixed.finishLine ? lineAlong(t2, fixed.finishLine) : null;
+  if (s2 === null || f2 === null) throw new Error('The lines no longer cross the road after the cut.');
+  fixed.lengthM = f2 - s2;
+  fixed.elevation = await elevationProfile(geometry);
+  const doc = { ...encodeCircuit(fixed), featuredOrder: Number(f.data.featuredOrder), featuredBy: f.data.featuredBy };
+  await api(token, 'PATCH', `${BASE}/featured/${spec.trackId}`, { fields: toFields(doc) });
+  console.log(`start→finish ${km(finish - start)} → ${km(fixed.lengthM)}`);
+  for (const l of describe(fixed)) console.log(l);
+
+  // Laps refused only over a hook. Their traces are in the old road's distances.
+  const oldLength = finish - start;
+  const ignore = hooks.map((h) => ({ from: h.from - start - 20, to: h.to - start + 20 }));
+  let driver = 0;
+  for (const u of await listDocs(token, 'users')) {
+    const drives = (await listDocs(token, `users/${u.id}/sessions`)).filter((d) => d.data.circuitId === spec.trackId);
+    if (!drives.length) continue;
+    driver++;
+    let best: { session: ReturnType<typeof decodeSession>; lap: ReturnType<typeof decodeSession>['laps'][number] } | null = null;
+    for (const d of drives) {
+      const chunks = (await listDocs(token, `users/${u.id}/sessions/${d.id}/traces`)).map((c) => c.data as unknown as TraceChunkDoc);
+      const s = decodeSession(d.data as unknown as SessionDoc, chunks);
+      if (s.source !== 'gps' || s.endedAt === null) continue;
+      for (const l of s.laps) {
+        const ok = l.valid && !l.flags.includes('simulated') && l.distanceM / (l.timeMs / 1000) <= MAX_LEADERBOARD_SPEED_MS && trackingGaps(l, ignore).worstRatio <= MAX_GAP_SPEED_RATIO;
+        if (ok && (!best || l.timeMs < best.lap.timeMs)) best = { session: s, lap: l };
+      }
+    }
+    if (!best) {
+      console.log(`driver ${driver}: no lap that counts`);
+      continue;
+    }
+    const entryDoc = (await listDocs(token, `leaderboards/${spec.trackId}/entries`)).find((e) => e.id === u.id);
+    const current = entryDoc ? Number(entryDoc.data.timeMs) : null;
+    const time = (ms: number) => `${Math.floor(ms / 60000)}:${((ms % 60000) / 1000).toFixed(3).padStart(6, '0')}`;
+    if (current !== null && current <= best.lap.timeMs) {
+      console.log(`driver ${driver}: best ${time(best.lap.timeMs)}, keeps ${time(current)} on the leaderboard`);
+      continue;
+    }
+    const profileDoc = await api(token, 'GET', `${BASE}/users/${u.id}`).catch(() => null);
+    const profile = profileDoc?.fields ? (fromFields(profileDoc.fields) as unknown as Profile) : null;
+    if (!profile?.nickname || !profile.car) {
+      console.log(`driver ${driver}: no profile, not published`);
+      continue;
+    }
+    const entry = entryFromLap(u.id, profile, best.session, best.lap, oldLength);
+    await api(token, 'PATCH', `${BASE}/leaderboards/${spec.trackId}/traces/${u.id}`, { fields: toFields({ ...traceForPublishing(best.lap, oldLength) }) });
+    await api(token, 'PATCH', `${BASE}/leaderboards/${spec.trackId}/entries/${u.id}`, {
+      fields: { ...toFields({ ...entry }), submittedAt: { timestampValue: new Date().toISOString() } },
+    });
+    console.log(`driver ${driver}: published ${time(best.lap.timeMs)}${current !== null ? ` (was ${time(current)})` : ''}`);
+  }
+}
+
+/**
  * Gives official tracks an elevation profile (for "+130 m climb" and the profile chart). Only the
  * elevation and updatedAt fields change, so every app refreshes its copy and nothing else moves.
  */
@@ -444,6 +569,7 @@ async function main() {
   else if (command === 'laps') await laps(token, args[0]);
   else if (command === 'elevation') await addElevation(token, args[0] === 'all');
   else if (command === 'shorten') await shorten(token, (spec ?? JSON.parse(args[0])) as ShortenSpec);
+  else if (command === 'unhook') await unhook(token, (spec ?? JSON.parse(args[0])) as UnhookSpec);
   else throw new Error(`Unknown command "${command}".`);
 }
 
