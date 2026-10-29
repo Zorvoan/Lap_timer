@@ -39,7 +39,6 @@ describe('leaderboard eligibility', () => {
       session('sim', 'simulated', [lap(1, 40_000)]),
       session('a', 'gps', [lap(1, 52_000), lap(2, 50_500)]),
       session('b', 'gps', [lap(1, 49_000, { valid: false })]),
-      session('c', 'gps', [shortCut(lap(1, 49_500, { flags: ['tracking_lost'] }))]),
       session('other', 'gps', [lap(1, 30_000)], 'c2'),
     ];
     const best = bestEligibleLap(sessions, 'c1');
@@ -47,7 +46,7 @@ describe('leaderboard eligibility', () => {
     expect(best?.lap.timeMs).toBe(50_500);
   });
 
-  it('accepts GPS dropouts crossed at road speed, but not a short cut', () => {
+  it('accepts laps where GPS lost the road, however fast the gap was crossed', () => {
     const s = session('a', 'gps', []);
     // 300 m with no matched position, crossed in 15 s at 20 m/s: a dropout in a forest.
     const dropout = lap(1, 50_000, { flags: ['tracking_lost', 'signal_gap'] });
@@ -55,10 +54,10 @@ describe('leaderboard eligibility', () => {
     expect(trackingGaps(dropout).count).toBe(1);
     expect(trackingGaps(dropout).gapM).toBeCloseTo(300, 0);
     expect(isEligible(s, dropout)).toBe(true);
-    const cut = shortCut(lap(1, 50_000, { flags: ['tracking_lost'] }));
-    expect(trackingGaps(cut).worstRatio).toBeGreaterThan(1.6);
-    expect(isEligible(s, cut)).toBe(false);
-    expect(ineligibleReason(s, cut)).toMatch(/skipped/);
+    // The same road skipped in 2 s: a GPS jump or a mapping mistake as often as a short cut.
+    const jump = shortCut(lap(1, 50_000, { flags: ['tracking_lost'] }));
+    expect(trackingGaps(jump).worstRatio).toBeGreaterThan(1.6);
+    expect(ineligibleReason(s, jump)).toBeNull();
   });
 
   it('leaves out laps driven before the track was shortened', () => {
