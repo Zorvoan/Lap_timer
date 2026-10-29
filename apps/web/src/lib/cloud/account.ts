@@ -409,7 +409,8 @@ async function submitBestLaps(uid: string): Promise<LeaderboardSubmission[]> {
   const cache = (await getKv<Record<string, number>>(cacheKey)) ?? {};
   const submitted: LeaderboardSubmission[] = [];
   for (const f of tracks) {
-    const best = bestEligibleLap(sessions, f.id);
+    const lengthM = lapLength(f);
+    const best = bestEligibleLap(sessions, f.id, lengthM);
     if (!best) continue;
     if (cache[f.id] !== undefined && best.lap.timeMs >= cache[f.id]) continue;
     const remote = await c.getEntry(f.id, uid);
@@ -419,7 +420,6 @@ async function submitBestLaps(uid: string): Promise<LeaderboardSubmission[]> {
       cache[f.id] = remote.timeMs;
       continue;
     }
-    const lengthM = lapLength(f);
     const entry = entryFromLap(uid, profile, best.session, best.lap, lengthM);
     const trace = traceForPublishing(best.lap, lengthM);
     try {

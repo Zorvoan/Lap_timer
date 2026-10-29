@@ -102,11 +102,17 @@ export function trackingGaps(lap: Pick<LapRecord, 'trace' | 'avgSpeedMs' | 'maxS
  */
 export const MAX_LEADERBOARD_SPEED_MS = 250 / 3.6;
 
-export function bestEligibleLap(sessions: readonly Session[], circuitId: string): { session: Session; lap: LapRecord } | null {
+/**
+ * The fastest lap that may go on a track's leaderboard. With `lengthM`, laps driven over a
+ * different distance are left out: a track shortened since keeps its old laps in the drivers'
+ * sessions, and those times don't compare with runs over the new distance.
+ */
+export function bestEligibleLap(sessions: readonly Session[], circuitId: string, lengthM?: number): { session: Session; lap: LapRecord } | null {
   let best: { session: Session; lap: LapRecord } | null = null;
+  const sameRoad = (l: LapRecord) => !lengthM || (l.distanceM / lengthM >= 0.85 && l.distanceM / lengthM <= 1.2);
   for (const s of sessions) {
     if (s.circuitId !== circuitId || s.endedAt === null) continue;
-    for (const l of s.laps) if (isEligible(s, l) && (!best || l.timeMs < best.lap.timeMs)) best = { session: s, lap: l };
+    for (const l of s.laps) if (isEligible(s, l) && sameRoad(l) && (!best || l.timeMs < best.lap.timeMs)) best = { session: s, lap: l };
   }
   return best;
 }

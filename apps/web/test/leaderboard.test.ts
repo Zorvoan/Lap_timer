@@ -61,6 +61,14 @@ describe('leaderboard eligibility', () => {
     expect(ineligibleReason(s, cut)).toMatch(/skipped/);
   });
 
+  it('leaves out laps driven before the track was shortened', () => {
+    // Laps of 1000 m; the track is now 400 m long.
+    const sessions = [session('old', 'gps', [lap(1, 50_000)]), session('new', 'gps', [lap(1, 25_000, { distanceM: 405 })])];
+    expect(bestEligibleLap(sessions, 'c1', 400)?.session.id).toBe('new');
+    expect(bestEligibleLap([sessions[0]], 'c1', 400)).toBeNull();
+    expect(bestEligibleLap([sessions[0]], 'c1', 1000)?.session.id).toBe('old');
+  });
+
   it('ignores sessions still being recorded', () => {
     expect(bestEligibleLap([{ ...session('live', 'gps', [lap(1, 45_000)]), endedAt: null }], 'c1')).toBeNull();
   });
