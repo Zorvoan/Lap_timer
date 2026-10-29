@@ -82,6 +82,8 @@ interface Scenario {
   badAccuracy?: number;
   /** Every position is where the car was this long before (receiver lag), s. */
   lagS?: number;
+  /** Reported accuracy, m (default twice the noise, at least 5). */
+  accuracy?: number;
 }
 
 const SCENARIOS: Scenario[] = [
@@ -102,6 +104,10 @@ const SCENARIOS: Scenario[] = [
   ...(['start', 'finish'] as const).flatMap((freezeAt) => [0, 14].map((offset) => ({ name: `GPS frozen 4 s at the ${freezeAt}, ${offset} m beside`, offset, noise: 4, freezeAt }))),
   ...[0, 14].map((offset) => ({ name: `inaccurate fixes (40 m) near both lines, ${offset} m beside`, offset, noise: 4, badAccuracy: 40 })),
   ...[1, 2].map((lagS) => ({ name: `positions ${lagS} s late`, noise: 4, lagS })),
+  // At the accuracy limit (20 m reported, wandering about 13 m either way).
+  { name: '20 m GPS accuracy', noise: 13, accuracy: 20 },
+  { name: '20 m GPS accuracy, 10 m beside', noise: 13, accuracy: 20, offset: 10 },
+  ...[0, 5].flatMap((standAt) => [1, 2, 3, 4].map((seed) => ({ name: `stands ${standAt} m before the start with 20 m GPS accuracy, seed ${seed}`, noise: 13, accuracy: 20, standAt, seed }))),
 ];
 
 /** Fixes for one run, and the true start time and lap time. */
@@ -130,7 +136,7 @@ function run(r: Road, s: Scenario): { fixes: GpsSample[]; startT: number | null;
   const t0 = 1_000_000;
   const push = (t: number, p: { x: number; y: number }, speed: number | null, exact = false) => {
     const ll = track.frame.toLatLon(exact ? p : { x: p.x + g() * noise, y: p.y + g() * noise });
-    fixes.push({ t, lat: ll.lat, lon: ll.lon, accuracy: Math.max(5, 2 * noise), speed, heading: null, altitude: null, altitudeAccuracy: null });
+    fixes.push({ t, lat: ll.lat, lon: ll.lon, accuracy: s.accuracy ?? Math.max(5, 2 * noise), speed, heading: null, altitude: null, altitudeAccuracy: null });
   };
   const dt = 1000 / hz;
   let t = t0;
