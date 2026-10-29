@@ -41,9 +41,12 @@ export async function runSync(store: CloudStore, uid: string): Promise<SyncRepor
 
   // ---- pull first: deletions and newer edits from other devices must win over stale local copies
   const changes = await store.changesSince(state.cursor);
+  // Deleted here but not yet in the cloud: a copy downloaded now would undo the delete.
+  const deletedHere = new Map((await listTombstones()).map((t) => [t.id, t.deletedAt]));
+  const deletedSince = (id: string, updatedAt: number) => (deletedHere.get(id) ?? -Infinity) >= updatedAt;
   for (const d of changes.circuits) {
     const local = await getCircuit(d.id);
-    if (local && local.updatedAt >= d.updatedAt) continue;
+    if ((local && local.updatedAt >= d.updatedAt) || deletedSince(d.id, d.updatedAt)) continue;
     try {
       await saveCircuit(decodeCircuit(d), { touch: false });
       report.downloaded++;
@@ -55,7 +58,7 @@ export async function runSync(store: CloudStore, uid: string): Promise<SyncRepor
   for (const { doc, chunks } of changes.sessions) {
     if (doc.id === activeId) continue;
     const local = await getSession(doc.id);
-    if (local && local.updatedAt >= doc.updatedAt) continue;
+    if ((local && local.updatedAt >= doc.updatedAt) || deletedSince(doc.id, doc.updatedAt)) continue;
     try {
       await saveSession(decodeSession(doc, chunks), { touch: false });
       report.downloaded++;
