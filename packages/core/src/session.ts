@@ -273,7 +273,7 @@ export class SessionEngine {
         events.push(ev);
         this.applyEvent(ev, prev, good);
       }
-      if (this.timer.phase === 'waiting') this.trackStart(prev, good, f.speedMs, events);
+      if (this.timer.phase === 'waiting') this.trackStart(prev, good, f.speedMs, raw, events);
       else {
         this.pendingStart = null;
         // The end of a lap passed beside the line, by distance along the road: counts at once.
@@ -343,7 +343,7 @@ export class SessionEngine {
    * and forth; the crossing that counts is the one the car drove away from. A crossing made while
    * driving is kept, so wander as the car drives through doesn't move the start later.
    */
-  private trackStart(prev: GoodPoint, cur: GoodPoint, speedMs: number | null, events: TimingEvent[]): void {
+  private trackStart(prev: GoodPoint, cur: GoodPoint, speedMs: number | null, raw: GpsSample, events: TimingEvent[]): void {
     const dt = cur.t - prev.t;
     const c = detectCrossing(prev.p, cur.p, this.startLine);
     const frac = c?.correctDirection ? c.fraction : this.passedAt(prev, cur, this.startAlong, this.startedLastStep ? 0 : START_BEHIND_M);
@@ -358,8 +358,11 @@ export class SessionEngine {
     // Beside the road beyond matching it, how far past the line the raw position is.
     const ahead = Math.sign(cross(sub(this.startLine.b, this.startLine.a), sub(cur.p, this.startLine.a))) === this.startLine.direction;
     const past = at !== null ? this.track.signedDelta(this.startAlong, at) : ahead ? distanceToLine(cur.p, this.startLine) : -distanceToLine(cur.p, this.startLine);
+    // The wider the GPS wanders, the further past the line a standing car can seem; and a receiver
+    // that says the car is standing still overrules the position.
+    const standing = raw.speed !== null && Number.isFinite(raw.speed) && raw.speed < START_MOVING_MS;
     if (past < -START_CONFIRM_M) this.pendingStart = null;
-    else if (past >= START_CONFIRM_M) {
+    else if (past >= Math.max(START_CONFIRM_M, 2 * raw.accuracy) && !standing) {
       this.pendingStart = null;
       for (const ev of this.timer.passLine('start', pend.t, pend.gapMs)) {
         events.push(ev);
