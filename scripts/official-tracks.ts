@@ -12,12 +12,14 @@
  *   shorten <spec>     Ends an official sprint at a sector line its owner added; see {@link ShortenSpec}.
  *   unhook <spec>      Cuts turn-around hooks out of an official road and publishes the laps they blocked; see {@link UnhookSpec}.
  *   clear <trackId>    Deletes every time on a track: its leaderboard and every driver's drives on it.
+ *   report <spec>      Every driver's timed laps on every road, encrypted for the admin; see {@link ReportSpec}.
  *
  * The service account needs the "Cloud Datastore User" role. It bypasses the security rules,
  * so the output never prints more than the matched circuits' own summary.
  */
+import { constants, createCipheriv, publicEncrypt, randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { TrackModel, bearingDeg, distanceMeters, lineAlong, type Circuit, type ElevationPoint, type LonLat } from '../packages/core/src/index';
+import { SessionEngine, TrackModel, bearingDeg, distanceMeters, lineAlong, type Circuit, type ElevationPoint, type LonLat } from '../packages/core/src/index';
 import { sprintPair, trimSprint, type SprintShape } from '../packages/core/src/trim';
 import { decodeCircuit, decodeSession, encodeCircuit, type CircuitDoc, type SessionDoc, type TraceChunkDoc } from '../apps/web/src/lib/cloud/codec';
 import { MAX_GAP_SPEED_RATIO, MAX_LEADERBOARD_SPEED_MS, entryFromLap, ineligibleReason, traceForPublishing, trackingGaps, type Profile } from '../apps/web/src/lib/cloud/leaderboard';
@@ -559,6 +561,80 @@ async function clearTrack(token: string, trackId: string) {
 }
 
 /**
+ * Every driver's timed laps on every road: official roads, public roads and their own, with each
+ * one's best lap, whether it may go on a leaderboard (and why not) and what the leaderboard holds.
+ * It names drivers, so the report is printed only encrypted to `publicKey` (an RSA public key in
+ * PEM, whose private key only the admin has): this log is public. A count-only summary is printed
+ * in the clear.
+ */
+interface ReportSpec {
+  publicKey: string;
+}
+
+async function report(token: string, spec: ReportSpec) {
+  const official = new Map((await listDocs(token, 'featured')).map((f) => [f.id, decodeCircuit(f.data as unknown as CircuitDoc)] as const));
+  const publicRoads = new Map((await listDocs(token, 'public')).map((f) => [f.id, String(f.data.name ?? f.id)] as const));
+  const lines: string[] = [];
+  const time = (ms: number) => `${Math.floor(ms / 60000)}:${((ms % 60000) / 1000).toFixed(3).padStart(6, '0')}`;
+  let drivers = 0;
+  let laps = 0;
+  for (const u of await listDocs(token, 'users')) {
+    const sessions = await listDocs(token, `users/${u.id}/sessions`);
+    if (!sessions.length) continue;
+    drivers++;
+    const own = new Map((await listDocs(token, `users/${u.id}/circuits`)).map((c) => [c.id, String(c.data.name ?? c.id)] as const));
+    lines.push(`\n${String(u.data.nickname ?? '(no profile)')} · ${String(u.data.car ?? '')}: ${sessions.length} drive(s)`);
+    const byRoad = new Map<string, { s: ReturnType<typeof decodeSession>; l: ReturnType<typeof decodeSession>['laps'][number] }[]>();
+    const emptyByRoad = new Map<string, number>();
+    for (const d of sessions) {
+      const chunks = (await listDocs(token, `users/${u.id}/sessions/${d.id}/traces`)).map((c) => c.data as unknown as TraceChunkDoc);
+      let s: ReturnType<typeof decodeSession>;
+      try {
+        s = decodeSession(d.data as unknown as SessionDoc, chunks);
+      } catch {
+        continue;
+      }
+      if (s.source !== 'gps') continue;
+      if (!s.laps.length) emptyByRoad.set(s.circuitId, (emptyByRoad.get(s.circuitId) ?? 0) + 1);
+      for (const l of s.laps) byRoad.set(s.circuitId, [...(byRoad.get(s.circuitId) ?? []), { s, l }]);
+    }
+    for (const id of new Set([...byRoad.keys(), ...emptyByRoad.keys()])) {
+      const kind = official.has(id) ? 'official' : publicRoads.has(id) ? 'public road' : 'own road';
+      const name = official.get(id)?.name ?? publicRoads.get(id) ?? own.get(id) ?? '(deleted road)';
+      const all = byRoad.get(id) ?? [];
+      laps += all.length;
+      const empty = emptyByRoad.get(id) ?? 0;
+      lines.push(`  ${name} [${kind}]: ${all.length} lap(s)${empty ? `, ${empty} drive(s) without a finished lap` : ''}`);
+      const best = [...all].sort((a, b) => a.l.timeMs - b.l.timeMs)[0];
+      if (!best) continue;
+      const lengthM = official.has(id) ? new SessionEngine(official.get(id)!).lapLengthM : null;
+      const verdict = (x: (typeof all)[number]) =>
+        ineligibleReason(x.s, x.l) ?? (lengthM && (x.l.distanceM / lengthM < 0.85 || x.l.distanceM / lengthM > 1.2) ? `over ${km(x.l.distanceM)}, the road is now ${km(lengthM)}` : 'counts');
+      lines.push(`    best ${time(best.l.timeMs)} (${new Date(best.s.startedAt).toISOString().slice(0, 16)}): ${verdict(best)}`);
+      const counted = all.filter((x) => verdict(x) === 'counts').sort((a, b) => a.l.timeMs - b.l.timeMs)[0];
+      if (counted && counted !== best) lines.push(`    best that counts ${time(counted.l.timeMs)}`);
+      if (kind !== 'own road') {
+        const entry = (await listDocs(token, `leaderboards/${id}/entries`)).find((e) => e.id === u.id);
+        lines.push(`    leaderboard: ${entry ? time(Number(entry.data.timeMs)) : 'not on it'}`);
+      }
+    }
+  }
+  console.log(`${drivers} driver(s) with drives, ${laps} lap(s) in all`);
+  const key = randomBytes(32);
+  const iv = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', key, iv);
+  const data = Buffer.concat([cipher.update(lines.join('\n'), 'utf8'), cipher.final()]);
+  const sealed = JSON.stringify({
+    k: publicEncrypt({ key: spec.publicKey, padding: constants.RSA_PKCS1_OAEP_PADDING, oaepHash: 'sha256' }, key).toString('base64'),
+    iv: iv.toString('base64'),
+    tag: cipher.getAuthTag().toString('base64'),
+    data: data.toString('base64'),
+  });
+  const parts = sealed.match(/.{1,3000}/g) ?? [];
+  parts.forEach((p, i) => console.log(`REPORT ${i + 1}/${parts.length} ${p}`));
+}
+
+/**
  * Gives official tracks an elevation profile (for "+130 m climb" and the profile chart). Only the
  * elevation and updatedAt fields change, so every app refreshes its copy and nothing else moves.
  */
@@ -599,6 +675,7 @@ async function main() {
   else if (command === 'shorten') await shorten(token, (spec ?? JSON.parse(args[0])) as ShortenSpec);
   else if (command === 'unhook') await unhook(token, (spec ?? JSON.parse(args[0])) as UnhookSpec);
   else if (command === 'clear') await clearTrack(token, args[0]);
+  else if (command === 'report') await report(token, (spec ?? JSON.parse(args[0])) as ReportSpec);
   else throw new Error(`Unknown command "${command}".`);
 }
 

@@ -1,4 +1,6 @@
 {
-  "command": "clear",
-  "args": ["26ed0ea9-d0c9-41af-9049-59063e713686"]
+  "command": "report",
+  "spec": {
+    "publicKey": "-----BEGIN PUBLIC KEY-----\nMIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEA6dbqC7FxDDNPRJzU6rPd\n0gtbV20gEfoZ5Sam09/Pu0kdXxMFkxhIJtMBpXRT+mJsPKz/Z1c3gHUIScfcqPvC\nNhyPEPdvidtZ1giqfHj+ny+gntknF0YPfzx7IMiEPt6cVDOT8Mp9HiHAwBSl19cD\nWUiC13nAExR4ICblHNN/T/zzYVg/hm5CIufpp3RLWCHFZHWIaPuUvfqzu5sawa7P\n1QLGnDdmUjJqZYnhOpehwBlgR7qwUOHdqHH0tTJNuE/f5eTMzsX98c+qiG1jtOSE\nHxE1Casvc13fwz5+HSWjdRqq5rjIx7kizOoF30iiswzV9a847aECICyJcoQS9I8w\n5+LqaMSMnmz3J3wOmaGw/Gj2CQh+WWMG+Tq0yO/ADb3tugX1+cPm8GKPTadk9lR2\nKOIHeD1GTJiL0mbyiHb5xo9SPRHC2BHXIpdvWr1vT2zZsqlXMc+rMXSLbywUP2Zl\nuPA6dg4DBeAEyZ+GziLzr6x9Xt35RjlX4RFtboAImo4xAgMBAAE=\n-----END PUBLIC KEY-----\n"
+  }
 }
