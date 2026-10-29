@@ -162,6 +162,17 @@ async function laps(token: string, trackId: string) {
         console.log(`    lap ${l.lap}: ${(l.timeMs / 1000).toFixed(3)} s, ${l.valid ? 'valid' : 'INVALID'}, ${km(l.distanceM)}, flags [${l.flags.join(', ')}]`);
         console.log(`      leaderboard: ${ineligibleReason(s, l) ?? 'counts'}`);
         console.log(`      ${l.trace.length} points, ${g.count} gap(s) > 40 m covering ${g.gapM.toFixed(0)} m, worst gap crossed at ${g.worstRatio.toFixed(2)}× the speed around it; avg ${(l.avgSpeedMs * 3.6).toFixed(0)} km/h, max ${speeds.length ? (Math.max(...speeds) * 3.6).toFixed(0) : '?'} km/h`);
+        // Where each gap is: road skipped against the straight line the car covered meanwhile.
+        for (let i = 1; i < l.trace.length; i++) {
+          const a = l.trace[i - 1];
+          const b = l.trace[i];
+          const dd = b.d - a.d;
+          const dt = (b.t - a.t) / 1000;
+          if (dd <= 40 || dt <= 0) continue;
+          const around = Math.max(a.v ?? 0, b.v ?? 0) || l.maxSpeedMs || l.avgSpeedMs;
+          const straight = Number.isFinite(a.lat) && Number.isFinite(b.lat) ? distanceMeters(a, b) : NaN;
+          console.log(`        gap ${a.d.toFixed(0)}–${b.d.toFixed(0)} m: ${dd.toFixed(0)} m of road in ${dt.toFixed(1)} s (${(dd / dt / Math.max(around, 5)).toFixed(2)}×), ${Number.isFinite(straight) ? `${straight.toFixed(0)} m in a straight line` : 'no positions'}`);
+        }
       }
     }
   }
