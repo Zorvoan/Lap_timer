@@ -79,7 +79,11 @@ const GAP_M = 40;
  * compared with the car's speed on either side of it. A short cut (leaving the road across a
  * hairpin) shows up as a gap crossed impossibly fast; a GPS dropout as one crossed at road speed.
  */
-export function trackingGaps(lap: Pick<LapRecord, 'trace' | 'avgSpeedMs' | 'maxSpeedMs'>): { gapM: number; count: number; worstRatio: number } {
+export function trackingGaps(
+  lap: Pick<LapRecord, 'trace' | 'avgSpeedMs' | 'maxSpeedMs'>,
+  /** Stretches of road (lap distance, m) nobody drives, such as a mapping mistake: gaps over them don't count. */
+  ignore: readonly { from: number; to: number }[] = [],
+): { gapM: number; count: number; worstRatio: number } {
   const tr = lap.trace;
   let gapM = 0;
   let count = 0;
@@ -88,6 +92,7 @@ export function trackingGaps(lap: Pick<LapRecord, 'trace' | 'avgSpeedMs' | 'maxS
     const dd = tr[i].d - tr[i - 1].d;
     const dt = (tr[i].t - tr[i - 1].t) / 1000;
     if (dd <= GAP_M || dt <= 0) continue;
+    if (ignore.some((r) => tr[i - 1].d < r.to && tr[i].d > r.from)) continue;
     gapM += dd;
     count++;
     const around = Math.max(tr[i - 1].v ?? 0, tr[i].v ?? 0) || lap.maxSpeedMs || lap.avgSpeedMs;
