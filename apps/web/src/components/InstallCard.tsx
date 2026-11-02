@@ -1,10 +1,12 @@
-import { useState, useSyncExternalStore } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { install, promptInstall } from '../lib/install';
 import { Button, Panel, Sheet } from './ui/primitives';
 import { IconDownload, IconX } from './ui/icons';
 
 const DISMISS_KEY = 'laptimer:installDismissed';
-const BANNER_KEY = 'laptimer:installBannerHidden';
+const SNOOZE_KEY = 'laptimer:installPromptAt';
+/** After "Not now", offer again a week later. */
+const OFFER_AGAIN_MS = 7 * 24 * 3600_000;
 
 function useInstall() {
   return useSyncExternalStore(install.subscribe, install.getState);
@@ -83,16 +85,9 @@ export function InstallCard({ dismissible = false }: { dismissible?: boolean }) 
   );
 }
 
-const remembered = (key: string) => {
+const remember = (key: string, value = '1') => {
   try {
-    return localStorage.getItem(key) === '1';
-  } catch {
-    return false;
-  }
-};
-const remember = (key: string) => {
-  try {
-    localStorage.setItem(key, '1');
+    localStorage.setItem(key, value);
   } catch {
     /* storage unavailable */
   }
@@ -136,32 +131,89 @@ export function InstallButton() {
   );
 }
 
-/** A slim strip offering the home screen app, until it is installed or hidden. */
-export function InstallBanner({ className = '' }: { className?: string }) {
-  const { installed, add, sheet } = useAddToHomeScreen();
-  const [hidden, setHidden] = useState(() => remembered(BANNER_KEY));
-  if (installed || hidden) return null;
+/** Whether the home screen offer was shown in this run, so other first-run prompts wait for the next one. */
+let offered = false;
+const offerListeners = new Set<() => void>();
+export function useInstallOffered(): boolean {
+  return useSyncExternalStore(
+    (l) => {
+      offerListeners.add(l);
+      return () => offerListeners.delete(l);
+    },
+    () => offered,
+  );
+}
+
+function snoozed(): boolean {
+  try {
+    return Date.now() - Number(localStorage.getItem(SNOOZE_KEY) ?? 0) < OFFER_AGAIN_MS;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * A moment after the app opens in a browser: "Add Lap Timer to your home screen?". Add installs it
+ * where the browser can (or shows the steps, on iPhone); Not now offers again a week later.
+ */
+export function InstallPrompt({ paused }: { paused: boolean }) {
+  const s = useInstall();
+  const [open, setOpen] = useState(false);
+  const [steps, setSteps] = useState(false);
+  const eligible = !s.installed && !snoozed() && !offered;
+
+  useEffect(() => {
+    if (!eligible || paused) return;
+    const t = setTimeout(() => {
+      offered = true;
+      for (const l of offerListeners) l();
+      setOpen(true);
+    }, 2000);
+    return () => clearTimeout(t);
+  }, [eligible, paused]);
+
+  function later() {
+    remember(SNOOZE_KEY, String(Date.now()));
+    setOpen(false);
+  }
+
+  async function add() {
+    if (!s.canPrompt) return setSteps(true);
+    const accepted = await promptInstall();
+    if (!accepted) remember(SNOOZE_KEY, String(Date.now()));
+    setOpen(false);
+  }
+
   return (
-    <div className={`flex items-center gap-3 rounded-lg border border-line bg-raised py-2 pl-3.5 pr-2 ${className}`}>
-      <IconDownload width={16} height={16} className="shrink-0 text-accent" />
-      <div className="min-w-0 flex-1 text-sm">
-        <span className="font-semibold">Get the app</span> <span className="hidden text-muted min-[440px]:inline">full screen, works offline</span>
+    <Sheet open={open && !s.installed} onClose={later} labelledBy="install-offer-title" center>
+      <div className="flex items-start gap-3">
+        <img src="/pwa-192x192.png" alt="" className="h-12 w-12 shrink-0 rounded-xl" />
+        <div className="min-w-0">
+          <h2 id="install-offer-title" className="font-display text-xl font-black leading-tight">
+            Add Lap Timer to your home screen?
+          </h2>
+          <p className="mt-1 text-sm text-muted">It opens full screen like a normal app, starts faster and works without signal.</p>
+        </div>
       </div>
-      <Button size="sm" variant="primary" onClick={add}>
-        Add to home screen
-      </Button>
-      <button
-        type="button"
-        aria-label="Hide"
-        className="press flex h-8 w-8 shrink-0 items-center justify-center text-muted"
-        onClick={() => {
-          remember(BANNER_KEY);
-          setHidden(true);
-        }}
-      >
-        <IconX width={16} height={16} />
-      </button>
-      {sheet}
-    </div>
+      {steps ? (
+        <>
+          <div className="mt-4">
+            <Steps platform={s.platform} />
+          </div>
+          <Button size="lg" className="mt-4 w-full" onClick={() => setOpen(false)}>
+            Got it
+          </Button>
+        </>
+      ) : (
+        <div className="mt-4 grid grid-cols-2 gap-3">
+          <Button size="lg" onClick={later}>
+            Not now
+          </Button>
+          <Button size="lg" variant="primary" onClick={() => void add()}>
+            <IconDownload width={18} height={18} /> Add
+          </Button>
+        </div>
+      )}
+    </Sheet>
   );
 }

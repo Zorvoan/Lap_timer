@@ -7,6 +7,7 @@ import { getActiveSession } from '../lib/repo';
 import { applyUpdateIfReady } from '../lib/update';
 import { buttonClass } from './ui/primitives';
 import { NotifyPrompt } from './NotifyPrompt';
+import { InstallPrompt, useInstallOffered } from './InstallCard';
 import { Onboarding, useTourOpen } from './Onboarding';
 import { IconArrowLeft, IconMap, IconTimer, IconTrophy, IconUser, IconX } from './ui/icons';
 
@@ -90,6 +91,8 @@ export function AppShell() {
   }, [loc.pathname]);
   const needsAccount = useNeedsAccount();
   const touring = useTourOpen();
+  // One first-run question at a time: the notification offer waits for the next start.
+  const installOffered = useInstallOffered();
 
   // Everyone signs in before using the app; a run already being timed is never interrupted.
   if (needsAccount && !sessionActive) {
@@ -137,7 +140,8 @@ export function AppShell() {
       {!immersive && <LeaderboardToast />}
       {/* Not while driving or about to: the Drive screens stay uninterrupted. The tour comes first. */}
       <Onboarding paused={sessionActive || loc.pathname.startsWith('/live') || loc.pathname.startsWith('/result')} />
-      <NotifyPrompt paused={sessionActive || loc.pathname.startsWith('/live') || touring} />
+      <InstallPrompt paused={sessionActive || loc.pathname.startsWith('/live') || touring} />
+      <NotifyPrompt paused={sessionActive || loc.pathname.startsWith('/live') || touring || installOffered} />
 
       {!immersive && (
         <nav aria-label="Main" data-tour-bar className="grid shrink-0 grid-cols-3 border-t border-line bg-panel pb-[env(safe-area-inset-bottom)] md:hidden">
