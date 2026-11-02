@@ -4,6 +4,7 @@ import { useAccount } from '../hooks/useData';
 import { logout } from '../lib/cloud/account';
 import { ProfileForm, SignInForm } from './Account';
 import { LegalLinks } from './Legal';
+import { InstallButton } from '../components/InstallCard';
 
 /**
  * The first screen for anyone not signed in: what the app is, then sign in or create an account.
@@ -71,6 +72,9 @@ export function Welcome() {
             )}
             <Step i={3} className="mt-8">
               <SignInForm />
+            </Step>
+            <Step i={4} className="mt-6">
+              <InstallButton />
             </Step>
           </>
         )}
