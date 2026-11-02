@@ -8,6 +8,7 @@ import { TrackLines, boundsOf, type TrackKind } from '../components/map/TrackLin
 import { RouteShape } from '../components/map/RouteShape';
 import { LocateControl } from '../components/map/MapControls';
 import { ProfileNotice, loadBoard } from '../components/track/LeaderboardTab';
+import { InstallBanner } from '../components/InstallCard';
 import { LinkButton, Notice, Segmented, Sheet, Spinner } from '../components/ui/primitives';
 import { IconChevronRight, IconPin, IconPlay, IconPlus, IconRecord, IconShare } from '../components/ui/icons';
 import { useAccount, useData } from '../hooks/useData';
@@ -148,6 +149,7 @@ export function Tracks() {
             <ViewSwitch view={view} onChange={(v) => setParams({ ...(v === 'map' ? { view: 'map' } : {}), ...(group !== 'official' ? { group } : {}) }, { replace: true })} />
           </header>
 
+          <InstallBanner className="mx-4 mb-3" />
           {near && (
             <div className="mx-4 mb-3 flex items-center gap-3 rounded-lg border border-line bg-raised py-2 pl-3.5 pr-2">
               <IconPin width={16} height={16} className="shrink-0 text-[#ff8a84]" />
